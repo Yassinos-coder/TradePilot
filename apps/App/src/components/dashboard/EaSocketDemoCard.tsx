@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Terminal, Wifi, WifiOff } from 'lucide-react';
 
 import { clientEnv } from '../../lib/api';
@@ -56,7 +56,10 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
     [],
   );
 
-  const append = (message: string) => {
+  const socketRef = useRef<WebSocket | null>(null);
+  socketRef.current = socket;
+
+  const append = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
@@ -64,9 +67,9 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
     });
 
     setLog((previous) => [`${timestamp}  ${message}`, ...previous].slice(0, 10));
-  };
+  }, []);
 
-  const handleMessage = useEffectEvent((event: MessageEvent<string>) => {
+  const handleMessage = useCallback((event: MessageEvent<string>) => {
     let payload: SocketMessage;
 
     try {
@@ -75,6 +78,8 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
       append('<- non-JSON payload');
       return;
     }
+
+    const current = socketRef.current;
 
     switch (payload.type) {
       case 'auth_success':
@@ -87,8 +92,8 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
         break;
       case 'ping':
         append('<- ping');
-        if (socket?.readyState === WebSocket.OPEN) {
-          socket.send(
+        if (current?.readyState === WebSocket.OPEN) {
+          current.send(
             JSON.stringify({
               type: 'pong',
               timestamp: payload.timestamp ?? Date.now(),
@@ -107,7 +112,7 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
         append(`<-- ${payload.type}`);
         break;
     }
-  });
+  }, [append]);
 
   useEffect(() => {
     if (!socket) {
@@ -130,7 +135,7 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
       socket.onclose = null;
       socket.onerror = null;
     };
-  }, [socket, handleMessage]);
+  }, [socket, handleMessage, append]);
 
   useEffect(() => {
     if (!socket || status !== 'connected') {
