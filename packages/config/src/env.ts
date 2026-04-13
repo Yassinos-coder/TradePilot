@@ -32,8 +32,8 @@ export const serverEnvSchema = rawServerEnvSchema.transform((environment) => ({
 }));
 
 export const clientEnvSchema = z.object({
-  VITE_API_BASE_URL: z.string().default('http://localhost:4000/api'),
-  VITE_WS_BASE_URL: z.string().default('ws://localhost:4000'),
+  VITE_API_BASE_URL: z.string().default('/api'),
+  VITE_WS_BASE_URL: z.string().default('auto'),
   VITE_SUPABASE_URL: z.string().url(),
   VITE_SUPABASE_ANON_KEY: z.string().min(1),
   VITE_MAGIC_LINK_REDIRECT_PATH: z.string().default('/auth/callback'),

@@ -13,8 +13,8 @@ RUN npm ci
 
 COPY . .
 
-ARG VITE_API_BASE_URL=http://localhost:4000/api
-ARG VITE_WS_BASE_URL=ws://localhost:4000
+ARG VITE_API_BASE_URL=/api
+ARG VITE_WS_BASE_URL=auto
 ARG VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 ARG VITE_SUPABASE_ANON_KEY=replace-with-your-supabase-anon-key
 ARG VITE_MAGIC_LINK_REDIRECT_PATH=/auth/callback

@@ -9,4 +9,3 @@ build
 coverage
 apps/server/prisma/migrations
 *.log
-package-lock.json

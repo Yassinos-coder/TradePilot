@@ -29,13 +29,30 @@ const STATE_TONE: Record<
   idle: 'neutral',
 };
 
+function resolveWebSocketOrigin(rawValue: string) {
+  if (!rawValue || rawValue === 'auto') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}`;
+  }
+
+  if (rawValue.startsWith('http://')) {
+    return rawValue.replace(/^http:\/\//, 'ws://');
+  }
+
+  if (rawValue.startsWith('https://')) {
+    return rawValue.replace(/^https:\/\//, 'wss://');
+  }
+
+  return rawValue;
+}
+
 export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnectionState>('idle');
   const [log, setLog] = useState<string[]>([]);
 
   const wsUrl = useMemo(
-    () => `${clientEnv.VITE_WS_BASE_URL.replace(/\/$/, '')}/ws/ea`,
+    () => `${resolveWebSocketOrigin(clientEnv.VITE_WS_BASE_URL).replace(/\/$/, '')}/ws/ea`,
     [],
   );
 

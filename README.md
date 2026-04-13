@@ -21,6 +21,22 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 7. Start local containers with `docker compose up --build -d`
 8. Re-run the schema SQL after pulling updates that add new execution columns or status codes
 
+## EC2 deployment with Nginx Proxy Manager
+
+Use `docker-compose.prod.yml` when deploying behind Nginx Proxy Manager on `tradepilot.yassinecastro.com`.
+
+1. Copy `.env.production.example` to `.env` on the server
+2. Fill in your real Supabase values
+3. Keep `VITE_API_BASE_URL=/api` and `VITE_WS_BASE_URL=auto`
+4. Set `CORS_ORIGIN` and `ALLOWED_ORIGINS` to `https://tradepilot.yassinecastro.com`
+5. Start with `docker-compose -f docker-compose.prod.yml up --build -d`
+
+Recommended Nginx Proxy Manager target:
+
+- Forward `tradepilot.yassinecastro.com` to the app container on port `8080`
+- The app container proxies `/api`, `/ws/ea`, and `/admin/queues` to the backend internally
+- Supabase Auth redirect URLs must include `https://tradepilot.yassinecastro.com/auth/callback`
+
 ## Docker runtime
 
 - `api`: NestJS backend container on `http://localhost:4000`

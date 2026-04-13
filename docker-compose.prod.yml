@@ -6,8 +6,6 @@ services:
     container_name: tradepilot-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
 
@@ -20,13 +18,14 @@ services:
     env_file:
       - .env
     environment:
+      NODE_ENV: production
       PORT: 4000
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
     depends_on:
       - redis
-    ports:
-      - "${API_PORT:-4000}:4000"
+    expose:
+      - "4000"
 
   app:
     build:
@@ -35,8 +34,8 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-auto}
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-https://your-project-ref.supabase.co}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-replace-with-your-supabase-anon-key}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_MAGIC_LINK_REDIRECT_PATH: ${VITE_MAGIC_LINK_REDIRECT_PATH:-/auth/callback}
     container_name: tradepilot-app
     restart: unless-stopped
