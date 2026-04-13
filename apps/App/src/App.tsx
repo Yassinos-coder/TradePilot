@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import axios from 'axios';
 import { useQuery } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -15,6 +16,7 @@ import { TelegramPage } from './pages/TelegramPage';
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isLoading = useAuthStore((state) => state.isLoading);
+  const session = useAuthStore((state) => state.session);
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
   const logout = useAuthStore((state) => state.logout);
@@ -22,7 +24,7 @@ function ProtectedLayout() {
   const profileQuery = useQuery({
     queryKey: ['profile'],
     queryFn: apiClient.profile,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && Boolean(session?.access_token),
     retry: false,
   });
 
@@ -33,10 +35,10 @@ function ProtectedLayout() {
   }, [profileQuery.data, updateUser]);
 
   useEffect(() => {
-    if (profileQuery.isError) {
+    if (axios.isAxiosError(profileQuery.error) && profileQuery.error.response?.status === 401) {
       void logout();
     }
-  }, [profileQuery.isError, logout]);
+  }, [profileQuery.error, logout]);
 
   if (isLoading) {
     return (

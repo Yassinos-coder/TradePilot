@@ -16,9 +16,6 @@ export const DEFAULT_ACTIVE_SIGNAL_WINDOW_MS = 15 * 60_000;
 export const DEFAULT_EA_PRESENCE_TTL_MS = 45_000;
 export const DEFAULT_EA_SERVER_PING_INTERVAL_MS = 10_000;
 export const DEFAULT_EA_DISPATCH_ACK_TIMEOUT_MS = 2_000;
-export const DEFAULT_TELEGRAM_CHANNELS = [
-  { externalId: 'gold-room', name: 'Gold Room' },
-  { externalId: 'london-open', name: 'London Open' },
-  { externalId: 'macro-flow', name: 'Macro Flow' },
-];
+export const TELEGRAM_DIALOG_SYNC_LIMIT = 200;
+export const TELEGRAM_CLIENT_CONNECTION_RETRIES = 5;
 export const DASHBOARD_RESULT_LIMIT = 10;

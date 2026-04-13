@@ -122,11 +122,39 @@ create table if not exists tradepilot.execution_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists tradepilot.telegram_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null unique references tradepilot.users(id) on delete cascade,
+  phone_number text not null,
+  session_ciphertext text,
+  status text not null default 'DISCONNECTED' check (
+    status in (
+      'DISCONNECTED',
+      'PENDING_CODE',
+      'PENDING_PASSWORD',
+      'CONNECTED',
+      'ERROR'
+    )
+  ),
+  phone_code_hash text,
+  telegram_user_id text,
+  username text,
+  display_name text,
+  last_error text,
+  last_connected_at timestamptz,
+  last_synced_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists tradepilot.telegram_channels (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references tradepilot.users(id) on delete cascade,
+  telegram_connection_id uuid references tradepilot.telegram_connections(id) on delete cascade,
   external_id text not null,
   name text not null,
+  username text,
+  kind text not null default 'CHANNEL' check (kind in ('CHANNEL', 'GROUP')),
   enabled boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -179,12 +207,47 @@ where attempt is null;
 alter table tradepilot.execution_logs
   alter column attempt set not null;
 
+alter table tradepilot.telegram_channels
+  add column if not exists telegram_connection_id uuid references tradepilot.telegram_connections(id) on delete cascade;
+
+alter table tradepilot.telegram_channels
+  add column if not exists username text;
+
+alter table tradepilot.telegram_channels
+  add column if not exists kind text default 'CHANNEL';
+
+update tradepilot.telegram_channels
+set kind = 'CHANNEL'
+where kind is null;
+
+alter table tradepilot.telegram_channels
+  alter column kind set not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'telegram_channels_kind_check'
+      and conrelid = 'tradepilot.telegram_channels'::regclass
+  ) then
+    alter table tradepilot.telegram_channels drop constraint telegram_channels_kind_check;
+  end if;
+
+  alter table tradepilot.telegram_channels
+    add constraint telegram_channels_kind_check check (kind in ('CHANNEL', 'GROUP'));
+exception
+  when duplicate_object then null;
+end $$;
+
 create index if not exists idx_accounts_user_id on tradepilot.accounts(user_id);
 create index if not exists idx_signals_user_created_at on tradepilot.signals(user_id, created_at desc);
 create index if not exists idx_signals_user_hash_created_at on tradepilot.signals(user_id, raw_message_hash, created_at desc);
 create index if not exists idx_execution_logs_user_created_at on tradepilot.execution_logs(user_id, created_at desc);
 create index if not exists idx_execution_logs_execution_key on tradepilot.execution_logs(execution_key);
+create index if not exists idx_telegram_connections_user_id on tradepilot.telegram_connections(user_id);
 create index if not exists idx_telegram_channels_user_id on tradepilot.telegram_channels(user_id);
+create index if not exists idx_telegram_channels_connection_id on tradepilot.telegram_channels(telegram_connection_id);
 create unique index if not exists idx_execution_logs_dispatched_execution_key
   on tradepilot.execution_logs(execution_key)
   where status = 'DISPATCHED' and execution_key is not null;
@@ -312,6 +375,11 @@ create trigger trg_settings_updated_at
 before update on tradepilot.settings
 for each row execute function tradepilot.set_updated_at();
 
+drop trigger if exists trg_telegram_connections_updated_at on tradepilot.telegram_connections;
+create trigger trg_telegram_connections_updated_at
+before update on tradepilot.telegram_connections
+for each row execute function tradepilot.set_updated_at();
+
 drop trigger if exists trg_telegram_channels_updated_at on tradepilot.telegram_channels;
 create trigger trg_telegram_channels_updated_at
 before update on tradepilot.telegram_channels
@@ -350,6 +418,7 @@ alter table tradepilot.accounts enable row level security;
 alter table tradepilot.settings enable row level security;
 alter table tradepilot.signals enable row level security;
 alter table tradepilot.execution_logs enable row level security;
+alter table tradepilot.telegram_connections enable row level security;
 alter table tradepilot.telegram_channels enable row level security;
 
 drop policy if exists service_role_users on tradepilot.users;
@@ -387,6 +456,14 @@ with check (true);
 drop policy if exists service_role_execution_logs on tradepilot.execution_logs;
 create policy service_role_execution_logs
 on tradepilot.execution_logs
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists service_role_telegram_connections on tradepilot.telegram_connections;
+create policy service_role_telegram_connections
+on tradepilot.telegram_connections
 for all
 to service_role
 using (true)
@@ -655,6 +732,65 @@ with check (
 drop policy if exists execution_logs_delete_own on tradepilot.execution_logs;
 create policy execution_logs_delete_own
 on tradepilot.execution_logs
+for delete
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists telegram_connections_select_own on tradepilot.telegram_connections;
+create policy telegram_connections_select_own
+on tradepilot.telegram_connections
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists telegram_connections_insert_own on tradepilot.telegram_connections;
+create policy telegram_connections_insert_own
+on tradepilot.telegram_connections
+for insert
+to authenticated
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists telegram_connections_update_own on tradepilot.telegram_connections;
+create policy telegram_connections_update_own
+on tradepilot.telegram_connections
+for update
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+)
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists telegram_connections_delete_own on tradepilot.telegram_connections;
+create policy telegram_connections_delete_own
+on tradepilot.telegram_connections
 for delete
 to authenticated
 using (

@@ -118,7 +118,7 @@ export function regexParseSignal(rawMessage: string, sourceChannel?: string): Si
   }
 }
 
-async function mockStructuredAiResponse(
+async function requestStructuredAiParse(
   rawMessage: string,
   sourceChannel?: string,
 ): Promise<string> {
@@ -131,11 +131,11 @@ async function mockStructuredAiResponse(
   return JSON.stringify(parsedSignal);
 }
 
-export async function mockAiFallbackParseSignal(
+export async function aiFallbackParseSignal(
   rawMessage: string,
   sourceChannel?: string,
 ): Promise<SignalDTO> {
-  const rawJson = await mockStructuredAiResponse(rawMessage, sourceChannel);
+  const rawJson = await requestStructuredAiParse(rawMessage, sourceChannel);
   const parsedPayload = JSON.parse(rawJson) as unknown;
 
   return signalDtoSchema.parse(parsedPayload);
@@ -151,5 +151,5 @@ export async function hybridParseSignal(
     return regexResult;
   }
 
-  return mockAiFallbackParseSignal(rawMessage, sourceChannel);
+  return aiFallbackParseSignal(rawMessage, sourceChannel);
 }

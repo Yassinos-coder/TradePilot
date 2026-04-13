@@ -45,15 +45,67 @@ export const createAccountSchema = z.object({
   broker: z.string().min(1).max(50),
 });
 
+export const telegramConnectionStatusSchema = z.enum([
+  'DISCONNECTED',
+  'PENDING_CODE',
+  'PENDING_PASSWORD',
+  'CONNECTED',
+  'ERROR',
+]);
+
+export const telegramChannelKindSchema = z.enum(['CHANNEL', 'GROUP']);
+
+export const telegramConnectionSchema = z.object({
+  status: telegramConnectionStatusSchema,
+  phoneNumber: z.string().nullable(),
+  displayName: z.string().nullable(),
+  username: z.string().nullable(),
+  telegramUserId: z.string().nullable(),
+  lastConnectedAt: z.string().nullable(),
+  lastSyncedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
+
 export const telegramChannelSchema = z.object({
   id: z.string().min(1),
+  externalId: z.string().min(1),
   name: z.string().min(1),
+  username: z.string().nullable().optional(),
+  kind: telegramChannelKindSchema,
   enabled: z.boolean(),
 });
 
-export const simulateTelegramSignalSchema = z.object({
-  channelId: z.string().min(1),
-  rawMessage: z.string().min(10),
+export const telegramConnectStartSchema = z.object({
+  phoneNumber: z
+    .string()
+    .min(7)
+    .max(32)
+    .regex(/^\+?[0-9()\-.\s]+$/, 'Use an international phone number format'),
+});
+
+export const telegramConnectCodeSchema = z.object({
+  phoneCode: z
+    .string()
+    .min(3)
+    .max(12)
+    .regex(/^[0-9]+$/, 'Code must contain only numbers'),
+});
+
+export const telegramConnectPasswordSchema = z.object({
+  password: z.string().min(1),
+});
+
+export const telegramCodeDeliverySchema = z.enum(['APP', 'SMS']);
+
+export const telegramConnectStartResultSchema = z.object({
+  connection: telegramConnectionSchema,
+  codeDelivery: telegramCodeDeliverySchema,
+});
+
+export const telegramChannelSyncResultSchema = z.object({
+  connection: telegramConnectionSchema,
+  channels: z.array(telegramChannelSchema),
+  syncedCount: z.number().int().nonnegative(),
 });
 
 export const signalStatusSchema = z.enum([
@@ -165,8 +217,16 @@ export type SettingsDTO = z.infer<typeof settingsDtoSchema>;
 export type ExecutionMode = z.infer<typeof executionModeSchema>;
 export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
+export type TelegramConnectionStatus = z.infer<typeof telegramConnectionStatusSchema>;
+export type TelegramChannelKind = z.infer<typeof telegramChannelKindSchema>;
+export type TelegramConnectionDTO = z.infer<typeof telegramConnectionSchema>;
 export type TelegramChannelDTO = z.infer<typeof telegramChannelSchema>;
-export type SimulateTelegramSignalInput = z.infer<typeof simulateTelegramSignalSchema>;
+export type TelegramConnectStartInput = z.infer<typeof telegramConnectStartSchema>;
+export type TelegramConnectCodeInput = z.infer<typeof telegramConnectCodeSchema>;
+export type TelegramConnectPasswordInput = z.infer<typeof telegramConnectPasswordSchema>;
+export type TelegramCodeDelivery = z.infer<typeof telegramCodeDeliverySchema>;
+export type TelegramConnectStartResult = z.infer<typeof telegramConnectStartResultSchema>;
+export type TelegramChannelSyncResult = z.infer<typeof telegramChannelSyncResultSchema>;
 export type SignalStatus = z.infer<typeof signalStatusSchema>;
 export type SignalRecordDTO = z.infer<typeof signalRecordSchema>;
 export type ExecutionStatus = z.infer<typeof executionStatusSchema>;

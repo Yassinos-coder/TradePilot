@@ -11,17 +11,17 @@ The monorepo scaffold is ~90% complete. This plan documents the full architectur
 ## Architecture Overview
 
 ```
-Telegram (mock)
+Telegram (live)
     │
     ▼
-POST /api/signals/simulate   (trigger)
+POST /api/signals/ingest   (trigger)
     │
     ▼
 SignalsService.ingest()       ← saves to DB with PENDING status
     │                         ← pushes job to BullMQ (SIGNAL_INGESTION_QUEUE)
     ▼
 SignalsProcessor.process()    ← BullMQ consumer
-    │  mockAiParseSignal()     ← @tradepilot/trading
+    │  aiFallbackParseSignal() ← @tradepilot/trading
     │  validateSignalBusiness() ← @tradepilot/trading
     │  status → VALIDATED
     ▼
@@ -51,7 +51,7 @@ MetaTrader EA (WebSocket client)
 │   │   │   ├── accounts/       trading accounts CRUD
 │   │   │   ├── settings/       risk controls CRUD
 │   │   │   ├── signals/        ingestion + BullMQ processor
-│   │   │   ├── telegram/       mock channels + simulate
+│   │   │   ├── telegram/       live account auth + channel sync
 │   │   │   ├── execution/      dispatch + retry + logs
 │   │   │   ├── ea/             WebSocket gateway
 │   │   │   ├── dashboard/      aggregated overview
@@ -84,7 +84,7 @@ MetaTrader EA (WebSocket client)
 │   │       └── constants.ts    queue name, WS path, default symbols/sessions
 │   └── trading/                Signal parsing + business rule validation
 │       └── src/
-│           ├── parser.ts       mockAiParseSignal() → SignalDTO
+│           ├── parser.ts       aiFallbackParseSignal() → SignalDTO
 │           └── validation.ts   validateSignalBusinessRules() → EaSignalPayload
 │
 ├── supabase/
@@ -151,20 +151,20 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
   - `ingest(userId, rawMessage)` — inserts PENDING record, enqueues BullMQ job
   - `listRecent(userId)` — returns last N signals ordered by `created_at DESC`
 - **Processor:** `SignalsProcessor` (BullMQ consumer)
-  1. Calls `mockAiParseSignal(rawMessage)` from `@tradepilot/trading`
+  1. Calls `hybridParseSignal(rawMessage)` from `@tradepilot/trading`
   2. Calls `validateSignalBusinessRules(parsedSignal)` for BUY/SELL logic
   3. Updates signal status to VALIDATED
   4. Calls `ExecutionService.dispatch(userId, signalId, eaPayload)`
   5. On failure: updates status to FAILED, logs error
-- **Controller:** `GET /api/signals`, `POST /api/signals/simulate`
+- **Controller:** `GET /api/signals`, `POST /api/signals/ingest`
 
 ### Telegram Module
 - **File:** `apps/Server/src/telegram/`
 - **Service:**
   - `getChannels(userId)` — returns list from `telegram_channels` (seeded from constants)
   - `toggleChannel(userId, channelId, enabled)` — update enabled flag
-  - `simulateSignal(userId, channelId, rawMessage)` — calls `SignalsService.ingest()`
-- **Controller:** `GET /api/telegram/channels`, `PATCH /api/telegram/channels/:id/toggle`, `POST /api/telegram/simulate`
+  - `syncChannels(userId)` — pulls real Telegram dialogs and stores selectable channel records
+- **Controller:** `GET /api/telegram/channels`, `POST /api/telegram/channels/:id/toggle`, `POST /api/telegram/channels/sync`
 
 ### EA Gateway Module
 - **File:** `apps/Server/src/ea/`
@@ -284,7 +284,7 @@ Motion-animated main content area.
 ### TelegramPage
 - Mock channel list from `GET /api/telegram/channels`
 - Toggle per channel (`PATCH /api/telegram/channels/:id/toggle`)
-- Simulate signal form: text area + "Send" → `POST /api/telegram/simulate`
+- Telegram account flow: connect phone, verify code/password, sync channels, toggle listening
 
 ### AccountsPage
 - List accounts from `GET /api/accounts`
@@ -309,7 +309,7 @@ SELL: stop_loss > entry_price > take_profits[all]
 entry = "MARKET" → skip entry comparison, use 0 sentinel
 ```
 
-Parser (`mockAiParseSignal`) detects:
+Parser (`hybridParseSignal`) detects:
 - Symbol via keywords (XAUUSD, EURUSD, GBPUSD, BTCUSD, NAS100, US30) or regex `([A-Z]{6}|[A-Z]{2,4}[0-9]{2,3})`
 - Side: BUY/SELL keyword
 - Entry: `@<number>` or `ENTRY: <number>` or "MARKET"
@@ -388,21 +388,21 @@ npm run dev
 
 ### Critical (blocking functionality)
 1. **`apps/Server/src/users/users.controller.ts`** — `POST /api/users/rotate-api-key` endpoint
-2. **`apps/Server/src/signals/signals.controller.ts`** — `GET /api/signals` + `POST /api/signals/simulate`
+2. **`apps/Server/src/signals/signals.controller.ts`** — `GET /api/signals` + `POST /api/signals/ingest`
 3. **`apps/Server/src/execution/execution.controller.ts`** — `GET /api/execution/logs`
 4. **`apps/Server/src/dashboard/dashboard.controller.ts`** — `GET /api/dashboard/overview`
-5. **`apps/Server/src/telegram/telegram.controller.ts`** — channels + toggle + simulate endpoints
+5. **`apps/Server/src/telegram/telegram.controller.ts`** — connect + verify + sync + channel toggle endpoints
 6. **`apps/Server/src/accounts/accounts.controller.ts`** — CRUD endpoints
 7. **`apps/Server/src/settings/settings.controller.ts`** — GET/PUT endpoints
 8. **`apps/App/src/pages/AuthPage.tsx`** — magic link form
-9. **`apps/App/src/pages/TelegramPage.tsx`** — channel list + toggle + simulate
+9. **`apps/App/src/pages/TelegramPage.tsx`** — Telegram account connect flow + live channel routing
 10. **`apps/App/src/pages/AccountsPage.tsx`** — accounts CRUD UI
 11. **`apps/App/src/components/dashboard/EaSocketDemoCard.tsx`** — live WS demo
 
 ### Nice-to-have (production hardening)
 12. Per-package `tsconfig.json` files (if not present)
 13. `apps/App/Dockerfile` — multi-stage nginx build
-14. Rate limiting on `/api/signals/simulate`
+14. Rate limiting on `/api/signals/ingest`
 15. Health check endpoint `GET /api/health`
 
 ---

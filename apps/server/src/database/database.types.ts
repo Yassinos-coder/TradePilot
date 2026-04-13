@@ -76,9 +76,36 @@ export interface ExecutionLogRecord {
 export interface TelegramChannelRecord {
   id: string;
   user_id: string;
+  telegram_connection_id: string;
   external_id: string;
   name: string;
+  username: string | null;
+  kind: 'CHANNEL' | 'GROUP';
   enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TelegramConnectionStatus =
+  | 'DISCONNECTED'
+  | 'PENDING_CODE'
+  | 'PENDING_PASSWORD'
+  | 'CONNECTED'
+  | 'ERROR';
+
+export interface TelegramConnectionRecord {
+  id: string;
+  user_id: string;
+  phone_number: string;
+  session_ciphertext: string | null;
+  status: TelegramConnectionStatus;
+  phone_code_hash: string | null;
+  telegram_user_id: string | null;
+  username: string | null;
+  display_name: string | null;
+  last_error: string | null;
+  last_connected_at: string | null;
+  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
 }

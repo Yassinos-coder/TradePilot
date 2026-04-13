@@ -15,7 +15,7 @@ services:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
-    container_name: tradepilot-api
+    container_name: tradepilot-backend
     restart: unless-stopped
     env_file:
       - .env
@@ -38,7 +38,7 @@ services:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-https://your-project-ref.supabase.co}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-replace-with-your-supabase-anon-key}
         VITE_MAGIC_LINK_REDIRECT_PATH: ${VITE_MAGIC_LINK_REDIRECT_PATH:-/auth/callback}
-    container_name: tradepilot-app
+    container_name: tradepilot-frontend
     restart: unless-stopped
     depends_on:
       - api

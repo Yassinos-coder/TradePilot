@@ -1,11 +1,11 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
     container_name: tradepilot-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - tradepilot_default
     volumes:
       - redis-data:/data
 
@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
-    container_name: tradepilot-api
+    container_name: tradepilot-backend
     restart: unless-stopped
     env_file:
       - .env
@@ -24,6 +24,8 @@ services:
       REDIS_URL: redis://redis:6379
     depends_on:
       - redis
+    networks:
+      - tradepilot_default
     expose:
       - "4000"
 
@@ -37,12 +39,22 @@ services:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_MAGIC_LINK_REDIRECT_PATH: ${VITE_MAGIC_LINK_REDIRECT_PATH:-/auth/callback}
-    container_name: tradepilot-app
+    container_name: tradepilot-frontend
     restart: unless-stopped
     depends_on:
       - api
+    networks:
+      - tradepilot_default
+      - nginx_proxy_manager
     ports:
       - "${WEB_PORT:-8080}:80"
+
+networks:
+  tradepilot_default:
+    driver: bridge
+  nginx_proxy_manager:
+    external: true
+    name: nginx-proxy-manager_default
 
 volumes:
   redis-data:

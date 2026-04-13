@@ -8,8 +8,13 @@ import {
   ExecutionLogDTO,
   SettingsDTO,
   SignalRecordDTO,
-  SimulateTelegramSignalInput,
   TelegramChannelDTO,
+  TelegramChannelSyncResult,
+  TelegramConnectCodeInput,
+  TelegramConnectPasswordInput,
+  TelegramConnectStartInput,
+  TelegramConnectStartResult,
+  TelegramConnectionDTO,
   UserDTO,
 } from '@tradepilot/shared';
 
@@ -57,16 +62,45 @@ export const apiClient = {
     const { data } = await api.put<SettingsDTO>('/settings', payload);
     return data;
   },
+  async telegramConnection() {
+    const { data } = await api.get<TelegramConnectionDTO>('/telegram/connection');
+    return data;
+  },
+  async startTelegramConnection(payload: TelegramConnectStartInput) {
+    const { data } = await api.post<TelegramConnectStartResult>(
+      '/telegram/connect/start',
+      payload,
+    );
+    return data;
+  },
+  async verifyTelegramCode(payload: TelegramConnectCodeInput) {
+    const { data } = await api.post<TelegramConnectionDTO>(
+      '/telegram/connect/verify-code',
+      payload,
+    );
+    return data;
+  },
+  async verifyTelegramPassword(payload: TelegramConnectPasswordInput) {
+    const { data } = await api.post<TelegramConnectionDTO>(
+      '/telegram/connect/verify-password',
+      payload,
+    );
+    return data;
+  },
+  async disconnectTelegramConnection() {
+    const { data } = await api.post<TelegramConnectionDTO>('/telegram/connect/disconnect');
+    return data;
+  },
+  async syncTelegramChannels() {
+    const { data } = await api.post<TelegramChannelSyncResult>('/telegram/channels/sync');
+    return data;
+  },
   async channels() {
     const { data } = await api.get<TelegramChannelDTO[]>('/telegram/channels');
     return data;
   },
   async toggleChannel(channelId: string) {
     const { data } = await api.post<TelegramChannelDTO>(`/telegram/channels/${channelId}/toggle`);
-    return data;
-  },
-  async simulateSignal(payload: SimulateTelegramSignalInput) {
-    const { data } = await api.post('/telegram/simulate', payload);
     return data;
   },
   async accounts() {

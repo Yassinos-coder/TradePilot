@@ -1,8 +1,12 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import {
-  SimulateTelegramSignalInput,
-  simulateTelegramSignalSchema,
+  TelegramConnectCodeInput,
+  TelegramConnectPasswordInput,
+  TelegramConnectStartInput,
+  telegramConnectCodeSchema,
+  telegramConnectPasswordSchema,
+  telegramConnectStartSchema,
 } from '@tradepilot/shared';
 
 import { RequestUser } from '../auth/types/request-user.type';
@@ -17,6 +21,48 @@ import { TelegramService } from './telegram.service';
 export class TelegramController {
   constructor(private readonly telegramService: TelegramService) {}
 
+  @Get('connection')
+  getConnection(@CurrentUser() user: RequestUser) {
+    return this.telegramService.getConnection(user.userId);
+  }
+
+  @Post('connect/start')
+  startConnection(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(telegramConnectStartSchema))
+    body: TelegramConnectStartInput,
+  ) {
+    return this.telegramService.startConnection(user.userId, body);
+  }
+
+  @Post('connect/verify-code')
+  verifyCode(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(telegramConnectCodeSchema))
+    body: TelegramConnectCodeInput,
+  ) {
+    return this.telegramService.verifyCode(user.userId, body.phoneCode);
+  }
+
+  @Post('connect/verify-password')
+  verifyPassword(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(telegramConnectPasswordSchema))
+    body: TelegramConnectPasswordInput,
+  ) {
+    return this.telegramService.verifyPassword(user.userId, body.password);
+  }
+
+  @Post('connect/disconnect')
+  disconnect(@CurrentUser() user: RequestUser) {
+    return this.telegramService.disconnectConnection(user.userId);
+  }
+
+  @Post('channels/sync')
+  syncChannels(@CurrentUser() user: RequestUser) {
+    return this.telegramService.syncChannels(user.userId);
+  }
+
   @Get('channels')
   listChannels(@CurrentUser() user: RequestUser) {
     return this.telegramService.listChannels(user.userId);
@@ -25,14 +71,5 @@ export class TelegramController {
   @Post('channels/:channelId/toggle')
   toggleChannel(@CurrentUser() user: RequestUser, @Param('channelId') channelId: string) {
     return this.telegramService.toggleChannel(user.userId, channelId);
-  }
-
-  @Post('simulate')
-  simulateSignal(
-    @CurrentUser() user: RequestUser,
-    @Body(new ZodValidationPipe(simulateTelegramSignalSchema))
-    body: SimulateTelegramSignalInput,
-  ) {
-    return this.telegramService.simulateIncomingSignal(user.userId, body);
   }
 }
