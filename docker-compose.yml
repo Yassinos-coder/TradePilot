@@ -14,7 +14,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/server/Dockerfile
+      dockerfile: apps/Server/Dockerfile
     container_name: tradepilot-api
     restart: unless-stopped
     env_file:
@@ -28,17 +28,17 @@ services:
     ports:
       - "${API_PORT:-4000}:4000"
 
-  web:
+  app:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: apps/App/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api}
         VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-ws://localhost:4000}
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-https://your-project-ref.supabase.co}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-replace-with-your-supabase-anon-key}
         VITE_MAGIC_LINK_REDIRECT_PATH: ${VITE_MAGIC_LINK_REDIRECT_PATH:-/auth/callback}
-    container_name: tradepilot-web
+    container_name: tradepilot-app
     restart: unless-stopped
     depends_on:
       - api

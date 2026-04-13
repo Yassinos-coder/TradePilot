@@ -4,8 +4,8 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 
 ## Stack
 
-- `apps/api`: NestJS + Supabase + BullMQ + raw WebSocket EA gateway
-- `apps/web`: React + Vite + Tailwind CSS + React Query + Zustand
+- `apps/Server`: NestJS + Supabase + BullMQ + raw WebSocket EA gateway
+- `apps/App`: React + Vite + Tailwind CSS + React Query + Zustand
 - `packages/shared`: Zod schemas and DTO contracts
 - `packages/config`: shared runtime env parsing and constants
 - `packages/trading`: mock AI parsing and trading rule validation
@@ -23,7 +23,7 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 ## Docker runtime
 
 - `api`: NestJS backend container on `http://localhost:4000`
-- `web`: static frontend container on `http://localhost:8080`
+- `app`: static frontend container on `http://localhost:8080`
 - `redis`: local BullMQ/queue dependency
 - Bull Board queue dashboard on `http://localhost:4000/admin/queues`
 - PostgreSQL lives in Supabase and the backend reads/writes through the Supabase client in schema `tradepilot`

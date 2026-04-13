@@ -120,13 +120,13 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
 ## Backend Modules
 
 ### Auth Module
-- **File:** `apps/api/src/auth/`
+- **File:** `apps/Server/src/auth/`
 - **Service:** Validates Supabase JWT, calls `UsersService.ensureUser()` to upsert profile
 - **Controller:** `GET /api/auth/me` — returns `UserDTO` for the authenticated caller
 - **Guard:** `JwtAuthGuard` — applies to all protected routes via `@UseGuards(JwtAuthGuard)`
 
 ### Users Module
-- **File:** `apps/api/src/users/`
+- **File:** `apps/Server/src/users/`
 - **Service:**
   - `ensureUser(supabaseUser)` — upserts user row, auto-generates API key if none
   - `getProfile(userId)` — returns `UserDTO` with masked API key suffix
@@ -134,19 +134,19 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
 - **Controller:** `POST /api/users/rotate-api-key`
 
 ### Accounts Module
-- **File:** `apps/api/src/accounts/`
+- **File:** `apps/Server/src/accounts/`
 - **Service:** Standard CRUD against `accounts` table (no credentials stored)
 - **Controller:** `GET/POST /api/accounts`, `DELETE /api/accounts/:id`
 
 ### Settings Module
-- **File:** `apps/api/src/settings/`
+- **File:** `apps/Server/src/settings/`
 - **Service:**
   - `getSettings(userId)` — auto-creates default row if none exists
   - `updateSettings(userId, dto)` — partial update with Zod validation
 - **Controller:** `GET/PUT /api/settings`
 
 ### Signals Module
-- **File:** `apps/api/src/signals/`
+- **File:** `apps/Server/src/signals/`
 - **Service:**
   - `ingest(userId, rawMessage)` — inserts PENDING record, enqueues BullMQ job
   - `listRecent(userId)` — returns last N signals ordered by `created_at DESC`
@@ -159,7 +159,7 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
 - **Controller:** `GET /api/signals`, `POST /api/signals/simulate`
 
 ### Telegram Module
-- **File:** `apps/api/src/telegram/`
+- **File:** `apps/Server/src/telegram/`
 - **Service:**
   - `getChannels(userId)` — returns list from `telegram_channels` (seeded from constants)
   - `toggleChannel(userId, channelId, enabled)` — update enabled flag
@@ -167,7 +167,7 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
 - **Controller:** `GET /api/telegram/channels`, `PATCH /api/telegram/channels/:id/toggle`, `POST /api/telegram/simulate`
 
 ### EA Gateway Module
-- **File:** `apps/api/src/ea/`
+- **File:** `apps/Server/src/ea/`
 - **Service:** Raw `ws.Server` attached to the HTTP server (not NestJS WebSockets)
   - On connection: wait for `{ type: "auth", apiKey }`, validate against DB
   - On auth success: register connection in `Map<userId, Set<WebSocket>>`
@@ -176,7 +176,7 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
   - `isConnected(userId)` — returns boolean for dashboard status
 
 ### Execution Module
-- **File:** `apps/api/src/execution/`
+- **File:** `apps/Server/src/execution/`
 - **Service:**
   - `dispatch(userId, signalId, payload)` — calls `EaGatewayService.sendSignal()`
   - Retries up to `DISPATCH_RETRY_COUNT` with `DISPATCH_RETRY_DELAY_MS` backoff
@@ -185,7 +185,7 @@ RLS policies enforce row-level isolation per authenticated user. Service role by
 - **Controller:** `GET /api/execution/logs`
 
 ### Dashboard Module
-- **File:** `apps/api/src/dashboard/`
+- **File:** `apps/Server/src/dashboard/`
 - **Service:**
   - Aggregates: EA online status, total signals, recent signals[], recent logs[]
   - Returns `DashboardOverviewDTO`
@@ -387,21 +387,21 @@ npm run dev
 ## Implementation Gaps to Close
 
 ### Critical (blocking functionality)
-1. **`apps/api/src/users/users.controller.ts`** — `POST /api/users/rotate-api-key` endpoint
-2. **`apps/api/src/signals/signals.controller.ts`** — `GET /api/signals` + `POST /api/signals/simulate`
-3. **`apps/api/src/execution/execution.controller.ts`** — `GET /api/execution/logs`
-4. **`apps/api/src/dashboard/dashboard.controller.ts`** — `GET /api/dashboard/overview`
-5. **`apps/api/src/telegram/telegram.controller.ts`** — channels + toggle + simulate endpoints
-6. **`apps/api/src/accounts/accounts.controller.ts`** — CRUD endpoints
-7. **`apps/api/src/settings/settings.controller.ts`** — GET/PUT endpoints
-8. **`apps/web/src/pages/AuthPage.tsx`** — magic link form
-9. **`apps/web/src/pages/TelegramPage.tsx`** — channel list + toggle + simulate
-10. **`apps/web/src/pages/AccountsPage.tsx`** — accounts CRUD UI
-11. **`apps/web/src/components/dashboard/EaSocketDemoCard.tsx`** — live WS demo
+1. **`apps/Server/src/users/users.controller.ts`** — `POST /api/users/rotate-api-key` endpoint
+2. **`apps/Server/src/signals/signals.controller.ts`** — `GET /api/signals` + `POST /api/signals/simulate`
+3. **`apps/Server/src/execution/execution.controller.ts`** — `GET /api/execution/logs`
+4. **`apps/Server/src/dashboard/dashboard.controller.ts`** — `GET /api/dashboard/overview`
+5. **`apps/Server/src/telegram/telegram.controller.ts`** — channels + toggle + simulate endpoints
+6. **`apps/Server/src/accounts/accounts.controller.ts`** — CRUD endpoints
+7. **`apps/Server/src/settings/settings.controller.ts`** — GET/PUT endpoints
+8. **`apps/App/src/pages/AuthPage.tsx`** — magic link form
+9. **`apps/App/src/pages/TelegramPage.tsx`** — channel list + toggle + simulate
+10. **`apps/App/src/pages/AccountsPage.tsx`** — accounts CRUD UI
+11. **`apps/App/src/components/dashboard/EaSocketDemoCard.tsx`** — live WS demo
 
 ### Nice-to-have (production hardening)
 12. Per-package `tsconfig.json` files (if not present)
-13. `apps/web/Dockerfile` — multi-stage nginx build
+13. `apps/App/Dockerfile` — multi-stage nginx build
 14. Rate limiting on `/api/signals/simulate`
 15. Health check endpoint `GET /api/health`
 
