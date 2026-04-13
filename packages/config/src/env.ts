@@ -13,6 +13,13 @@ const rawServerEnvSchema = z.object({
   DISPATCH_RETRY_COUNT: z.coerce.number().int().min(1).max(10).default(3),
   DISPATCH_RETRY_DELAY_MS: z.coerce.number().int().min(100).default(750),
   EA_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
+  EA_SERVER_PING_INTERVAL_MS: z.coerce.number().int().min(1000).default(10000),
+  EA_PRESENCE_TTL_MS: z.coerce.number().int().min(1000).default(45000),
+  EA_DISPATCH_ACK_TIMEOUT_MS: z.coerce.number().int().min(250).default(2000),
+  GUARD_MAX_TRADES_PER_SYMBOL: z.coerce.number().int().min(1).max(20).default(1),
+  GUARD_SYMBOL_COOLDOWN_MS: z.coerce.number().int().min(0).default(3000),
+  GUARD_DUPLICATE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(0).default(60000),
+  GUARD_ACTIVE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
 });
 
 export const serverEnvSchema = rawServerEnvSchema.transform((environment) => ({

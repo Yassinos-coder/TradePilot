@@ -28,4 +28,14 @@ export class DatabaseService {
   getClient(): SupabaseClient<any, any, any> {
     return this.supabaseClient;
   }
+
+  async ping(): Promise<boolean> {
+    try {
+      const { error } = await this.supabaseClient.from('users').select('id').limit(1);
+      return !error;
+    } catch (error) {
+      this.logger.warn(`Supabase health check failed: ${String(error)}`);
+      return false;
+    }
+  }
 }

@@ -8,3 +8,11 @@ export function formatTimestamp(value: string) {
     timeStyle: 'short',
   }).format(new Date(value));
 }
+
+export function formatLatency(value: number | null | undefined) {
+  if (typeof value !== 'number') {
+    return 'Awaiting heartbeat';
+  }
+
+  return `${Math.round(value)} ms`;
+}

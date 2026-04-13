@@ -3,7 +3,8 @@ import { Job } from 'bullmq';
 import { InternalServerErrorException } from '@nestjs/common';
 
 import { SIGNAL_INGESTION_QUEUE } from '@tradepilot/config';
-import { mockAiParseSignal, validateSignalBusinessRules } from '@tradepilot/trading';
+import { SignalDTO } from '@tradepilot/shared';
+import { hybridParseSignal, validateSignalBusinessRules } from '@tradepilot/trading';
 
 import { DatabaseService } from '../database/database.service';
 import { ExecutionService } from '../execution/execution.service';
@@ -20,39 +21,71 @@ export class SignalsProcessor extends WorkerHost {
   }
 
   async process(job: Job<SignalIngestionJob>): Promise<void> {
-    const { signalId, rawMessage, sourceChannel, userId } = job.data;
+    const { signalId, rawMessage, rawMessageHash, sourceChannel, userId } = job.data;
+
+    let parsedSignal: SignalDTO;
 
     try {
-      const parsedSignal = validateSignalBusinessRules(
-        mockAiParseSignal(rawMessage, sourceChannel),
-      );
-
-      const { error: updateError } = await this.databaseService
-        .getClient()
-        .from('signals')
-        .update({
-          parsed_data: parsedSignal,
-          status: 'VALIDATED',
-        })
-        .eq('id', signalId);
-
-      if (updateError) {
-        throw new InternalServerErrorException(updateError.message);
-      }
-
-      await this.executionService.dispatchSignal(userId, signalId, parsedSignal);
+      parsedSignal = await hybridParseSignal(rawMessage, sourceChannel);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Signal processing failed unexpectedly';
+        error instanceof Error ? error.message : 'Signal parsing failed unexpectedly';
 
-      await this.databaseService
-        .getClient()
-        .from('signals')
-        .update({ status: 'FAILED' })
-        .eq('id', signalId);
+      await this.updateSignal(signalId, {
+        status: 'PARSE_FAILED',
+      });
+      await this.executionService.recordLog(userId, signalId, 'PARSE_FAILED', message, {
+        attempt: 0,
+      });
+      return;
+    }
 
-      await this.executionService.recordLog(userId, signalId, 'FAILED', message);
-      throw error;
+    try {
+      parsedSignal = validateSignalBusinessRules(parsedSignal);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Signal validation failed unexpectedly';
+
+      await this.updateSignal(signalId, {
+        parsed_data: parsedSignal,
+        confidence: parsedSignal.confidence,
+        status: 'VALIDATION_FAILED',
+      });
+      await this.executionService.recordLog(
+        userId,
+        signalId,
+        'VALIDATION_FAILED',
+        message,
+        {
+          attempt: 0,
+        },
+      );
+      return;
+    }
+
+    await this.updateSignal(signalId, {
+      parsed_data: parsedSignal,
+      confidence: parsedSignal.confidence,
+      status: 'VALIDATED',
+    });
+
+    await this.executionService.dispatchSignal({
+      userId,
+      signalId,
+      rawMessageHash,
+      signal: parsedSignal,
+    });
+  }
+
+  private async updateSignal(signalId: string, payload: Record<string, unknown>) {
+    const { error } = await this.databaseService
+      .getClient()
+      .from('signals')
+      .update(payload)
+      .eq('id', signalId);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
     }
   }
 }

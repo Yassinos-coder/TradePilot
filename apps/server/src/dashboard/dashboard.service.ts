@@ -16,13 +16,18 @@ export class DashboardService {
   ) {}
 
   async getOverview(userId: string): Promise<DashboardOverviewDTO> {
-    const [recentSignals, recentExecutionLogs] = await Promise.all([
+    const [recentSignals, recentExecutionLogs, connectionState, signalCount] = await Promise.all([
       this.signalsService.listRecentSignals(userId, DASHBOARD_RESULT_LIMIT),
       this.executionService.listLogs(userId, DASHBOARD_RESULT_LIMIT),
+      this.gateway.getConnectionState(userId),
+      this.signalsService.countSignals(userId),
     ]);
 
     return dashboardOverviewSchema.parse({
-      eaConnected: this.gateway.isConnected(userId),
+      eaOnline: connectionState.online,
+      eaLatencyMs: connectionState.latencyMs,
+      eaLastSeenAt: connectionState.lastSeenAt,
+      signalCount,
       recentSignals,
       recentExecutionLogs,
     });

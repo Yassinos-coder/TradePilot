@@ -1,7 +1,11 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 
-import { DEFAULT_ALLOWED_SYMBOLS, DEFAULT_SESSIONS } from '@tradepilot/config';
+import {
+  DEFAULT_ALLOWED_SYMBOLS,
+  DEFAULT_EXECUTION_MODE,
+  DEFAULT_SESSIONS,
+} from '@tradepilot/config';
 import { UserDTO, userDtoSchema } from '@tradepilot/shared';
 
 import { DatabaseService } from '../database/database.service';
@@ -171,6 +175,7 @@ export class UsersService {
         max_trades: 3,
         allowed_symbols: DEFAULT_ALLOWED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
+        mode: DEFAULT_EXECUTION_MODE,
       },
       {
         onConflict: 'user_id',

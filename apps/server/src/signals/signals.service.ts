@@ -9,6 +9,7 @@ import {
   signalRecordSchema,
 } from '@tradepilot/shared';
 
+import { hashText, normalizeRawMessage } from '../common/utils/hash';
 import { DatabaseService } from '../database/database.service';
 import { SignalRecord } from '../database/database.types';
 
@@ -26,12 +27,15 @@ export class SignalsService {
     rawMessage: string,
     sourceChannel?: string,
   ): Promise<SignalRecordDTO> {
+    const rawMessageHash = hashText(normalizeRawMessage(rawMessage));
+
     const { data: signal, error } = await this.databaseService
       .getClient()
       .from('signals')
       .insert({
         user_id: userId,
         raw_message: rawMessage,
+        raw_message_hash: rawMessageHash,
         source_channel: sourceChannel ?? null,
         status: 'PENDING',
       })
@@ -50,6 +54,7 @@ export class SignalsService {
         signalId: signal.id,
         userId,
         rawMessage,
+        rawMessageHash,
         sourceChannel,
       },
       {
@@ -82,6 +87,20 @@ export class SignalsService {
     return (signals ?? []).map((signal) => this.toSignalRecordDto(signal as SignalRecord));
   }
 
+  async countSignals(userId: string): Promise<number> {
+    const { count, error } = await this.databaseService
+      .getClient()
+      .from('signals')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return count ?? 0;
+  }
+
   private toSignalRecordDto(signal: SignalRecord): SignalRecordDTO {
     const parsedData =
       signal.parsed_data && typeof signal.parsed_data === 'object'
@@ -91,9 +110,14 @@ export class SignalsService {
     return signalRecordSchema.parse({
       id: signal.id,
       rawMessage: signal.raw_message,
+      rawMessageHash: signal.raw_message_hash,
       sourceChannel: signal.source_channel,
       parsedData,
       status: signal.status,
+      confidence:
+        typeof signal.confidence === 'number'
+          ? signal.confidence
+          : parsedData?.confidence ?? null,
       createdAt: signal.created_at,
     });
   }

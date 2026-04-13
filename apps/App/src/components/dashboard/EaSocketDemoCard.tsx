@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { Terminal, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Loader2, Terminal, Wifi, WifiOff } from 'lucide-react';
 
 import { clientEnv } from '../../lib/api';
 import { Badge } from '../ui/Badge';
@@ -12,7 +12,16 @@ interface EaSocketDemoCardProps {
   apiKey?: string;
 }
 
-const STATE_TONE: Record<ConnectionState, 'positive' | 'warning' | 'danger' | 'neutral'> = {
+interface SocketMessage {
+  type: string;
+  message?: string;
+  timestamp?: number;
+}
+
+const STATE_TONE: Record<
+  ConnectionState,
+  'positive' | 'warning' | 'danger' | 'neutral'
+> = {
   connected: 'positive',
   connecting: 'warning',
   error: 'danger',
@@ -30,63 +39,123 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
     [],
   );
 
-  const append = (msg: string) => {
-    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setLog((prev) => [`${ts}  ${msg}`, ...prev].slice(0, 10));
+  const append = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    setLog((previous) => [`${timestamp}  ${message}`, ...previous].slice(0, 10));
   };
 
   const handleMessage = useEffectEvent((event: MessageEvent<string>) => {
-    let payload: { type: string; message?: string };
+    let payload: SocketMessage;
+
     try {
-      payload = JSON.parse(event.data) as { type: string; message?: string };
+      payload = JSON.parse(event.data) as SocketMessage;
     } catch {
-      append('← non-JSON payload');
+      append('<- non-JSON payload');
       return;
     }
+
     switch (payload.type) {
-      case 'auth_success': setStatus('connected'); append('← auth_success'); break;
-      case 'auth_error':   setStatus('error');     append(`← auth_error: ${payload.message ?? ''}`); break;
-      case 'pong':                                  append('← pong'); break;
-      case 'signal':                                append('← signal received'); break;
-      default:                                      append(`← ${payload.type}`);
+      case 'auth_success':
+        setStatus('connected');
+        append('<- auth_success');
+        break;
+      case 'error':
+        setStatus('error');
+        append(`<-- error: ${payload.message ?? 'Unknown error'}`);
+        break;
+      case 'ping':
+        append('<- ping');
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: 'pong',
+              timestamp: payload.timestamp ?? Date.now(),
+            }),
+          );
+          append('-> pong');
+        }
+        break;
+      case 'pong':
+        append('<- pong');
+        break;
+      case 'signal':
+        append('<- signal received');
+        break;
+      default:
+        append(`<-- ${payload.type}`);
+        break;
     }
   });
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket) {
+      return;
+    }
+
     socket.onmessage = handleMessage;
-    socket.onclose = () => { setStatus('closed'); append('connection closed'); setSocket(null); };
-    socket.onerror = () => { setStatus('error'); append('transport error'); };
-    return () => { socket.onmessage = null; socket.onclose = null; socket.onerror = null; };
+    socket.onclose = () => {
+      setStatus('closed');
+      append('connection closed');
+      setSocket(null);
+    };
+    socket.onerror = () => {
+      setStatus('error');
+      append('transport error');
+    };
+
+    return () => {
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+    };
   }, [socket, handleMessage]);
 
-  // Heartbeat every 12 s when connected
   useEffect(() => {
-    if (!socket || status !== 'connected') return;
-    const id = window.setInterval(() => {
+    if (!socket || status !== 'connected') {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'ping' }));
-        append('→ ping');
+        socket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        append('-> ping');
       }
     }, 12_000);
-    return () => clearInterval(id);
+
+    return () => clearInterval(intervalId);
   }, [socket, status]);
 
-  useEffect(() => () => socket?.close(), [socket]);
+  useEffect(() => {
+    return () => socket?.close();
+  }, [socket]);
 
   const connect = () => {
-    if (!apiKey || socket) return;
-    const ws = new WebSocket(wsUrl);
+    if (!apiKey || socket) {
+      return;
+    }
+
+    const nextSocket = new WebSocket(wsUrl);
     setStatus('connecting');
-    append(`→ connecting to ${wsUrl}`);
-    ws.onopen = () => {
-      append('→ auth');
-      ws.send(JSON.stringify({ type: 'auth', apiKey }));
+    append(`-> connecting to ${wsUrl}`);
+
+    nextSocket.onopen = () => {
+      append('-> auth');
+      nextSocket.send(JSON.stringify({ type: 'auth', apiKey }));
     };
-    setSocket(ws);
+
+    setSocket(nextSocket);
   };
 
-  const disconnect = () => { socket?.close(); setSocket(null); setStatus('closed'); };
+  const disconnect = () => {
+    socket?.close();
+    setSocket(null);
+    setStatus('closed');
+  };
 
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
@@ -96,16 +165,15 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
       title="EA WebSocket Demo"
       eyebrow="Realtime"
       description="Simulate a MetaTrader EA connecting from the browser."
-      actions={<Badge tone={STATE_TONE[status]} dot>{status}</Badge>}
+      actions={
+        <Badge tone={STATE_TONE[status]} dot>
+          {status}
+        </Badge>
+      }
     >
       <div className="space-y-4">
-        {/* Controls */}
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={connect}
-            disabled={!apiKey || Boolean(socket)}
-          >
+          <Button size="sm" onClick={connect} disabled={!apiKey || Boolean(socket)}>
             {isConnecting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
@@ -122,37 +190,39 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
             <WifiOff className="h-3.5 w-3.5" />
             Disconnect
           </Button>
-          {!apiKey && (
+          {!apiKey ? (
             <span className="text-xs text-gray-400 dark:text-slate-500">
-              Rotate your API key to enable
+              Rotate your API key to enable the demo socket
             </span>
-          )}
+          ) : null}
         </div>
 
-        {/* Protocol log */}
-        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-950 overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-gray-200 dark:border-slate-700 px-3 py-2">
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-950">
+          <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-slate-700">
             <Terminal className="h-3.5 w-3.5 text-gray-400 dark:text-slate-500" />
             <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
               Protocol log
             </span>
-            {isConnected && (
+            {isConnected ? (
               <span className="ml-auto flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                 live
               </span>
-            )}
+            ) : null}
           </div>
-          <div className="h-36 overflow-y-auto p-3 space-y-1">
+          <div className="h-36 space-y-1 overflow-y-auto p-3">
             {log.length > 0 ? (
-              log.map((line, i) => (
-                <p key={i} className="text-xs font-mono text-gray-600 dark:text-slate-400">
+              log.map((line, index) => (
+                <p
+                  key={`${line}-${index}`}
+                  className="text-xs font-mono text-gray-600 dark:text-slate-400"
+                >
                   {line}
                 </p>
               ))
             ) : (
-              <p className="text-xs text-gray-400 dark:text-slate-600 italic">
-                No activity yet — click Connect to begin.
+              <p className="text-xs italic text-gray-400 dark:text-slate-600">
+                No activity yet. Click Connect to begin the EA handshake.
               </p>
             )}
           </div>

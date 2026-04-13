@@ -1,149 +1,269 @@
-import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Activity,
+  AlertTriangle,
+  Copy,
+  Key,
+  Radio,
+  RotateCcw,
+  TimerReset,
   Wifi,
   WifiOff,
-  TrendingUp,
-  FileText,
-  Key,
-  Copy,
-  Check,
-  RotateCcw,
 } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
+import { formatLatency, formatTimestamp } from '../lib/utils';
 import { queryClient } from '../lib/query-client';
-import { formatTimestamp } from '../lib/utils';
 import { useAuthStore } from '../store/auth-store';
-import { Badge } from '../components/ui/Badge';
+import { useToastStore } from '../store/toast-store';
+import { EaSocketDemoCard } from '../components/dashboard/EaSocketDemoCard';
+import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { EaSocketDemoCard } from '../components/dashboard/EaSocketDemoCard';
+import { Skeleton } from '../components/ui/Skeleton';
 
-const STATUS_TONE = {
+const SIGNAL_STATUS_TONES = {
   DISPATCHED: 'positive',
   VALIDATED: 'info',
   PENDING: 'warning',
-  FAILED: 'danger',
+  PARSE_FAILED: 'danger',
+  VALIDATION_FAILED: 'danger',
+  EA_OFFLINE: 'warning',
+  DISPATCH_TIMEOUT: 'warning',
+  EXECUTION_REJECTED: 'neutral',
 } as const;
 
+const EXECUTION_STATUS_TONES = {
+  RECEIVED: 'info',
+  RETRYING: 'warning',
+  DISPATCHED: 'positive',
+  PARSE_FAILED: 'danger',
+  VALIDATION_FAILED: 'danger',
+  EA_OFFLINE: 'warning',
+  DISPATCH_TIMEOUT: 'danger',
+  EXECUTION_REJECTED: 'neutral',
+} as const;
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="rounded-xl border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+          >
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="mt-4 h-8 w-24" />
+            <Skeleton className="mt-3 h-3 w-28" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title="API Key" eyebrow="EA Authentication">
+          <div className="space-y-3">
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-8 w-28" />
+          </div>
+        </Card>
+        <Card title="EA WebSocket Demo" eyebrow="Realtime">
+          <Skeleton className="h-44 w-full" />
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title="Recent Signals" eyebrow="Signal Pipeline">
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-12 w-full" />
+            ))}
+          </div>
+        </Card>
+        <Card title="Execution Logs" eyebrow="Dispatch History">
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-12 w-full" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
-  const user = useAuthStore((s) => s.user);
-  const updateUser = useAuthStore((s) => s.updateUser);
-  const [copied, setCopied] = useState(false);
+  const user = useAuthStore((state) => state.user);
+  const updateUser = useAuthStore((state) => state.updateUser);
+  const pushToast = useToastStore((state) => state.push);
 
   const overviewQuery = useQuery({
     queryKey: ['overview'],
     queryFn: apiClient.overview,
-    refetchInterval: 15_000,
-  });
-
-  const signalsQuery = useQuery({
-    queryKey: ['signals'],
-    queryFn: apiClient.signals,
-  });
-
-  const logsQuery = useQuery({
-    queryKey: ['logs'],
-    queryFn: apiClient.executionLogs,
+    refetchInterval: 10_000,
   });
 
   const rotateMutation = useMutation({
     mutationFn: apiClient.regenerateApiKey,
     onSuccess: (data) => {
       updateUser(data);
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
+      pushToast({
+        tone: 'success',
+        title: 'API key rotated',
+        description: 'Reconnect any EA clients using the new key.',
+      });
+    },
+    onError: () => {
+      pushToast({
+        tone: 'error',
+        title: 'API key rotation failed',
+        description: 'TradePilot could not issue a fresh API key.',
+      });
     },
   });
 
   const copyApiKey = async () => {
-    if (!user?.apiKey) return;
-    await navigator.clipboard.writeText(user.apiKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!user?.apiKey) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(user.apiKey);
+      pushToast({
+        tone: 'success',
+        title: 'API key copied',
+        description: 'You can paste it directly into your EA configuration.',
+      });
+    } catch {
+      pushToast({
+        tone: 'error',
+        title: 'Copy failed',
+        description: 'The browser blocked clipboard access.',
+      });
+    }
   };
 
+  if (overviewQuery.isLoading) {
+    return <DashboardSkeleton />;
+  }
+
+  if (overviewQuery.isError || !overviewQuery.data) {
+    return (
+      <Card
+        title="Dashboard unavailable"
+        eyebrow="Overview"
+        description="TradePilot could not load the current execution state."
+      >
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Retry the overview request to restore the dashboard.
+          </p>
+          <Button onClick={() => void overviewQuery.refetch()}>Retry</Button>
+        </div>
+      </Card>
+    );
+  }
+
   const overview = overviewQuery.data;
-  const signals = signalsQuery.data ?? [];
-  const logs = logsQuery.data ?? [];
+  const eaTone: BadgeTone = !overview.eaOnline
+    ? 'danger'
+    : (overview.eaLatencyMs ?? 0) > 1_000
+      ? 'warning'
+      : 'positive';
+  const eaLabel = !overview.eaOnline
+    ? 'Offline'
+    : (overview.eaLatencyMs ?? 0) > 1_000
+      ? 'Slow'
+      : 'Online';
 
   const stats = [
     {
       label: 'EA Status',
-      value: overview?.eaOnline ? 'Connected' : 'Offline',
-      icon: overview?.eaOnline ? Wifi : WifiOff,
-      iconBg: overview?.eaOnline ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-gray-100 dark:bg-slate-800',
-      iconColor: overview?.eaOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-500',
-      sub: overview?.eaOnline ? 'WebSocket active' : 'Waiting for EA',
+      badgeLabel: eaLabel,
+      value: eaLabel,
+      sub: overview.eaLastSeenAt
+        ? `Last seen ${formatTimestamp(overview.eaLastSeenAt)}`
+        : 'Waiting for heartbeat',
+      icon: overview.eaOnline ? Wifi : WifiOff,
+      tone: eaTone,
     },
     {
-      label: 'Total Signals',
-      value: overview?.signalCount ?? signals.length,
-      icon: TrendingUp,
-      iconBg: 'bg-blue-50 dark:bg-blue-500/10',
-      iconColor: 'text-blue-600 dark:text-blue-400',
-      sub: 'All time processed',
+      label: 'Latency',
+      badgeLabel: 'Latency',
+      value: overview.eaOnline ? formatLatency(overview.eaLatencyMs) : 'Offline',
+      sub: overview.eaOnline
+        ? 'Heartbeat round-trip'
+        : 'No live EA presence detected',
+      icon: TimerReset,
+      tone: eaTone,
+    },
+    {
+      label: 'Signals',
+      badgeLabel: 'Signals',
+      value: String(overview.signalCount),
+      sub: 'Stored in the pipeline',
+      icon: Activity,
+      tone: 'info' as const,
     },
     {
       label: 'Execution Logs',
-      value: logs.length,
-      icon: FileText,
-      iconBg: 'bg-violet-50 dark:bg-violet-500/10',
-      iconColor: 'text-violet-600 dark:text-violet-400',
-      sub: 'Recent entries',
-    },
-    {
-      label: 'API Key',
-      value: user?.apiKey ? `••••${user.apiKey.slice(-6)}` : '—',
-      icon: Key,
-      iconBg: 'bg-amber-50 dark:bg-amber-500/10',
-      iconColor: 'text-amber-600 dark:text-amber-400',
-      sub: 'EA authentication',
+      badgeLabel: 'Logs',
+      value: String(overview.recentExecutionLogs.length),
+      sub: 'Most recent dispatch entries',
+      icon: Radio,
+      tone: 'neutral' as const,
     },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon, iconBg, iconColor, sub }) => (
+        {stats.map(({ label, badgeLabel, value, sub, icon: Icon, tone }) => (
           <div
             key={label}
-            className="rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
+            className="rounded-xl border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
           >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-gray-500 dark:text-slate-400">{label}</span>
-              <div className={['flex h-7 w-7 items-center justify-center rounded-lg', iconBg].join(' ')}>
-                <Icon className={['h-3.5 w-3.5', iconColor].join(' ')} />
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
+                {label}
+              </span>
+              <Badge tone={tone}>{badgeLabel}</Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-800">
+                <Icon className="h-4 w-4 text-gray-500 dark:text-slate-300" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xl font-semibold text-gray-900 dark:text-white">
+                  {value}
+                </p>
+                <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">{sub}</p>
               </div>
             </div>
-            <p className="text-2xl font-semibold text-gray-900 dark:text-white truncate">{value}</p>
-            <p className="mt-0.5 text-xs text-gray-400 dark:text-slate-500">{sub}</p>
           </div>
         ))}
       </div>
 
-      {/* API Key + EA Demo */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
           title="API Key"
           eyebrow="EA Authentication"
-          description="Your EA uses this key to authenticate with the WebSocket gateway."
+          description="Use this key to authenticate MetaTrader EAs over the WebSocket gateway."
         >
           <div className="space-y-3">
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2.5">
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
               <Key className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-slate-500" />
               <code className="flex-1 truncate text-xs font-mono text-gray-700 dark:text-slate-300">
-                {user?.apiKey ?? 'No key found'}
+                {user?.apiKey ?? 'No API key available'}
               </code>
               <button
                 type="button"
-                onClick={copyApiKey}
-                className="shrink-0 text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                title={copied ? 'Copied!' : 'Copy to clipboard'}
+                onClick={() => void copyApiKey()}
+                className="shrink-0 text-gray-400 transition-colors hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400"
+                aria-label="Copy API key"
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                <Copy className="h-3.5 w-3.5" />
               </button>
             </div>
             <Button
@@ -161,33 +281,43 @@ export function DashboardPage() {
         <EaSocketDemoCard apiKey={user?.apiKey} />
       </div>
 
-      {/* Activity tables */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Recent Signals" eyebrow="Signal Pipeline">
           <div className="divide-y divide-gray-100 dark:divide-slate-800">
-            {signals.length === 0 ? (
+            {overview.recentSignals.length === 0 ? (
               <p className="py-6 text-center text-sm text-gray-400 dark:text-slate-500">
-                No signals yet — simulate one from the Telegram page.
+                No signals yet. Queue one from the Telegram screen to test the pipeline.
               </p>
             ) : (
-              signals.slice(0, 8).map((sig) => (
+              overview.recentSignals.map((signal) => (
                 <div
-                  key={sig.id}
-                  className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  key={signal.id}
+                  className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Activity className="h-3 w-3 shrink-0 text-gray-300 dark:text-slate-600" />
-                    <span className="truncate text-xs text-gray-600 dark:text-slate-400 font-mono">
-                      {sig.rawMessage?.slice(0, 42) ?? '—'}
-                    </span>
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                      {signal.parsedData
+                        ? `${signal.parsedData.symbol} ${signal.parsedData.type}`
+                        : signal.rawMessage}
+                    </p>
+                    <p className="truncate text-xs text-gray-500 dark:text-slate-500">
+                      {signal.sourceChannel ?? 'Manual ingest'} | {formatTimestamp(signal.createdAt)}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge tone={STATUS_TONE[sig.status as keyof typeof STATUS_TONE] ?? 'neutral'} dot>
-                      {sig.status}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {typeof signal.confidence === 'number' ? (
+                      <Badge tone="info">{Math.round(signal.confidence * 100)}%</Badge>
+                    ) : null}
+                    <Badge
+                      tone={
+                        SIGNAL_STATUS_TONES[
+                          signal.status as keyof typeof SIGNAL_STATUS_TONES
+                        ] ?? 'neutral'
+                      }
+                      dot
+                    >
+                      {signal.status}
                     </Badge>
-                    <span className="hidden text-xs text-gray-400 dark:text-slate-600 sm:block">
-                      {formatTimestamp(sig.createdAt)}
-                    </span>
                   </div>
                 </div>
               ))
@@ -197,21 +327,29 @@ export function DashboardPage() {
 
         <Card title="Execution Logs" eyebrow="Dispatch History">
           <div className="divide-y divide-gray-100 dark:divide-slate-800">
-            {logs.length === 0 ? (
+            {overview.recentExecutionLogs.length === 0 ? (
               <p className="py-6 text-center text-sm text-gray-400 dark:text-slate-500">
                 No execution logs yet.
               </p>
             ) : (
-              logs.slice(0, 8).map((log) => (
-                <div key={log.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                  <span className="truncate text-xs text-gray-600 dark:text-slate-400">
-                    {log.message ?? 'Signal dispatched'}
-                  </span>
+              overview.recentExecutionLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-sm text-gray-700 dark:text-slate-300">
+                      {log.message}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500">
+                      Attempt {log.attempt} | {formatTimestamp(log.createdAt)}
+                    </p>
+                  </div>
                   <Badge
                     tone={
-                      log.status === 'DISPATCHED' ? 'positive' :
-                      log.status === 'FAILED' ? 'danger' :
-                      log.status === 'RETRIED' ? 'warning' : 'neutral'
+                      EXECUTION_STATUS_TONES[
+                        log.status as keyof typeof EXECUTION_STATUS_TONES
+                      ] ?? 'neutral'
                     }
                   >
                     {log.status}
@@ -222,6 +360,22 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {!overview.eaOnline ? (
+        <Card
+          title="Execution Safety Notice"
+          eyebrow="Guardrail"
+          description="Signals remain stored even when no EA is online."
+        >
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              TradePilot will keep parsing and validating signals, but live dispatch is paused
+              until an authenticated EA reconnects.
+            </p>
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }

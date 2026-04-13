@@ -1,6 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
-import { DEFAULT_ALLOWED_SYMBOLS, DEFAULT_SESSIONS } from '@tradepilot/config';
+import {
+  DEFAULT_ALLOWED_SYMBOLS,
+  DEFAULT_EXECUTION_MODE,
+  DEFAULT_SESSIONS,
+} from '@tradepilot/config';
 import { SettingsDTO, settingsDtoSchema } from '@tradepilot/shared';
 
 import { DatabaseService } from '../database/database.service';
@@ -34,6 +38,7 @@ export class SettingsService {
         max_trades: 3,
         allowed_symbols: DEFAULT_ALLOWED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
+        mode: DEFAULT_EXECUTION_MODE,
       })
       .select('*')
       .single();
@@ -58,6 +63,7 @@ export class SettingsService {
           max_trades: payload.maxTrades,
           allowed_symbols: payload.allowedSymbols,
           sessions: payload.sessions,
+          mode: payload.mode,
         },
         { onConflict: 'user_id' },
       )
@@ -77,6 +83,7 @@ export class SettingsService {
       maxTrades: settings.max_trades,
       allowedSymbols: settings.allowed_symbols,
       sessions: settings.sessions,
+      mode: settings.mode ?? DEFAULT_EXECUTION_MODE,
     });
   }
 }

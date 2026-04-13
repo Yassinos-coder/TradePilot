@@ -1,5 +1,22 @@
-export type SignalStatus = 'PENDING' | 'VALIDATED' | 'DISPATCHED' | 'FAILED';
-export type ExecutionStatus = 'RECEIVED' | 'DISPATCHED' | 'RETRIED' | 'FAILED';
+export type SignalStatus =
+  | 'PENDING'
+  | 'VALIDATED'
+  | 'DISPATCHED'
+  | 'PARSE_FAILED'
+  | 'VALIDATION_FAILED'
+  | 'EA_OFFLINE'
+  | 'DISPATCH_TIMEOUT'
+  | 'EXECUTION_REJECTED';
+
+export type ExecutionStatus =
+  | 'RECEIVED'
+  | 'RETRYING'
+  | 'DISPATCHED'
+  | 'PARSE_FAILED'
+  | 'VALIDATION_FAILED'
+  | 'EA_OFFLINE'
+  | 'DISPATCH_TIMEOUT'
+  | 'EXECUTION_REJECTED';
 
 export interface UserRecord {
   id: string;
@@ -28,6 +45,7 @@ export interface SettingsRecord {
     london: boolean;
     newYork: boolean;
   };
+  mode: 'AUTO' | 'SEMI_AUTO' | 'MANUAL';
   created_at: string;
   updated_at: string;
 }
@@ -36,8 +54,10 @@ export interface SignalRecord {
   id: string;
   user_id: string;
   raw_message: string;
+  raw_message_hash: string | null;
   source_channel: string | null;
   parsed_data: Record<string, unknown> | null;
+  confidence: number | null;
   status: SignalStatus;
   created_at: string;
 }
@@ -46,6 +66,8 @@ export interface ExecutionLogRecord {
   id: string;
   user_id: string;
   signal_id: string | null;
+  execution_key: string | null;
+  attempt: number;
   status: ExecutionStatus;
   message: string;
   created_at: string;

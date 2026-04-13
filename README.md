@@ -19,6 +19,7 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 5. Install dependencies with `npm install`
 6. Create the `tradepilot` schema and tables in Supabase from `supabase/tradepilot-schema.sql`
 7. Start local containers with `docker compose up --build -d`
+8. Re-run the schema SQL after pulling updates that add new execution columns or status codes
 
 ## Docker runtime
 
@@ -29,9 +30,13 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 - PostgreSQL lives in Supabase and the backend reads/writes through the Supabase client in schema `tradepilot`
 - Authentication is handled by Supabase Auth with a magic-link callback at `/auth/callback`
 - The frontend and backend must use the same Supabase project for session validation to work
+- Redis now powers both BullMQ and EA pub/sub fan-out for multi-instance dispatch delivery
 
 ## Notes
 
 - Signal ingestion is queued through BullMQ.
 - Execution dispatch is real-time and sent directly over WebSocket.
+- Parsing uses a regex-first path with a structured AI fallback seam.
+- Execution includes idempotency keys, guard checks, retry backoff, and explicit failure status codes.
+- Dashboard health now includes EA latency and last-seen metadata.
 - Telegram integration and AI parsing are mocked behind replaceable services.

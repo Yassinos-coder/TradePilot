@@ -1,37 +1,78 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { IncomingMessage, Server as HttpServer } from 'node:http';
 import { Server as WebSocketServer, WebSocket } from 'ws';
 
-import { EA_WEBSOCKET_PATH } from '@tradepilot/config';
 import {
-  SignalDTO,
+  EA_DISPATCH_ACK_PREFIX,
+  EA_DISPATCH_CHANNEL,
+  EA_PRESENCE_KEY_PREFIX,
+  EA_WEBSOCKET_PATH,
+} from '@tradepilot/config';
+import {
   WebSocketInboundMessage,
   WebSocketOutboundMessage,
   eaInboundMessageSchema,
 } from '@tradepilot/shared';
 import { toEaSignalPayload } from '@tradepilot/trading';
 
+import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
 
+import {
+  DispatchAckMessage,
+  DispatchEventMessage,
+  EaConnectionState,
+} from '../execution/execution.types';
+
 interface SocketMetadata {
+  connectionId: string;
   userId?: string;
   lastSeenAt: number;
+  latencyMs: number | null;
+  lastServerPingAt: number | null;
+}
+
+interface PresencePayload {
+  connectionId: string;
+  instanceId: string;
+  lastSeenAt: number;
+  latencyMs: number | null;
 }
 
 @Injectable()
-export class EaGatewayService implements OnModuleDestroy {
+export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private readonly logger = new Logger(EaGatewayService.name);
+  private readonly instanceId = randomUUID();
   private server?: WebSocketServer;
   private heartbeatTimer?: NodeJS.Timeout;
   private readonly socketsByUser = new Map<string, Set<WebSocket>>();
   private readonly socketMetadata = new Map<WebSocket, SocketMetadata>();
   private attached = false;
+  private unsubscribeDispatch?: () => Promise<void>;
 
   constructor(
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
   ) {}
+
+  async onModuleInit() {
+    this.unsubscribeDispatch = await this.redisService.subscribe(
+      EA_DISPATCH_CHANNEL,
+      async (rawMessage) => {
+        await this.handleDispatchEvent(rawMessage);
+      },
+    );
+
+    this.startHeartbeatMonitor();
+  }
 
   attach(httpServer: HttpServer) {
     if (this.attached) {
@@ -57,46 +98,37 @@ export class EaGatewayService implements OnModuleDestroy {
       this.handleConnection(client, request);
     });
 
-    this.startHeartbeatMonitor();
     this.attached = true;
   }
 
-  async sendSignal(userId: string, signal: SignalDTO): Promise<boolean> {
-    const connections = this.socketsByUser.get(userId);
+  async getConnectionState(userId: string): Promise<EaConnectionState> {
+    const presenceKeys = await this.redisService.scanKeys(
+      `${EA_PRESENCE_KEY_PREFIX}:${userId}:*`,
+    );
+    const values = await this.redisService.getMany(presenceKeys);
+    const presences = values
+      .map((value) => {
+        if (!value) {
+          return null;
+        }
 
-    if (!connections || connections.size === 0) {
-      return false;
-    }
+        try {
+          return JSON.parse(value) as PresencePayload;
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is PresencePayload => Boolean(value))
+      .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
 
-    const outboundMessage: WebSocketOutboundMessage = {
-      type: 'signal',
-      data: toEaSignalPayload(signal),
+    const latest = presences[0];
+
+    return {
+      online: presences.length > 0,
+      latencyMs: latest?.latencyMs ?? null,
+      lastSeenAt: latest ? new Date(latest.lastSeenAt).toISOString() : null,
+      connectionCount: presences.length,
     };
-
-    const payload = JSON.stringify(outboundMessage);
-    let delivered = false;
-
-    for (const connection of connections) {
-      if (connection.readyState !== WebSocket.OPEN) {
-        this.removeConnection(connection);
-        continue;
-      }
-
-      try {
-        connection.send(payload);
-        delivered = true;
-      } catch (error) {
-        this.logger.warn(`Failed to send signal to connection: ${String(error)}`);
-        this.removeConnection(connection);
-      }
-    }
-
-    return delivered;
-  }
-
-  isConnected(userId: string): boolean {
-    const connections = this.socketsByUser.get(userId);
-    return Boolean(connections && connections.size > 0);
   }
 
   onModuleDestroy() {
@@ -104,12 +136,19 @@ export class EaGatewayService implements OnModuleDestroy {
       clearInterval(this.heartbeatTimer);
     }
 
+    if (this.unsubscribeDispatch) {
+      void this.unsubscribeDispatch();
+    }
+
     this.server?.close();
   }
 
   private handleConnection(client: WebSocket, _request: IncomingMessage) {
     this.socketMetadata.set(client, {
+      connectionId: randomUUID(),
       lastSeenAt: Date.now(),
+      latencyMs: null,
+      lastServerPingAt: null,
     });
 
     client.on('message', async (buffer) => {
@@ -117,12 +156,12 @@ export class EaGatewayService implements OnModuleDestroy {
     });
 
     client.on('close', () => {
-      this.removeConnection(client);
+      void this.removeConnection(client);
     });
 
     client.on('error', (error) => {
       this.logger.warn(`EA connection error: ${String(error)}`);
-      this.removeConnection(client);
+      void this.removeConnection(client);
     });
   }
 
@@ -148,7 +187,7 @@ export class EaGatewayService implements OnModuleDestroy {
     }
 
     const message: WebSocketInboundMessage = parsedMessage.data;
-    this.touch(client);
+    await this.touch(client);
 
     if (message.type === 'auth') {
       const user = await this.usersService.findByApiKey(message.apiKey);
@@ -162,12 +201,14 @@ export class EaGatewayService implements OnModuleDestroy {
         return;
       }
 
-      this.registerSocket(client, user.id);
+      await this.registerSocket(client, user.id);
       this.sendMessage(client, { type: 'auth_success' });
       return;
     }
 
-    if (!this.socketMetadata.get(client)?.userId) {
+    const metadata = this.socketMetadata.get(client);
+
+    if (!metadata?.userId) {
       this.sendMessage(client, {
         type: 'error',
         message: 'Authenticate before sending heartbeat messages',
@@ -176,12 +217,84 @@ export class EaGatewayService implements OnModuleDestroy {
     }
 
     if (message.type === 'ping') {
-      this.sendMessage(client, { type: 'pong' });
+      this.sendMessage(client, {
+        type: 'pong',
+        timestamp: message.timestamp ?? Date.now(),
+      });
+      return;
+    }
+
+    if (message.type === 'pong') {
+      const referenceTimestamp = message.timestamp ?? metadata.lastServerPingAt;
+      const latencyMs =
+        typeof referenceTimestamp === 'number'
+          ? Math.max(0, Date.now() - referenceTimestamp)
+          : null;
+
+      if (latencyMs !== null) {
+        await this.updateLatency(client, latencyMs);
+      }
     }
   }
 
-  private registerSocket(client: WebSocket, userId: string) {
+  private async handleDispatchEvent(rawMessage: string) {
+    const payload = this.tryParseJson(rawMessage);
+
+    if (!payload) {
+      return;
+    }
+
+    const event = payload as DispatchEventMessage;
+    const connections = this.socketsByUser.get(event.userId);
+
+    if (!connections || connections.size === 0) {
+      return;
+    }
+
+    const outboundMessage: WebSocketOutboundMessage = {
+      type: 'signal',
+      data: toEaSignalPayload(event.signal),
+    };
+    const serializedMessage = JSON.stringify(outboundMessage);
+    let deliveredCount = 0;
+
+    for (const connection of connections) {
+      if (connection.readyState !== WebSocket.OPEN) {
+        await this.removeConnection(connection);
+        continue;
+      }
+
+      try {
+        connection.send(serializedMessage);
+        deliveredCount += 1;
+      } catch (error) {
+        this.logger.warn(`Failed to forward signal to EA socket: ${String(error)}`);
+        await this.removeConnection(connection);
+      }
+    }
+
+    if (deliveredCount > 0) {
+      const ack: DispatchAckMessage = {
+        eventId: event.eventId,
+        delivered: true,
+        deliveredCount,
+        instanceId: this.instanceId,
+        userId: event.userId,
+      };
+
+      await this.redisService.publish(
+        `${EA_DISPATCH_ACK_PREFIX}:${event.eventId}`,
+        JSON.stringify(ack),
+      );
+    }
+  }
+
+  private async registerSocket(client: WebSocket, userId: string) {
     const metadata = this.socketMetadata.get(client);
+
+    if (!metadata) {
+      return;
+    }
 
     this.socketMetadata.set(client, {
       ...metadata,
@@ -192,10 +305,12 @@ export class EaGatewayService implements OnModuleDestroy {
     const existingConnections = this.socketsByUser.get(userId) ?? new Set<WebSocket>();
     existingConnections.add(client);
     this.socketsByUser.set(userId, existingConnections);
+    await this.persistPresence(client);
   }
 
-  private touch(client: WebSocket) {
+  private async touch(client: WebSocket) {
     const metadata = this.socketMetadata.get(client);
+
     if (!metadata) {
       return;
     }
@@ -204,10 +319,28 @@ export class EaGatewayService implements OnModuleDestroy {
       ...metadata,
       lastSeenAt: Date.now(),
     });
+    await this.persistPresence(client);
+  }
+
+  private async updateLatency(client: WebSocket, latencyMs: number) {
+    const metadata = this.socketMetadata.get(client);
+
+    if (!metadata) {
+      return;
+    }
+
+    this.socketMetadata.set(client, {
+      ...metadata,
+      latencyMs,
+      lastSeenAt: Date.now(),
+    });
+    await this.persistPresence(client);
   }
 
   private startHeartbeatMonitor() {
-    const timeoutMs = this.configService.get<number>('EA_HEARTBEAT_TIMEOUT_MS') ?? 30000;
+    const timeoutMs = this.configService.get<number>('EA_HEARTBEAT_TIMEOUT_MS') ?? 30_000;
+    const pingIntervalMs =
+      this.configService.get<number>('EA_SERVER_PING_INTERVAL_MS') ?? 10_000;
 
     this.heartbeatTimer = setInterval(() => {
       const threshold = Date.now() - timeoutMs;
@@ -215,16 +348,55 @@ export class EaGatewayService implements OnModuleDestroy {
       for (const [socket, metadata] of this.socketMetadata.entries()) {
         if (metadata.lastSeenAt < threshold) {
           socket.close();
-          this.removeConnection(socket);
+          void this.removeConnection(socket);
+          continue;
+        }
+
+        if (metadata.userId && socket.readyState === WebSocket.OPEN) {
+          const timestamp = Date.now();
+
+          this.socketMetadata.set(socket, {
+            ...metadata,
+            lastServerPingAt: timestamp,
+          });
+          this.sendMessage(socket, {
+            type: 'ping',
+            timestamp,
+          });
         }
       }
-    }, 5000);
+    }, pingIntervalMs);
   }
 
-  private removeConnection(client: WebSocket) {
+  private async persistPresence(client: WebSocket) {
     const metadata = this.socketMetadata.get(client);
 
-    if (metadata?.userId) {
+    if (!metadata?.userId) {
+      return;
+    }
+
+    const ttlMs = this.configService.get<number>('EA_PRESENCE_TTL_MS') ?? 45_000;
+
+    await this.redisService.setJson(
+      this.getPresenceKey(metadata.userId, metadata.connectionId),
+      {
+        connectionId: metadata.connectionId,
+        instanceId: this.instanceId,
+        lastSeenAt: metadata.lastSeenAt,
+        latencyMs: metadata.latencyMs,
+      } satisfies PresencePayload,
+      ttlMs,
+    );
+  }
+
+  private async removeConnection(client: WebSocket) {
+    const metadata = this.socketMetadata.get(client);
+
+    if (!metadata) {
+      return;
+    }
+
+    if (metadata.userId) {
       const connections = this.socketsByUser.get(metadata.userId);
 
       if (connections) {
@@ -234,9 +406,17 @@ export class EaGatewayService implements OnModuleDestroy {
           this.socketsByUser.delete(metadata.userId);
         }
       }
+
+      await this.redisService.delete(
+        this.getPresenceKey(metadata.userId, metadata.connectionId),
+      );
     }
 
     this.socketMetadata.delete(client);
+  }
+
+  private getPresenceKey(userId: string, connectionId: string) {
+    return `${EA_PRESENCE_KEY_PREFIX}:${userId}:${connectionId}`;
   }
 
   private sendMessage(client: WebSocket, message: WebSocketOutboundMessage) {

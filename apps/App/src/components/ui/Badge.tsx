@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 
 import { cn } from '../../lib/utils';
 
-type BadgeTone = 'positive' | 'warning' | 'danger' | 'neutral' | 'info';
+export type BadgeTone = 'positive' | 'warning' | 'danger' | 'neutral' | 'info';
 
 const tones: Record<BadgeTone, string> = {
   positive:
@@ -24,6 +24,17 @@ interface BadgeProps {
 }
 
 export function Badge({ tone = 'neutral', dot = false, children }: BadgeProps) {
+  const dotToneClass =
+    tone === 'positive'
+      ? 'bg-emerald-500'
+      : tone === 'warning'
+        ? 'bg-amber-500'
+        : tone === 'danger'
+          ? 'bg-red-500'
+          : tone === 'info'
+            ? 'bg-blue-500'
+            : 'bg-gray-400 dark:bg-slate-500';
+
   return (
     <span
       className={cn(
@@ -33,13 +44,7 @@ export function Badge({ tone = 'neutral', dot = false, children }: BadgeProps) {
     >
       {dot && (
         <span
-          className={cn('h-1.5 w-1.5 rounded-full', {
-            'bg-emerald-500': tone === 'positive',
-            'bg-amber-500': tone === 'warning',
-            'bg-red-500': tone === 'danger',
-            'bg-blue-500': tone === 'info',
-            'bg-gray-400 dark:bg-slate-500': tone === 'neutral',
-          })}
+          className={cn('h-1.5 w-1.5 rounded-full', dotToneClass)}
         />
       )}
       {children}

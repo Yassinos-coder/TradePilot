@@ -72,6 +72,7 @@ create table if not exists tradepilot.settings (
   max_trades integer not null,
   allowed_symbols jsonb not null default '[]'::jsonb,
   sessions jsonb not null default '{}'::jsonb,
+  mode text not null default 'AUTO' check (mode in ('AUTO', 'SEMI_AUTO', 'MANUAL')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -80,9 +81,22 @@ create table if not exists tradepilot.signals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references tradepilot.users(id) on delete cascade,
   raw_message text not null,
+  raw_message_hash text,
   source_channel text,
   parsed_data jsonb,
-  status text not null check (status in ('PENDING', 'VALIDATED', 'DISPATCHED', 'FAILED')),
+  confidence numeric(4,3),
+  status text not null check (
+    status in (
+      'PENDING',
+      'VALIDATED',
+      'DISPATCHED',
+      'PARSE_FAILED',
+      'VALIDATION_FAILED',
+      'EA_OFFLINE',
+      'DISPATCH_TIMEOUT',
+      'EXECUTION_REJECTED'
+    )
+  ),
   created_at timestamptz not null default now()
 );
 
@@ -90,7 +104,20 @@ create table if not exists tradepilot.execution_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references tradepilot.users(id) on delete cascade,
   signal_id uuid references tradepilot.signals(id) on delete set null,
-  status text not null check (status in ('RECEIVED', 'DISPATCHED', 'RETRIED', 'FAILED')),
+  execution_key text,
+  attempt integer not null default 0,
+  status text not null check (
+    status in (
+      'RECEIVED',
+      'RETRYING',
+      'DISPATCHED',
+      'PARSE_FAILED',
+      'VALIDATION_FAILED',
+      'EA_OFFLINE',
+      'DISPATCH_TIMEOUT',
+      'EXECUTION_REJECTED'
+    )
+  ),
   message text not null,
   created_at timestamptz not null default now()
 );
@@ -106,10 +133,117 @@ create table if not exists tradepilot.telegram_channels (
   unique (user_id, external_id)
 );
 
+alter table tradepilot.settings
+  add column if not exists mode text default 'AUTO';
+
+update tradepilot.settings
+set mode = 'AUTO'
+where mode is null;
+
+alter table tradepilot.settings
+  alter column mode set not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'settings_mode_check'
+      and conrelid = 'tradepilot.settings'::regclass
+  ) then
+    alter table tradepilot.settings drop constraint settings_mode_check;
+  end if;
+
+  alter table tradepilot.settings
+    add constraint settings_mode_check check (mode in ('AUTO', 'SEMI_AUTO', 'MANUAL'));
+exception
+  when duplicate_object then null;
+end $$;
+
+alter table tradepilot.signals
+  add column if not exists raw_message_hash text;
+
+alter table tradepilot.signals
+  add column if not exists confidence numeric(4,3);
+
+alter table tradepilot.execution_logs
+  add column if not exists execution_key text;
+
+alter table tradepilot.execution_logs
+  add column if not exists attempt integer default 0;
+
+update tradepilot.execution_logs
+set attempt = 0
+where attempt is null;
+
+alter table tradepilot.execution_logs
+  alter column attempt set not null;
+
 create index if not exists idx_accounts_user_id on tradepilot.accounts(user_id);
 create index if not exists idx_signals_user_created_at on tradepilot.signals(user_id, created_at desc);
+create index if not exists idx_signals_user_hash_created_at on tradepilot.signals(user_id, raw_message_hash, created_at desc);
 create index if not exists idx_execution_logs_user_created_at on tradepilot.execution_logs(user_id, created_at desc);
+create index if not exists idx_execution_logs_execution_key on tradepilot.execution_logs(execution_key);
 create index if not exists idx_telegram_channels_user_id on tradepilot.telegram_channels(user_id);
+create unique index if not exists idx_execution_logs_dispatched_execution_key
+  on tradepilot.execution_logs(execution_key)
+  where status = 'DISPATCHED' and execution_key is not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'signals_status_check'
+      and conrelid = 'tradepilot.signals'::regclass
+  ) then
+    alter table tradepilot.signals drop constraint signals_status_check;
+  end if;
+
+  alter table tradepilot.signals
+    add constraint signals_status_check check (
+      status in (
+        'PENDING',
+        'VALIDATED',
+        'DISPATCHED',
+        'PARSE_FAILED',
+        'VALIDATION_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'execution_logs_status_check'
+      and conrelid = 'tradepilot.execution_logs'::regclass
+  ) then
+    alter table tradepilot.execution_logs drop constraint execution_logs_status_check;
+  end if;
+
+  alter table tradepilot.execution_logs
+    add constraint execution_logs_status_check check (
+      status in (
+        'RECEIVED',
+        'RETRYING',
+        'DISPATCHED',
+        'PARSE_FAILED',
+        'VALIDATION_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
 
 create or replace function tradepilot.handle_new_tradepilot_user()
 returns trigger as $$
@@ -119,14 +253,16 @@ begin
     risk_percent,
     max_trades,
     allowed_symbols,
-    sessions
+    sessions,
+    mode
   )
   values (
     new.id,
     1,
     3,
     '["XAUUSD","EURUSD","GBPUSD","BTCUSD"]'::jsonb,
-    '{"london": true, "newYork": true}'::jsonb
+    '{"london": true, "newYork": true}'::jsonb,
+    'AUTO'
   )
   on conflict (user_id) do nothing;
 
