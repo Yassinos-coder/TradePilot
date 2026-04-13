@@ -1,0 +1,21 @@
+{
+  "name": "tradepilot",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "turbo": "^2.9.6",
+    "typescript": "5.8.3"
+  }
+}

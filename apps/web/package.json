@@ -1,0 +1,32 @@
+{
+  "name": "@tradepilot/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --configLoader runner",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "@tanstack/react-query": "5.87.1",
+    "@tradepilot/config": "0.1.0",
+    "@tradepilot/shared": "0.1.0",
+    "axios": "1.11.0",
+    "framer-motion": "12.23.12",
+    "lucide-react": "0.542.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "react-router-dom": "6.28.0",
+    "zustand": "5.0.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.12",
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "5.0.2",
+    "tailwindcss": "4.1.12",
+    "vite": "7.1.3"
+  }
+}

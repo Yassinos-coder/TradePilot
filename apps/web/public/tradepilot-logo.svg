@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#102033"/>
+      <stop offset="1" stop-color="#08111C"/>
+    </linearGradient>
+    <linearGradient id="line" x1="18" y1="42" x2="47" y2="23" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#67E8F9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(48 16) rotate(90) scale(22)">
+      <stop stop-color="#22D3EE" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(12 12)">
+    <rect x="0" y="0" width="72" height="72" rx="22" fill="url(#bg)"/>
+    <rect x=".75" y=".75" width="70.5" height="70.5" rx="21.25" stroke="#22435D"/>
+    <circle cx="54" cy="12" r="22" fill="url(#glow)"/>
+    <circle cx="36" cy="36" r="20" stroke="#32556C" stroke-opacity=".7"/>
+    <path d="M18 50L29 39L38 44L55 27" stroke="url(#line)" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M47 27H55V35" stroke="url(#line)" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M21 18H37" stroke="#E4FBFF" stroke-width="4.2" stroke-linecap="round"/>
+    <path d="M29 18V46" stroke="#E4FBFF" stroke-width="4.2" stroke-linecap="round"/>
+    <circle cx="29" cy="39" r="3.2" fill="#07111C" stroke="#7CF8DE" stroke-width="2"/>
+    <circle cx="38" cy="44" r="3.2" fill="#07111C" stroke="#7CF8DE" stroke-width="2"/>
+  </g>
+  <text x="104" y="34" fill="#7DD3FC" font-size="12" font-family="'Segoe UI', Arial, sans-serif" letter-spacing="4.5">
+    SIGNAL EXECUTION
+  </text>
+  <text x="104" y="64" fill="#F8FBFF" font-size="34" font-weight="700" font-family="'Segoe UI Semibold', 'Segoe UI', Arial, sans-serif">
+    Trade<tspan fill="#67E8F9">Pilot</tspan>
+  </text>
+</svg>

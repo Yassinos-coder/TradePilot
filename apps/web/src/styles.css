@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/* Class-based dark mode for Tailwind v4 */
+@custom-variant dark (&:is(.dark *));
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* Dark theme */
+html.dark body {
+  background-color: #020617;
+  color: #f1f5f9;
+}
+
+/* Light theme */
+html.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* Selection highlight */
+html.dark ::selection {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+html.light ::selection {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.light {
+  color-scheme: light;
+}

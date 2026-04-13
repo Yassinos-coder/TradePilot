@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: tradepilot-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: tradepilot-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 4000
+      API_PORT: 4000
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    ports:
+      - "${API_PORT:-4000}:4000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api}
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-ws://localhost:4000}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-https://your-project-ref.supabase.co}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-replace-with-your-supabase-anon-key}
+        VITE_MAGIC_LINK_REDIRECT_PATH: ${VITE_MAGIC_LINK_REDIRECT_PATH:-/auth/callback}
+    container_name: tradepilot-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  redis-data:
