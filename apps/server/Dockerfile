@@ -3,7 +3,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json turbo.json tsconfig.base.json ./
-COPY apps/Server/package.json apps/Server/package.json
+COPY apps/server/package.json apps/server/package.json
 COPY apps/App/package.json apps/App/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/config/package.json packages/config/package.json
@@ -24,4 +24,4 @@ COPY --from=builder /app ./
 
 EXPOSE 4000
 
-CMD ["node", "apps/Server/dist/main.js"]
+CMD ["node", "apps/server/dist/main.js"]

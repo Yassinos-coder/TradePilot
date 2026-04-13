@@ -4,7 +4,7 @@ TradePilot is a production-oriented SaaS monorepo that routes trading signals fr
 
 ## Stack
 
-- `apps/Server`: NestJS + Supabase + BullMQ + raw WebSocket EA gateway
+- `apps/server`: NestJS + Supabase + BullMQ + raw WebSocket EA gateway
 - `apps/App`: React + Vite + Tailwind CSS + React Query + Zustand
 - `packages/shared`: Zod schemas and DTO contracts
 - `packages/config`: shared runtime env parsing and constants

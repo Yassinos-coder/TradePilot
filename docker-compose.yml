@@ -14,7 +14,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/Server/Dockerfile
+      dockerfile: apps/server/Dockerfile
     container_name: tradepilot-api
     restart: unless-stopped
     env_file:
