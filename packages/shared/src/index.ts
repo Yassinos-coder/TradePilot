@@ -2,15 +2,20 @@ import { z } from 'zod';
 
 export const signalSideSchema = z.enum(['BUY', 'SELL']);
 export const executionModeSchema = z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']);
+export const signalEntrySchema = z.enum(['MARKET', 'LIMIT']);
+export const parserProviderSchema = z.enum(['REGEX', 'OPENAI']);
+export const tradeLifecycleStatusSchema = z.enum(['OPEN', 'CLOSED', 'REJECTED']);
 
 export const signalDtoSchema = z.object({
   symbol: z.string().min(3).max(20).transform((value) => value.toUpperCase()),
   type: signalSideSchema,
-  entry: z.union([z.literal('MARKET'), z.number().positive()]),
+  entry: signalEntrySchema,
+  entryPrice: z.number().positive().nullable(),
   stopLoss: z.number().positive(),
   takeProfits: z.array(z.number().positive()).min(1),
   sourceChannel: z.string().min(1).optional(),
   confidence: z.number().min(0).max(1),
+  parser: parserProviderSchema,
 });
 
 export const userDtoSchema = z.object({
@@ -28,7 +33,7 @@ export const sessionSettingsSchema = z.object({
 export const settingsDtoSchema = z.object({
   riskPercent: z.number().min(0.1).max(10),
   maxTrades: z.number().int().min(1).max(20),
-  allowedSymbols: z.array(z.string().min(3)).min(1),
+  excludedSymbols: z.array(z.string().min(3)).default([]),
   sessions: sessionSettingsSchema,
   mode: executionModeSchema,
 });
@@ -43,6 +48,47 @@ export const accountDtoSchema = z.object({
 export const createAccountSchema = z.object({
   name: z.string().min(1).max(50),
   broker: z.string().min(1).max(50),
+});
+
+export const accountStatusDtoSchema = z.object({
+  balance: z.number(),
+  equity: z.number(),
+  margin: z.number(),
+  freeMargin: z.number(),
+  drawdownPercent: z.number().min(0),
+  openPositions: z.number().int().nonnegative(),
+  reportedAt: z.string(),
+});
+
+export const tradeExecutionDtoSchema = z.object({
+  id: z.string().min(1),
+  signalId: z.string().nullable(),
+  ticket: z.string().min(1),
+  symbol: z.string().min(3).max(20).transform((value) => value.toUpperCase()),
+  type: signalSideSchema,
+  volume: z.number().positive(),
+  entryPrice: z.number(),
+  exitPrice: z.number().nullable(),
+  stopLoss: z.number().nullable(),
+  takeProfit: z.number().nullable(),
+  profit: z.number(),
+  status: tradeLifecycleStatusSchema,
+  comment: z.string().nullable(),
+  openedAt: z.string(),
+  closedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const analyticsSummarySchema = z.object({
+  totalTrades: z.number().int().nonnegative(),
+  wins: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+  winRate: z.number().min(0).max(100),
+  profitFactor: z.number().min(0),
+  netProfit: z.number(),
+  grossProfit: z.number().min(0),
+  grossLoss: z.number().min(0),
 });
 
 export const telegramConnectionStatusSchema = z.enum([
@@ -139,6 +185,10 @@ export const executionStatusSchema = z.enum([
   'EA_OFFLINE',
   'DISPATCH_TIMEOUT',
   'EXECUTION_REJECTED',
+  'ACCOUNT_STATUS_RECEIVED',
+  'TRADE_OPENED',
+  'TRADE_CLOSED',
+  'TRADE_REJECTED',
 ]);
 
 export const executionLogSchema = z.object({
@@ -148,6 +198,7 @@ export const executionLogSchema = z.object({
   attempt: z.number().int().min(0),
   status: executionStatusSchema,
   message: z.string(),
+  details: z.record(z.string(), z.unknown()).nullable().optional(),
   createdAt: z.string(),
 });
 
@@ -156,8 +207,11 @@ export const dashboardOverviewSchema = z.object({
   eaLatencyMs: z.number().int().nonnegative().nullable(),
   eaLastSeenAt: z.string().nullable(),
   signalCount: z.number().int().nonnegative(),
+  accountStatus: accountStatusDtoSchema.nullable(),
   recentSignals: z.array(signalRecordSchema),
   recentExecutionLogs: z.array(executionLogSchema),
+  recentTrades: z.array(tradeExecutionDtoSchema),
+  analytics: analyticsSummarySchema,
 });
 
 export const eaAuthMessageSchema = z.object({
@@ -175,6 +229,42 @@ export const eaPongMessageSchema = z.object({
   timestamp: z.number().int().optional(),
 });
 
+export const eaAccountStatusPayloadSchema = z.object({
+  balance: z.number(),
+  equity: z.number(),
+  margin: z.number(),
+  freeMargin: z.number(),
+  drawdownPercent: z.number().min(0),
+  openPositions: z.number().int().nonnegative(),
+});
+
+export const eaAccountStatusMessageSchema = z.object({
+  type: z.literal('account_status'),
+  data: eaAccountStatusPayloadSchema,
+});
+
+export const eaTradeEventPayloadSchema = z.object({
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)),
+  signal_id: z.string().optional().nullable(),
+  symbol: z.string().min(3).max(20).transform((value) => value.toUpperCase()),
+  type: signalSideSchema,
+  volume: z.number().positive(),
+  entry_price: z.number(),
+  exit_price: z.number().nullable(),
+  stop_loss: z.number().nullable(),
+  take_profit: z.number().nullable(),
+  profit: z.number(),
+  status: tradeLifecycleStatusSchema,
+  comment: z.string().nullable().optional(),
+  opened_at: z.string(),
+  closed_at: z.string().nullable(),
+});
+
+export const eaTradeEventMessageSchema = z.object({
+  type: z.literal('trade_event'),
+  data: eaTradeEventPayloadSchema,
+});
+
 export const eaAuthSuccessMessageSchema = z.object({
   type: z.literal('auth_success'),
 });
@@ -184,23 +274,28 @@ export const eaErrorMessageSchema = z.object({
   message: z.string().min(1),
 });
 
-export const eaSignalPayloadSchema = z.object({
+export const eaTradePayloadSchema = z.object({
   symbol: z.string().min(3),
   type: signalSideSchema,
-  entry: z.union([z.literal('MARKET'), z.number().positive()]),
+  entry: signalEntrySchema,
+  entry_price: z.number().positive().nullable(),
   stop_loss: z.number().positive(),
-  take_profits: z.array(z.number().positive()).min(1),
+  take_profit: z.number().positive(),
+  signal_id: z.string().min(1).optional(),
+  execution_key: z.string().min(1).optional(),
 });
 
 export const eaSignalMessageSchema = z.object({
   type: z.literal('signal'),
-  data: eaSignalPayloadSchema,
+  data: z.array(eaTradePayloadSchema).min(1),
 });
 
 export const eaInboundMessageSchema = z.discriminatedUnion('type', [
   eaAuthMessageSchema,
   eaPingMessageSchema,
   eaPongMessageSchema,
+  eaAccountStatusMessageSchema,
+  eaTradeEventMessageSchema,
 ]);
 
 export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
@@ -217,6 +312,9 @@ export type SettingsDTO = z.infer<typeof settingsDtoSchema>;
 export type ExecutionMode = z.infer<typeof executionModeSchema>;
 export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
+export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
+export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
+export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
 export type TelegramConnectionStatus = z.infer<typeof telegramConnectionStatusSchema>;
 export type TelegramChannelKind = z.infer<typeof telegramChannelKindSchema>;
 export type TelegramConnectionDTO = z.infer<typeof telegramConnectionSchema>;
@@ -234,4 +332,6 @@ export type ExecutionLogDTO = z.infer<typeof executionLogSchema>;
 export type DashboardOverviewDTO = z.infer<typeof dashboardOverviewSchema>;
 export type WebSocketInboundMessage = z.infer<typeof eaInboundMessageSchema>;
 export type WebSocketOutboundMessage = z.infer<typeof eaOutboundMessageSchema>;
-export type EaSignalPayload = z.infer<typeof eaSignalPayloadSchema>;
+export type EaAccountStatusPayload = z.infer<typeof eaAccountStatusPayloadSchema>;
+export type EaTradeEventPayload = z.infer<typeof eaTradeEventPayloadSchema>;
+export type EaTradePayload = z.infer<typeof eaTradePayloadSchema>;

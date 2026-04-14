@@ -14,6 +14,11 @@ import { AccountsService } from './accounts.service';
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
+  @Get('status')
+  getLatestAccountStatus(@CurrentUser() user: RequestUser) {
+    return this.accountsService.getLatestAccountStatus(user.userId);
+  }
+
   @Get()
   listAccounts(@CurrentUser() user: RequestUser) {
     return this.accountsService.listAccounts(user.userId);

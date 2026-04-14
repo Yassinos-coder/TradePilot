@@ -1,8 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { SignalDTO } from '@tradepilot/shared';
-
 import { DatabaseService } from '../database/database.service';
 import { SignalRecord } from '../database/database.types';
 
@@ -16,27 +14,24 @@ export class ExecutionGuardService {
   ) {}
 
   async evaluate(input: ExecutionGuardInput): Promise<ExecutionGuardResult> {
-    if (!input.settings.allowedSymbols.includes(input.signal.symbol)) {
+    if (input.settings.excludedSymbols.includes(input.signal.symbol)) {
       return {
         allowed: false,
-        reason: `Symbol ${input.signal.symbol} is not enabled in user settings`,
+        reason: `Symbol ${input.signal.symbol} is excluded in user settings`,
       };
     }
 
     const duplicateWindowMs =
       this.configService.get<number>('GUARD_DUPLICATE_SIGNAL_WINDOW_MS') ?? 60_000;
-    const activeWindowMs =
-      this.configService.get<number>('GUARD_ACTIVE_SIGNAL_WINDOW_MS') ?? 900_000;
     const cooldownMs =
       this.configService.get<number>('GUARD_SYMBOL_COOLDOWN_MS') ?? 3_000;
     const maxTradesPerSymbol =
       this.configService.get<number>('GUARD_MAX_TRADES_PER_SYMBOL') ?? 1;
 
     const duplicateWindowStart = new Date(Date.now() - duplicateWindowMs).toISOString();
-    const activeWindowStart = new Date(Date.now() - activeWindowMs).toISOString();
     const client = this.databaseService.getClient();
 
-    const [recentSignalsResult, recentDispatchedResult] = await Promise.all([
+    const [recentSignalsResult, openTradesResult] = await Promise.all([
       client
         .from('signals')
         .select('*')
@@ -45,11 +40,10 @@ export class ExecutionGuardService {
         .order('created_at', { ascending: false })
         .limit(100),
       client
-        .from('signals')
+        .from('trade_executions')
         .select('*')
         .eq('user_id', input.userId)
-        .eq('status', 'DISPATCHED')
-        .gte('created_at', activeWindowStart)
+        .eq('status', 'OPEN')
         .order('created_at', { ascending: false })
         .limit(100),
     ]);
@@ -58,12 +52,15 @@ export class ExecutionGuardService {
       throw new InternalServerErrorException(recentSignalsResult.error.message);
     }
 
-    if (recentDispatchedResult.error) {
-      throw new InternalServerErrorException(recentDispatchedResult.error.message);
+    if (openTradesResult.error) {
+      throw new InternalServerErrorException(openTradesResult.error.message);
     }
 
     const recentSignals = (recentSignalsResult.data ?? []) as SignalRecord[];
-    const recentDispatchedSignals = (recentDispatchedResult.data ?? []) as SignalRecord[];
+    const openTrades = (openTradesResult.data ?? []) as Array<{
+      symbol: string;
+      created_at: string;
+    }>;
 
     const duplicateSignal = recentSignals.find(
       (signal) =>
@@ -77,15 +74,15 @@ export class ExecutionGuardService {
       };
     }
 
-    if (recentDispatchedSignals.length >= input.settings.maxTrades) {
+    if (openTrades.length >= input.settings.maxTrades) {
       return {
         allowed: false,
-        reason: `User trade limit reached (${input.settings.maxTrades} recent dispatches)`,
+        reason: `User trade limit reached (${input.settings.maxTrades} open trades)`,
       };
     }
 
-    const symbolDispatches = recentDispatchedSignals.filter(
-      (signal) => this.extractSignalSymbol(signal) === input.signal.symbol,
+    const symbolDispatches = openTrades.filter(
+      (trade) => trade.symbol === input.signal.symbol,
     );
 
     if (symbolDispatches.length >= maxTradesPerSymbol) {
@@ -108,15 +105,5 @@ export class ExecutionGuardService {
     }
 
     return { allowed: true };
-  }
-
-  private extractSignalSymbol(signal: SignalRecord): string | null {
-    const parsedData = signal.parsed_data as
-      | {
-          symbol?: unknown;
-        }
-      | null;
-
-    return typeof parsedData?.symbol === 'string' ? parsedData.symbol : null;
   }
 }

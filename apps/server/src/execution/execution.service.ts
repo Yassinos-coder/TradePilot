@@ -6,16 +6,29 @@ import {
   EA_DISPATCH_CHANNEL,
 } from '@tradepilot/config';
 import {
+  AccountStatusDTO,
+  AnalyticsSummaryDTO,
   ExecutionLogDTO,
   ExecutionStatus,
   SignalStatus,
+  TradeExecutionDTO,
+  accountStatusDtoSchema,
+  analyticsSummarySchema,
   executionLogSchema,
+  tradeExecutionDtoSchema,
 } from '@tradepilot/shared';
+import {
+  toEaTradePayloads,
+} from '@tradepilot/trading';
 
 import { hashText } from '../common/utils/hash';
 import { sleep } from '../common/utils/sleep';
 import { DatabaseService } from '../database/database.service';
-import { ExecutionLogRecord } from '../database/database.types';
+import {
+  AccountStatusSnapshotRecord,
+  ExecutionLogRecord,
+  TradeExecutionRecord,
+} from '../database/database.types';
 import { EaGatewayService } from '../ea/ea-gateway.service';
 import { RedisService } from '../redis/redis.service';
 import { SettingsService } from '../settings/settings.service';
@@ -48,15 +61,24 @@ export class ExecutionService {
     }
 
     const settings = await this.settingsService.getSettings(input.userId);
+    const trades = toEaTradePayloads(input.signal, {
+      signalId: input.signalId,
+      executionKey,
+    });
 
     await this.recordLog(
       input.userId,
       input.signalId,
       'RECEIVED',
-      'Signal validated and queued for execution checks',
+      `Signal validated and prepared for ${trades.length} EA trade payload(s)`,
       {
         executionKey,
         attempt: 0,
+        details: {
+          parser: input.signal.parser,
+          tradeCount: trades.length,
+          symbol: input.signal.symbol,
+        },
       },
     );
 
@@ -70,6 +92,9 @@ export class ExecutionService {
         {
           executionKey,
           attempt: 0,
+          details: {
+            mode: settings.mode,
+          },
         },
       );
       return;
@@ -93,6 +118,9 @@ export class ExecutionService {
         {
           executionKey,
           attempt: 0,
+          details: {
+            reason: guardResult.reason ?? null,
+          },
         },
       );
       return;
@@ -136,22 +164,28 @@ export class ExecutionService {
       }
 
       sawPresence = true;
-      const acknowledged = await this.publishDispatchAndAwaitAck(
+      const ack = await this.publishDispatchAndAwaitAck(
         input,
+        trades,
         executionKey,
         attempt,
       );
 
-      if (acknowledged) {
+      if (ack?.delivered) {
         await this.updateSignalStatus(input.signalId, 'DISPATCHED');
         await this.recordLog(
           input.userId,
           input.signalId,
           'DISPATCHED',
-          `Signal dispatched to EA on attempt ${attempt}`,
+          `Signal dispatched to ${ack.deliveredCount} EA connection(s) with ${trades.length} trade payload(s)`,
           {
             executionKey,
             attempt,
+            details: {
+              deliveredCount: ack.deliveredCount,
+              tradeCount: trades.length,
+              latencyMs: connectionState.latencyMs,
+            },
           },
         );
         return;
@@ -206,6 +240,93 @@ export class ExecutionService {
     return (logs ?? []).map((log) => this.toExecutionLogDto(log as ExecutionLogRecord));
   }
 
+  async listRecentTrades(userId: string, limit = 10): Promise<TradeExecutionDTO[]> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('trade_executions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return (data ?? []).map((trade) => this.toTradeExecutionDto(trade as TradeExecutionRecord));
+  }
+
+  async getLatestAccountStatus(userId: string): Promise<AccountStatusDTO | null> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('ea_account_status_snapshots')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return this.toAccountStatusDto(data as AccountStatusSnapshotRecord);
+  }
+
+  async getAnalytics(userId: string): Promise<AnalyticsSummaryDTO> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('execution_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['TRADE_CLOSED', 'TRADE_REJECTED'])
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const logs = (data ?? []) as ExecutionLogRecord[];
+    const closedTrades = logs.filter((log) => log.status === 'TRADE_CLOSED');
+    let wins = 0;
+    let losses = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+
+    for (const log of closedTrades) {
+      const profit = this.readNumericDetail(log.details, 'profit');
+
+      if (profit > 0) {
+        wins += 1;
+        grossProfit += profit;
+      } else if (profit < 0) {
+        losses += 1;
+        grossLoss += Math.abs(profit);
+      }
+    }
+
+    const totalTrades = closedTrades.length;
+    const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0;
+    const netProfit = grossProfit - grossLoss;
+
+    return analyticsSummarySchema.parse({
+      totalTrades,
+      wins,
+      losses,
+      winRate: Number(winRate.toFixed(2)),
+      profitFactor: Number(profitFactor.toFixed(2)),
+      netProfit: Number(netProfit.toFixed(2)),
+      grossProfit: Number(grossProfit.toFixed(2)),
+      grossLoss: Number(grossLoss.toFixed(2)),
+    });
+  }
+
   async recordLog(
     userId: string,
     signalId: string | null,
@@ -214,6 +335,7 @@ export class ExecutionService {
     options?: {
       executionKey?: string;
       attempt?: number;
+      details?: Record<string, unknown> | null;
     },
   ) {
     const { data, error } = await this.databaseService
@@ -226,6 +348,7 @@ export class ExecutionService {
         attempt: options?.attempt ?? 0,
         status,
         message,
+        details: options?.details ?? null,
       })
       .select('*')
       .single();
@@ -241,9 +364,10 @@ export class ExecutionService {
 
   private async publishDispatchAndAwaitAck(
     input: DispatchSignalInput,
+    trades: DispatchEventMessage['trades'],
     executionKey: string,
     attempt: number,
-  ): Promise<boolean> {
+  ): Promise<DispatchAckMessage | null> {
     const ackTimeoutMs =
       this.configService.get<number>('EA_DISPATCH_ACK_TIMEOUT_MS') ?? 2_000;
     const eventId = `${executionKey}:${attempt}:${Date.now()}`;
@@ -254,7 +378,7 @@ export class ExecutionService {
       executionKey,
       signalId: input.signalId,
       userId: input.userId,
-      signal: input.signal,
+      trades,
     };
 
     await this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event));
@@ -262,11 +386,10 @@ export class ExecutionService {
     const rawAck = await ackPromise;
 
     if (!rawAck) {
-      return false;
+      return null;
     }
 
-    const ack = JSON.parse(rawAck) as DispatchAckMessage;
-    return ack.delivered;
+    return JSON.parse(rawAck) as DispatchAckMessage;
   }
 
   private async hasSuccessfulDispatch(executionKey: string): Promise<boolean> {
@@ -305,7 +428,60 @@ export class ExecutionService {
       attempt: log.attempt,
       status: log.status,
       message: log.message,
+      details: log.details,
       createdAt: log.created_at,
     });
+  }
+
+  private toTradeExecutionDto(trade: TradeExecutionRecord): TradeExecutionDTO {
+    return tradeExecutionDtoSchema.parse({
+      id: trade.id,
+      signalId: trade.signal_id,
+      ticket: trade.ticket,
+      symbol: trade.symbol,
+      type: trade.type,
+      volume: trade.volume,
+      entryPrice: trade.entry_price,
+      exitPrice: trade.exit_price,
+      stopLoss: trade.stop_loss,
+      takeProfit: trade.take_profit,
+      profit: trade.profit,
+      status: trade.status,
+      comment: trade.comment,
+      openedAt: trade.opened_at,
+      closedAt: trade.closed_at,
+      createdAt: trade.created_at,
+      updatedAt: trade.updated_at,
+    });
+  }
+
+  private toAccountStatusDto(snapshot: AccountStatusSnapshotRecord): AccountStatusDTO {
+    return accountStatusDtoSchema.parse({
+      balance: snapshot.balance,
+      equity: snapshot.equity,
+      margin: snapshot.margin,
+      freeMargin: snapshot.free_margin,
+      drawdownPercent: snapshot.drawdown_percent,
+      openPositions: snapshot.open_positions,
+      reportedAt: snapshot.created_at,
+    });
+  }
+
+  private readNumericDetail(details: Record<string, unknown> | null, key: string) {
+    const value = details?.[key];
+
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value);
+
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return 0;
   }
 }

@@ -111,14 +111,14 @@ export function SettingsPage() {
 
   const isDirty = JSON.stringify(draft) !== JSON.stringify(settingsQuery.data);
 
-  const toggleSymbol = (symbol: string) => {
-    const allowedSymbols = draft.allowedSymbols.includes(symbol)
-      ? draft.allowedSymbols.filter((item) => item !== symbol)
-      : [...draft.allowedSymbols, symbol];
+  const toggleExcludedSymbol = (symbol: string) => {
+    const excludedSymbols = draft.excludedSymbols.includes(symbol)
+      ? draft.excludedSymbols.filter((item) => item !== symbol)
+      : [...draft.excludedSymbols, symbol];
 
     setDraft({
       ...draft,
-      allowedSymbols,
+      excludedSymbols,
     });
   };
 
@@ -207,7 +207,7 @@ export function SettingsPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-gray-700 dark:text-slate-300">
-                Max trades per rolling window
+                Max concurrent trades
               </label>
               <Badge tone="neutral">{draft.maxTrades}</Badge>
             </div>
@@ -273,27 +273,27 @@ export function SettingsPage() {
       </Card>
 
       <Card
-        title="Allowed Symbols"
+        title="Excluded Symbols"
         eyebrow="Instrument Filter"
-        description="Signals for symbols outside this list are rejected by the execution guard."
+        description="Signals for excluded symbols are rejected by the execution guard."
       >
         <div className="flex flex-wrap gap-2">
           {SYMBOLS.map((symbol) => {
-            const selected = draft.allowedSymbols.includes(symbol);
+            const excluded = draft.excludedSymbols.includes(symbol);
 
             return (
               <button
                 key={symbol}
                 type="button"
-                onClick={() => toggleSymbol(symbol)}
+                onClick={() => toggleExcludedSymbol(symbol)}
                 className={[
                   'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
-                  selected
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-400'
-                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600',
+                  excluded
+                    ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
                 ].join(' ')}
               >
-                {symbol}
+                {symbol} {excluded ? 'Excluded' : 'Allowed'}
               </button>
             );
           })}

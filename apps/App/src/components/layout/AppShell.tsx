@@ -5,6 +5,7 @@ import {
   Settings2,
   Send,
   Wallet,
+  BarChart3,
   LogOut,
   Sun,
   Moon,
@@ -17,6 +18,7 @@ import { useThemeStore } from '../../store/theme-store';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/settings', label: 'Settings', icon: Settings2 },
   { to: '/telegram', label: 'Telegram', icon: Send },
   { to: '/accounts', label: 'Accounts', icon: Wallet },
@@ -24,6 +26,7 @@ const NAV = [
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
+  '/analytics': 'Analytics',
   '/settings': 'Settings',
   '/telegram': 'Telegram',
   '/accounts': 'Accounts',

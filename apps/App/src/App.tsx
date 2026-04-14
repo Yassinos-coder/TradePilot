@@ -7,6 +7,7 @@ import { AppShell } from './components/layout/AppShell';
 import { apiClient } from './lib/api';
 import { useAuthStore } from './store/auth-store';
 import { AccountsPage } from './pages/AccountsPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -88,6 +89,7 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/telegram" element={<TelegramPage />} />
           <Route path="/accounts" element={<AccountsPage />} />

@@ -2,9 +2,10 @@ import { Injectable, InternalServerErrorException, NotFoundException } from '@ne
 import { randomBytes } from 'node:crypto';
 
 import {
-  DEFAULT_ALLOWED_SYMBOLS,
+  DEFAULT_EXCLUDED_SYMBOLS,
   DEFAULT_EXECUTION_MODE,
   DEFAULT_SESSIONS,
+  SUPPORTED_SYMBOLS,
 } from '@tradepilot/config';
 import { UserDTO, userDtoSchema } from '@tradepilot/shared';
 
@@ -173,7 +174,8 @@ export class UsersService {
         user_id: userId,
         risk_percent: 1,
         max_trades: 3,
-        allowed_symbols: DEFAULT_ALLOWED_SYMBOLS,
+        allowed_symbols: SUPPORTED_SYMBOLS,
+        excluded_symbols: DEFAULT_EXCLUDED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
         mode: DEFAULT_EXECUTION_MODE,
       },

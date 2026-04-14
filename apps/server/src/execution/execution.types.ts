@@ -1,4 +1,4 @@
-import { SettingsDTO, SignalDTO } from '@tradepilot/shared';
+import { AccountStatusDTO, EaTradePayload, SettingsDTO, SignalDTO } from '@tradepilot/shared';
 
 export interface DispatchSignalInput {
   userId: string;
@@ -25,7 +25,7 @@ export interface DispatchEventMessage {
   executionKey: string;
   signalId: string;
   userId: string;
-  signal: SignalDTO;
+  trades: EaTradePayload[];
 }
 
 export interface DispatchAckMessage {
@@ -41,4 +41,5 @@ export interface EaConnectionState {
   latencyMs: number | null;
   lastSeenAt: string | null;
   connectionCount: number;
+  accountStatus?: AccountStatusDTO | null;
 }

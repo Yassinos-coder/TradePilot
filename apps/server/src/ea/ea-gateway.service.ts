@@ -10,18 +10,29 @@ import { IncomingMessage, Server as HttpServer } from 'node:http';
 import { Server as WebSocketServer, WebSocket } from 'ws';
 
 import {
+  DEFAULT_EA_HEARTBEAT_TIMEOUT_MS,
+  DEFAULT_EA_SERVER_PING_INTERVAL_MS,
   EA_DISPATCH_ACK_PREFIX,
   EA_DISPATCH_CHANNEL,
   EA_PRESENCE_KEY_PREFIX,
   EA_WEBSOCKET_PATH,
 } from '@tradepilot/config';
 import {
+  AccountStatusDTO,
+  EaAccountStatusPayload,
+  EaTradeEventPayload,
   WebSocketInboundMessage,
   WebSocketOutboundMessage,
+  accountStatusDtoSchema,
   eaInboundMessageSchema,
 } from '@tradepilot/shared';
-import { toEaSignalPayload } from '@tradepilot/trading';
 
+import { DatabaseService } from '../database/database.service';
+import {
+  AccountStatusSnapshotRecord,
+  ExecutionStatus,
+  TradeExecutionRecord,
+} from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
 
@@ -61,6 +72,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   async onModuleInit() {
@@ -122,12 +134,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
 
     const latest = presences[0];
+    const accountStatus = await this.getLatestAccountStatus(userId);
 
     return {
       online: presences.length > 0,
       latencyMs: latest?.latencyMs ?? null,
       lastSeenAt: latest ? new Date(latest.lastSeenAt).toISOString() : null,
       connectionCount: presences.length,
+      accountStatus,
     };
   }
 
@@ -152,7 +166,11 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     });
 
     client.on('message', async (buffer) => {
-      await this.handleMessage(client, buffer.toString());
+      try {
+        await this.handleMessage(client, buffer.toString());
+      } catch (error) {
+        this.logger.warn(`EA message handling failed: ${String(error)}`);
+      }
     });
 
     client.on('close', () => {
@@ -234,6 +252,16 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       if (latencyMs !== null) {
         await this.updateLatency(client, latencyMs);
       }
+      return;
+    }
+
+    if (message.type === 'account_status') {
+      await this.storeAccountStatus(metadata.userId, message.data);
+      return;
+    }
+
+    if (message.type === 'trade_event') {
+      await this.storeTradeEvent(metadata.userId, message.data);
     }
   }
 
@@ -253,7 +281,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
 
     const outboundMessage: WebSocketOutboundMessage = {
       type: 'signal',
-      data: toEaSignalPayload(event.signal),
+      data: event.trades,
     };
     const serializedMessage = JSON.stringify(outboundMessage);
     let deliveredCount = 0;
@@ -338,9 +366,12 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   }
 
   private startHeartbeatMonitor() {
-    const timeoutMs = this.configService.get<number>('EA_HEARTBEAT_TIMEOUT_MS') ?? 30_000;
+    const timeoutMs =
+      this.configService.get<number>('EA_HEARTBEAT_TIMEOUT_MS') ??
+      DEFAULT_EA_HEARTBEAT_TIMEOUT_MS;
     const pingIntervalMs =
-      this.configService.get<number>('EA_SERVER_PING_INTERVAL_MS') ?? 10_000;
+      this.configService.get<number>('EA_SERVER_PING_INTERVAL_MS') ??
+      DEFAULT_EA_SERVER_PING_INTERVAL_MS;
 
     this.heartbeatTimer = setInterval(() => {
       const threshold = Date.now() - timeoutMs;
@@ -375,7 +406,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
-    const ttlMs = this.configService.get<number>('EA_PRESENCE_TTL_MS') ?? 45_000;
+    const ttlMs = this.configService.get<number>('EA_PRESENCE_TTL_MS') ?? 18_000;
 
     await this.redisService.setJson(
       this.getPresenceKey(metadata.userId, metadata.connectionId),
@@ -413,6 +444,164 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     this.socketMetadata.delete(client);
+  }
+
+  private async storeAccountStatus(userId: string, payload: EaAccountStatusPayload) {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('ea_account_status_snapshots')
+      .insert({
+        user_id: userId,
+        balance: payload.balance,
+        equity: payload.equity,
+        margin: payload.margin,
+        free_margin: payload.freeMargin,
+        drawdown_percent: payload.drawdownPercent,
+        open_positions: payload.openPositions,
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Failed to store EA account status');
+    }
+
+    await this.insertExecutionEvent(
+      userId,
+      null,
+      'ACCOUNT_STATUS_RECEIVED',
+      'Received EA account status update',
+      {
+        balance: payload.balance,
+        equity: payload.equity,
+        drawdownPercent: payload.drawdownPercent,
+        openPositions: payload.openPositions,
+      },
+    );
+  }
+
+  private async storeTradeEvent(userId: string, payload: EaTradeEventPayload) {
+    const { error } = await this.databaseService
+      .getClient()
+      .from('trade_executions')
+      .upsert(
+        {
+          user_id: userId,
+          signal_id: payload.signal_id ?? null,
+          ticket: payload.ticket,
+          symbol: payload.symbol,
+          type: payload.type,
+          volume: payload.volume,
+          entry_price: payload.entry_price,
+          exit_price: payload.exit_price,
+          stop_loss: payload.stop_loss,
+          take_profit: payload.take_profit,
+          profit: payload.profit,
+          status: payload.status,
+          comment: payload.comment ?? null,
+          opened_at: payload.opened_at,
+          closed_at: payload.closed_at,
+        },
+        {
+          onConflict: 'user_id,ticket',
+        },
+      );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const status = this.tradeEventToExecutionStatus(payload.status);
+    const message = this.tradeEventMessage(payload);
+
+    await this.insertExecutionEvent(userId, payload.signal_id ?? null, status, message, {
+      ticket: payload.ticket,
+      symbol: payload.symbol,
+      volume: payload.volume,
+      profit: payload.profit,
+      status: payload.status,
+      openedAt: payload.opened_at,
+      closedAt: payload.closed_at,
+    });
+  }
+
+  private async insertExecutionEvent(
+    userId: string,
+    signalId: string | null,
+    status: ExecutionStatus,
+    message: string,
+    details: Record<string, unknown> | null,
+  ) {
+    const { error } = await this.databaseService
+      .getClient()
+      .from('execution_logs')
+      .insert({
+        user_id: userId,
+        signal_id: signalId,
+        status,
+        message,
+        details,
+        attempt: 0,
+      });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  private async getLatestAccountStatus(userId: string): Promise<AccountStatusDTO | null> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('ea_account_status_snapshots')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return this.toAccountStatusDto(data as AccountStatusSnapshotRecord);
+  }
+
+  private tradeEventToExecutionStatus(status: EaTradeEventPayload['status']): ExecutionStatus {
+    switch (status) {
+      case 'OPEN':
+        return 'TRADE_OPENED';
+      case 'CLOSED':
+        return 'TRADE_CLOSED';
+      default:
+        return 'TRADE_REJECTED';
+    }
+  }
+
+  private tradeEventMessage(payload: EaTradeEventPayload) {
+    switch (payload.status) {
+      case 'OPEN':
+        return `EA opened ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+      case 'CLOSED':
+        return `EA closed ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+      default:
+        return `EA rejected ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+    }
+  }
+
+  private toAccountStatusDto(snapshot: AccountStatusSnapshotRecord): AccountStatusDTO {
+    return accountStatusDtoSchema.parse({
+      balance: snapshot.balance,
+      equity: snapshot.equity,
+      margin: snapshot.margin,
+      freeMargin: snapshot.free_margin,
+      drawdownPercent: snapshot.drawdown_percent,
+      openPositions: snapshot.open_positions,
+      reportedAt: snapshot.created_at,
+    });
   }
 
   private getPresenceKey(userId: string, connectionId: string) {

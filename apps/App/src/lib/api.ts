@@ -3,6 +3,8 @@ import axios from 'axios';
 import { parseClientEnv } from '@tradepilot/config';
 import {
   AccountDTO,
+  AccountStatusDTO,
+  AnalyticsSummaryDTO,
   CreateAccountInput,
   DashboardOverviewDTO,
   ExecutionLogDTO,
@@ -15,6 +17,7 @@ import {
   TelegramConnectStartInput,
   TelegramConnectStartResult,
   TelegramConnectionDTO,
+  TradeExecutionDTO,
   UserDTO,
 } from '@tradepilot/shared';
 
@@ -107,6 +110,10 @@ export const apiClient = {
     const { data } = await api.get<AccountDTO[]>('/accounts');
     return data;
   },
+  async accountStatus() {
+    const { data } = await api.get<AccountStatusDTO | null>('/accounts/status');
+    return data;
+  },
   async createAccount(payload: CreateAccountInput) {
     const { data } = await api.post<AccountDTO>('/accounts', payload);
     return data;
@@ -120,6 +127,14 @@ export const apiClient = {
   },
   async executionLogs() {
     const { data } = await api.get<ExecutionLogDTO[]>('/execution/logs');
+    return data;
+  },
+  async executionTrades() {
+    const { data } = await api.get<TradeExecutionDTO[]>('/execution/trades');
+    return data;
+  },
+  async executionAnalytics() {
+    const { data } = await api.get<AnalyticsSummaryDTO>('/execution/analytics');
     return data;
   },
 };

@@ -16,11 +16,20 @@ export class DashboardService {
   ) {}
 
   async getOverview(userId: string): Promise<DashboardOverviewDTO> {
-    const [recentSignals, recentExecutionLogs, connectionState, signalCount] = await Promise.all([
+    const [
+      recentSignals,
+      recentExecutionLogs,
+      connectionState,
+      signalCount,
+      recentTrades,
+      analytics,
+    ] = await Promise.all([
       this.signalsService.listRecentSignals(userId, DASHBOARD_RESULT_LIMIT),
       this.executionService.listLogs(userId, DASHBOARD_RESULT_LIMIT),
       this.gateway.getConnectionState(userId),
       this.signalsService.countSignals(userId),
+      this.executionService.listRecentTrades(userId, DASHBOARD_RESULT_LIMIT),
+      this.executionService.getAnalytics(userId),
     ]);
 
     return dashboardOverviewSchema.parse({
@@ -28,8 +37,11 @@ export class DashboardService {
       eaLatencyMs: connectionState.latencyMs,
       eaLastSeenAt: connectionState.lastSeenAt,
       signalCount,
+      accountStatus: connectionState.accountStatus ?? null,
       recentSignals,
       recentExecutionLogs,
+      recentTrades,
+      analytics,
     });
   }
 }

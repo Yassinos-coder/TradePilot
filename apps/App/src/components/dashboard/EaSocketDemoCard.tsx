@@ -16,6 +16,7 @@ interface SocketMessage {
   type: string;
   message?: string;
   timestamp?: number;
+  data?: unknown;
 }
 
 const STATE_TONE: Record<
@@ -106,7 +107,11 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
         append('<- pong');
         break;
       case 'signal':
-        append('<- signal received');
+        append(
+          Array.isArray(payload.data)
+            ? `<- signal received (${payload.data.length} trade payloads)`
+            : '<- signal received',
+        );
         break;
       default:
         append(`<-- ${payload.type}`);
@@ -147,7 +152,7 @@ export function EaSocketDemoCard({ apiKey }: EaSocketDemoCardProps) {
         socket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
         append('-> ping');
       }
-    }, 12_000);
+    }, 5_000);
 
     return () => clearInterval(intervalId);
   }, [socket, status]);

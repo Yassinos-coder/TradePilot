@@ -4,11 +4,12 @@ import { InternalServerErrorException } from '@nestjs/common';
 
 import { SIGNAL_INGESTION_QUEUE } from '@tradepilot/config';
 import { SignalDTO } from '@tradepilot/shared';
-import { hybridParseSignal, validateSignalBusinessRules } from '@tradepilot/trading';
+import { regexParseSignal, validateSignalBusinessRules } from '@tradepilot/trading';
 
 import { DatabaseService } from '../database/database.service';
 import { ExecutionService } from '../execution/execution.service';
 
+import { AiParsingService } from './ai-parsing.service';
 import { SignalIngestionJob } from './signal.types';
 
 @Processor(SIGNAL_INGESTION_QUEUE)
@@ -16,6 +17,7 @@ export class SignalsProcessor extends WorkerHost {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly executionService: ExecutionService,
+    private readonly aiParsingService: AiParsingService,
   ) {
     super();
   }
@@ -26,7 +28,9 @@ export class SignalsProcessor extends WorkerHost {
     let parsedSignal: SignalDTO;
 
     try {
-      parsedSignal = await hybridParseSignal(rawMessage, sourceChannel);
+      parsedSignal =
+        regexParseSignal(rawMessage, sourceChannel) ??
+        (await this.aiParsingService.parseSignal(rawMessage, sourceChannel));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Signal parsing failed unexpectedly';

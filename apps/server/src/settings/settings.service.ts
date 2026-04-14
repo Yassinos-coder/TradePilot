@@ -1,9 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
 import {
-  DEFAULT_ALLOWED_SYMBOLS,
+  DEFAULT_EXCLUDED_SYMBOLS,
   DEFAULT_EXECUTION_MODE,
   DEFAULT_SESSIONS,
+  SUPPORTED_SYMBOLS,
 } from '@tradepilot/config';
 import { SettingsDTO, settingsDtoSchema } from '@tradepilot/shared';
 
@@ -36,7 +37,8 @@ export class SettingsService {
         user_id: userId,
         risk_percent: 1,
         max_trades: 3,
-        allowed_symbols: DEFAULT_ALLOWED_SYMBOLS,
+        allowed_symbols: SUPPORTED_SYMBOLS,
+        excluded_symbols: DEFAULT_EXCLUDED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
         mode: DEFAULT_EXECUTION_MODE,
       })
@@ -61,7 +63,10 @@ export class SettingsService {
           user_id: userId,
           risk_percent: payload.riskPercent,
           max_trades: payload.maxTrades,
-          allowed_symbols: payload.allowedSymbols,
+          allowed_symbols: SUPPORTED_SYMBOLS.filter(
+            (symbol) => !payload.excludedSymbols.includes(symbol),
+          ),
+          excluded_symbols: payload.excludedSymbols,
           sessions: payload.sessions,
           mode: payload.mode,
         },
@@ -81,7 +86,7 @@ export class SettingsService {
     return settingsDtoSchema.parse({
       riskPercent: settings.risk_percent,
       maxTrades: settings.max_trades,
-      allowedSymbols: settings.allowed_symbols,
+      excludedSymbols: settings.excluded_symbols ?? [],
       sessions: settings.sessions,
       mode: settings.mode ?? DEFAULT_EXECUTION_MODE,
     });

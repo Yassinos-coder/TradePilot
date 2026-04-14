@@ -1,9 +1,15 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
-import { AccountDTO, CreateAccountInput, accountDtoSchema } from '@tradepilot/shared';
+import {
+  AccountDTO,
+  AccountStatusDTO,
+  CreateAccountInput,
+  accountDtoSchema,
+  accountStatusDtoSchema,
+} from '@tradepilot/shared';
 
 import { DatabaseService } from '../database/database.service';
-import { AccountRecord } from '../database/database.types';
+import { AccountRecord, AccountStatusSnapshotRecord } from '../database/database.types';
 
 @Injectable()
 export class AccountsService {
@@ -56,12 +62,45 @@ export class AccountsService {
     }
   }
 
+  async getLatestAccountStatus(userId: string): Promise<AccountStatusDTO | null> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('ea_account_status_snapshots')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return this.toAccountStatusDto(data as AccountStatusSnapshotRecord);
+  }
+
   private toAccountDto(account: AccountRecord): AccountDTO {
     return accountDtoSchema.parse({
       id: account.id,
       name: account.name,
       broker: account.broker,
       createdAt: account.created_at,
+    });
+  }
+
+  private toAccountStatusDto(accountStatus: AccountStatusSnapshotRecord): AccountStatusDTO {
+    return accountStatusDtoSchema.parse({
+      balance: accountStatus.balance,
+      equity: accountStatus.equity,
+      margin: accountStatus.margin,
+      freeMargin: accountStatus.free_margin,
+      drawdownPercent: accountStatus.drawdown_percent,
+      openPositions: accountStatus.open_positions,
+      reportedAt: accountStatus.created_at,
     });
   }
 }

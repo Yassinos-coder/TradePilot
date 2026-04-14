@@ -859,3 +859,141 @@ using (
     where auth_user_id = auth.uid()
   )
 );
+
+alter table tradepilot.settings
+  add column if not exists excluded_symbols jsonb not null default '[]'::jsonb;
+
+update tradepilot.settings
+set excluded_symbols = '[]'::jsonb
+where excluded_symbols is null;
+
+alter table tradepilot.execution_logs
+  add column if not exists details jsonb;
+
+create table if not exists tradepilot.ea_account_status_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references tradepilot.users(id) on delete cascade,
+  balance numeric(18,2) not null,
+  equity numeric(18,2) not null,
+  margin numeric(18,2) not null,
+  free_margin numeric(18,2) not null,
+  drawdown_percent numeric(8,3) not null,
+  open_positions integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists tradepilot.trade_executions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references tradepilot.users(id) on delete cascade,
+  signal_id uuid references tradepilot.signals(id) on delete set null,
+  ticket text not null,
+  symbol text not null,
+  type text not null check (type in ('BUY', 'SELL')),
+  volume numeric(12,4) not null,
+  entry_price numeric(18,8) not null,
+  exit_price numeric(18,8),
+  stop_loss numeric(18,8),
+  take_profit numeric(18,8),
+  profit numeric(18,2) not null default 0,
+  status text not null check (status in ('OPEN', 'CLOSED', 'REJECTED')),
+  comment text,
+  opened_at timestamptz not null,
+  closed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, ticket)
+);
+
+drop trigger if exists trg_trade_executions_updated_at on tradepilot.trade_executions;
+create trigger trg_trade_executions_updated_at
+before update on tradepilot.trade_executions
+for each row execute function tradepilot.set_updated_at();
+
+create index if not exists idx_ea_account_status_snapshots_user_created_at
+  on tradepilot.ea_account_status_snapshots(user_id, created_at desc);
+create index if not exists idx_trade_executions_user_created_at
+  on tradepilot.trade_executions(user_id, created_at desc);
+create index if not exists idx_trade_executions_signal_id
+  on tradepilot.trade_executions(signal_id);
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'execution_logs_status_check'
+      and conrelid = 'tradepilot.execution_logs'::regclass
+  ) then
+    alter table tradepilot.execution_logs drop constraint execution_logs_status_check;
+  end if;
+
+  alter table tradepilot.execution_logs
+    add constraint execution_logs_status_check check (
+      status in (
+        'RECEIVED',
+        'RETRYING',
+        'DISPATCHED',
+        'PARSE_FAILED',
+        'VALIDATION_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED',
+        'ACCOUNT_STATUS_RECEIVED',
+        'TRADE_OPENED',
+        'TRADE_CLOSED',
+        'TRADE_REJECTED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+grant all on tradepilot.ea_account_status_snapshots to postgres, service_role;
+grant all on tradepilot.trade_executions to postgres, service_role;
+grant select on tradepilot.ea_account_status_snapshots to authenticated;
+grant select on tradepilot.trade_executions to authenticated;
+
+alter table tradepilot.ea_account_status_snapshots enable row level security;
+alter table tradepilot.trade_executions enable row level security;
+
+drop policy if exists service_role_ea_account_status_snapshots on tradepilot.ea_account_status_snapshots;
+create policy service_role_ea_account_status_snapshots
+on tradepilot.ea_account_status_snapshots
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists service_role_trade_executions on tradepilot.trade_executions;
+create policy service_role_trade_executions
+on tradepilot.trade_executions
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists ea_account_status_snapshots_select_own on tradepilot.ea_account_status_snapshots;
+create policy ea_account_status_snapshots_select_own
+on tradepilot.ea_account_status_snapshots
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists trade_executions_select_own on tradepilot.trade_executions;
+create policy trade_executions_select_own
+on tradepilot.trade_executions
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);

@@ -109,7 +109,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     if (!this.isConfigured()) {
       this.logger.warn(
-        'Telegram integration is disabled because TELEGRAM_API_ID, TELEGRAM_API_HASH, or TELEGRAM_SESSION_SECRET is missing.',
+        'Telegram integration is disabled because TELEGRAM_API_ID, TELEGRAM_API_HASH, and either TELEGRAM_SESSION_SECRET or TELEGRAM_SESSION_STRING are missing.',
       );
       return;
     }
@@ -142,7 +142,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const phoneNumber = this.normalizePhoneNumber(payload.phoneNumber);
     await this.disconnectLiveClient(userId);
 
-    const client = await this.createClient();
+    const client = await this.createClient('');
     await client.connect();
 
     try {
@@ -568,10 +568,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return this.createClient(sessionString);
   }
 
-  private async createClient(session = ''): Promise<TelegramClient> {
+  private async createClient(session?: string): Promise<TelegramClient> {
     const { apiId, apiHash } = this.getCredentials();
+    const initialSession =
+      typeof session === 'string'
+        ? session
+        : (this.configService.get<string>('TELEGRAM_SESSION_STRING') ?? '');
 
-    return new TelegramClient(new StringSession(session), apiId, apiHash, {
+    return new TelegramClient(new StringSession(initialSession), apiId, apiHash, {
       connectionRetries: TELEGRAM_CLIENT_CONNECTION_RETRIES,
     });
   }
@@ -863,7 +867,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return Boolean(
       this.configService.get<number>('TELEGRAM_API_ID') &&
         this.configService.get<string>('TELEGRAM_API_HASH') &&
-        this.configService.get<string>('TELEGRAM_SESSION_SECRET'),
+        (this.configService.get<string>('TELEGRAM_SESSION_SECRET') ||
+          this.configService.get<string>('TELEGRAM_SESSION_STRING')),
     );
   }
 

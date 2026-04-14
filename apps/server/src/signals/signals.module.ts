@@ -5,6 +5,7 @@ import { SIGNAL_INGESTION_QUEUE } from '@tradepilot/config';
 
 import { ExecutionModule } from '../execution/execution.module';
 
+import { AiParsingService } from './ai-parsing.service';
 import { SignalsController } from './signals.controller';
 import { SignalsProcessor } from './signals.processor';
 import { SignalsService } from './signals.service';
@@ -17,7 +18,7 @@ import { SignalsService } from './signals.service';
     ExecutionModule,
   ],
   controllers: [SignalsController],
-  providers: [SignalsService, SignalsProcessor],
+  providers: [SignalsService, SignalsProcessor, AiParsingService],
   exports: [SignalsService],
 })
 export class SignalsModule {}

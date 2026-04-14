@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Trash2 } from 'lucide-react';
+import { Building2, Gauge, Plus, RefreshCw, Trash2, Wallet } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
+import {
+  formatCurrency,
+  formatPercent,
+  formatTimestamp,
+} from '../lib/utils';
 import { queryClient } from '../lib/query-client';
-import { formatTimestamp } from '../lib/utils';
 import { useToastStore } from '../store/toast-store';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -14,19 +18,26 @@ import { Skeleton } from '../components/ui/Skeleton';
 
 function AccountsSkeleton() {
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="max-w-5xl space-y-5">
+      <Card title="Live Account Telemetry" eyebrow="EA Reporting">
+        <div className="grid gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-28 w-full" />
+          ))}
+        </div>
+      </Card>
+      <Card title="Recent Trades" eyebrow="Execution Feed">
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-14 w-full" />
+          ))}
+        </div>
+      </Card>
       <Card title="Trading Accounts" eyebrow="Portfolio">
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, index) => (
             <Skeleton key={index} className="h-14 w-full" />
           ))}
-        </div>
-      </Card>
-      <Card title="Add Account" eyebrow="Safe Metadata">
-        <div className="space-y-3">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-28" />
         </div>
       </Card>
     </div>
@@ -38,6 +49,16 @@ export function AccountsPage() {
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
+  });
+  const accountStatusQuery = useQuery({
+    queryKey: ['accounts', 'status'],
+    queryFn: apiClient.accountStatus,
+    refetchInterval: 10_000,
+  });
+  const tradesQuery = useQuery({
+    queryKey: ['execution', 'trades'],
+    queryFn: apiClient.executionTrades,
+    refetchInterval: 10_000,
   });
 
   const [name, setName] = useState('');
@@ -83,14 +104,146 @@ export function AccountsPage() {
     },
   });
 
-  if (accountsQuery.isLoading) {
+  if (accountsQuery.isLoading || accountStatusQuery.isLoading || tradesQuery.isLoading) {
     return <AccountsSkeleton />;
   }
 
   const accounts = accountsQuery.data ?? [];
+  const accountStatus = accountStatusQuery.data;
+  const trades = tradesQuery.data ?? [];
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="max-w-5xl space-y-5">
+      <Card
+        title="Live Account Telemetry"
+        eyebrow="EA Reporting"
+        description={
+          accountStatus
+            ? `Latest report ${formatTimestamp(accountStatus.reportedAt)}`
+            : 'Waiting for the EA to publish account status.'
+        }
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void accountStatusQuery.refetch();
+              void tradesQuery.refetch();
+            }}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        }
+      >
+        {accountStatus ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                <Wallet className="h-3.5 w-3.5" />
+                Balance
+              </div>
+              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
+                {formatCurrency(accountStatus.balance)}
+              </p>
+              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                Equity {formatCurrency(accountStatus.equity)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                <Gauge className="h-3.5 w-3.5" />
+                Drawdown
+              </div>
+              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
+                {formatPercent(accountStatus.drawdownPercent)}
+              </p>
+              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                Open positions {accountStatus.openPositions}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Margin
+              </p>
+              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
+                {formatCurrency(accountStatus.margin)}
+              </p>
+              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                Free margin {formatCurrency(accountStatus.freeMargin)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                EA Status
+              </p>
+              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
+                Live
+              </p>
+              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                Telemetry active
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
+            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+              No EA account report yet
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-500">
+              Once the EA connects and starts sending `account_status`, the balance, equity,
+              margin, and drawdown metrics will appear here.
+            </p>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Recent Trades"
+        eyebrow="Execution Feed"
+        description="Trades are reported directly by the EA as positions open, close, or fail."
+      >
+        {trades.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
+            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+              No trade events yet
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-500">
+              Dispatch a live signal and keep the EA online to see trade lifecycle updates.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100 dark:divide-slate-800">
+            {trades.map((trade) => (
+              <div
+                key={trade.id}
+                className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                    {trade.symbol} {trade.type} | ticket {trade.ticket}
+                  </p>
+                  <p className="truncate text-xs text-gray-400 dark:text-slate-500">
+                    {trade.status} | {formatTimestamp(trade.updatedAt)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge tone={trade.status === 'OPEN' ? 'info' : trade.profit >= 0 ? 'positive' : 'danger'}>
+                    {trade.status}
+                  </Badge>
+                  <Badge tone={trade.profit >= 0 ? 'positive' : 'danger'}>
+                    {formatCurrency(trade.profit)}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card
         title="Trading Accounts"
         eyebrow="Portfolio"

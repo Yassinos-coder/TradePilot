@@ -1,21 +1,37 @@
 import { SignalDTO, signalDtoSchema } from '@tradepilot/shared';
 
-const KNOWN_SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'BTCUSD', 'NAS100', 'US30'] as const;
 const NUMBER_PATTERN = String.raw`(\d+(?:\.\d+)?)`;
+const DIRECT_SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'BTCUSD', 'NAS100', 'US30'] as const;
+const SYMBOL_ALIASES: Array<{ pattern: RegExp; symbol: string }> = [
+  { pattern: /\bGOLD\b|\bXAU\b|\bXAUUSD\b/, symbol: 'XAUUSD' },
+  { pattern: /\bEURUSD\b|\bEU\b/, symbol: 'EURUSD' },
+  { pattern: /\bGBPUSD\b|\bGU\b/, symbol: 'GBPUSD' },
+  { pattern: /\bBTCUSD\b|\bBTC\b/, symbol: 'BTCUSD' },
+  { pattern: /\bNAS100\b|\bUS100\b|\bNASDAQ\b/, symbol: 'NAS100' },
+  { pattern: /\bUS30\b|\bDJ30\b|\bDOW\b/, symbol: 'US30' },
+];
 
 function normalizeMessage(rawMessage: string) {
-  return rawMessage.replace(/\s+/g, ' ').trim();
+  return rawMessage
+    .replace(/[|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function extractSymbol(upperMessage: string): string | null {
-  const knownSymbol = KNOWN_SYMBOLS.find((candidate) => upperMessage.includes(candidate));
+  const direct = DIRECT_SYMBOLS.find((candidate) => upperMessage.includes(candidate));
 
-  if (knownSymbol) {
-    return knownSymbol;
+  if (direct) {
+    return direct;
   }
 
-  const genericMatch = upperMessage.match(/\b[A-Z]{3,6}(?:USD|JPY|EUR|GBP)?\b/);
-  return genericMatch?.[0] ?? null;
+  for (const alias of SYMBOL_ALIASES) {
+    if (alias.pattern.test(upperMessage)) {
+      return alias.symbol;
+    }
+  }
+
+  return null;
 }
 
 function extractSide(upperMessage: string): SignalDTO['type'] | null {
@@ -23,26 +39,34 @@ function extractSide(upperMessage: string): SignalDTO['type'] | null {
   return (match?.[1] as SignalDTO['type'] | undefined) ?? null;
 }
 
-function extractEntry(upperMessage: string): SignalDTO['entry'] | null {
-  const explicitEntry = upperMessage.match(
-    new RegExp(String.raw`\b(?:ENTRY|ENTRIES|ENTRY PRICE)[:\s-]*(MARKET|${NUMBER_PATTERN})`),
-  );
-
-  if (explicitEntry?.[1] === 'MARKET') {
-    return 'MARKET';
+function extractEntry(upperMessage: string) {
+  if (/\b(BUY|SELL)\s+NOW\b/.test(upperMessage) || /\bMARKET\b/.test(upperMessage)) {
+    return {
+      entry: 'MARKET' as const,
+      entryPrice: null,
+    };
   }
 
+  const explicitEntry = upperMessage.match(
+    new RegExp(
+      String.raw`\b(?:ENTRY(?: PRICE)?|ENTRIES|ENTRY ZONE|PRICE)[:\s-]*${NUMBER_PATTERN}`,
+    ),
+  );
+
   if (explicitEntry?.[1]) {
-    return Number(explicitEntry[1]);
+    return {
+      entry: 'LIMIT' as const,
+      entryPrice: Number(explicitEntry[1]),
+    };
   }
 
   const shorthandEntry = upperMessage.match(new RegExp(String.raw`@\s*${NUMBER_PATTERN}`));
-  if (shorthandEntry?.[1]) {
-    return Number(shorthandEntry[1]);
-  }
 
-  if (/\b(MARKET|NOW)\b/.test(upperMessage)) {
-    return 'MARKET';
+  if (shorthandEntry?.[1]) {
+    return {
+      entry: 'LIMIT' as const,
+      entryPrice: Number(shorthandEntry[1]),
+    };
   }
 
   return null;
@@ -50,7 +74,9 @@ function extractEntry(upperMessage: string): SignalDTO['entry'] | null {
 
 function extractStopLoss(upperMessage: string): number | null {
   const match = upperMessage.match(
-    new RegExp(String.raw`\b(?:SL|STOP LOSS|STOPLOSS)[:\s-]*${NUMBER_PATTERN}`),
+    new RegExp(
+      String.raw`\b(?:SL|STOP LOSS|STOPLOSS|STOP)[:\s-]*${NUMBER_PATTERN}`,
+    ),
   );
 
   return match?.[1] ? Number(match[1]) : null;
@@ -59,7 +85,10 @@ function extractStopLoss(upperMessage: string): number | null {
 function extractTakeProfits(upperMessage: string): number[] {
   const targets = [
     ...upperMessage.matchAll(
-      new RegExp(String.raw`\bTP\d*[:\s-]*${NUMBER_PATTERN}`, 'g'),
+      new RegExp(
+        String.raw`\b(?:TP(?:\s*\d+)?|TAKE\s*PROFIT(?:\s*\d+)?|TARGET(?:\s*\d+)?)\b[^\d-]*${NUMBER_PATTERN}`,
+        'g',
+      ),
     ),
   ]
     .map((match) => match[1])
@@ -102,54 +131,20 @@ function buildSignal(
   return signalDtoSchema.parse({
     symbol,
     type,
-    entry,
+    entry: entry.entry,
+    entryPrice: entry.entryPrice,
     stopLoss,
     takeProfits,
     sourceChannel,
     confidence,
+    parser: 'REGEX',
   });
 }
 
 export function regexParseSignal(rawMessage: string, sourceChannel?: string): SignalDTO | null {
   try {
-    return buildSignal(rawMessage, sourceChannel, 0.95);
+    return buildSignal(rawMessage, sourceChannel, 0.94);
   } catch {
     return null;
   }
-}
-
-async function requestStructuredAiParse(
-  rawMessage: string,
-  sourceChannel?: string,
-): Promise<string> {
-  const parsedSignal = buildSignal(rawMessage, sourceChannel, 0.72);
-
-  if (!parsedSignal) {
-    throw new Error('AI fallback could not confidently extract a structured signal');
-  }
-
-  return JSON.stringify(parsedSignal);
-}
-
-export async function aiFallbackParseSignal(
-  rawMessage: string,
-  sourceChannel?: string,
-): Promise<SignalDTO> {
-  const rawJson = await requestStructuredAiParse(rawMessage, sourceChannel);
-  const parsedPayload = JSON.parse(rawJson) as unknown;
-
-  return signalDtoSchema.parse(parsedPayload);
-}
-
-export async function hybridParseSignal(
-  rawMessage: string,
-  sourceChannel?: string,
-): Promise<SignalDTO> {
-  const regexResult = regexParseSignal(rawMessage, sourceChannel);
-
-  if (regexResult) {
-    return regexResult;
-  }
-
-  return aiFallbackParseSignal(rawMessage, sourceChannel);
 }

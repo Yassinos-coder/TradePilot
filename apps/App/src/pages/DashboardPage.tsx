@@ -3,16 +3,26 @@ import {
   Activity,
   AlertTriangle,
   Copy,
+  DollarSign,
+  Gauge,
   Key,
+  LineChart,
   Radio,
   RotateCcw,
   TimerReset,
+  TrendingUp,
+  Wallet,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
-import { formatLatency, formatTimestamp } from '../lib/utils';
+import {
+  formatCurrency,
+  formatLatency,
+  formatPercent,
+  formatTimestamp,
+} from '../lib/utils';
 import { queryClient } from '../lib/query-client';
 import { useAuthStore } from '../store/auth-store';
 import { useToastStore } from '../store/toast-store';
@@ -42,13 +52,17 @@ const EXECUTION_STATUS_TONES = {
   EA_OFFLINE: 'warning',
   DISPATCH_TIMEOUT: 'danger',
   EXECUTION_REJECTED: 'neutral',
+  ACCOUNT_STATUS_RECEIVED: 'info',
+  TRADE_OPENED: 'positive',
+  TRADE_CLOSED: 'info',
+  TRADE_REJECTED: 'danger',
 } as const;
 
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}
             className="rounded-xl border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
@@ -72,24 +86,38 @@ function DashboardSkeleton() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Recent Signals" eyebrow="Signal Pipeline">
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
-        </Card>
-        <Card title="Execution Logs" eyebrow="Dispatch History">
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
-        </Card>
+      <div className="grid gap-4 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Card key={index} title="Loading" eyebrow="Realtime">
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((__, rowIndex) => (
+                <Skeleton key={rowIndex} className="h-12 w-full" />
+              ))}
+            </div>
+          </Card>
+        ))}
       </div>
     </div>
   );
+}
+
+function signalSummary(rawMessage: string, parsedData?: {
+  symbol: string;
+  type: string;
+  entry: string;
+  entryPrice: number | null;
+  takeProfits: number[];
+} | null) {
+  if (!parsedData) {
+    return rawMessage;
+  }
+
+  const entryLabel =
+    parsedData.entry === 'MARKET'
+      ? 'MARKET'
+      : `LIMIT @ ${parsedData.entryPrice?.toFixed(2) ?? '--'}`;
+
+  return `${parsedData.symbol} ${parsedData.type} ${entryLabel} | ${parsedData.takeProfits.length} TP`;
 }
 
 export function DashboardPage() {
@@ -168,12 +196,12 @@ export function DashboardPage() {
   const overview = overviewQuery.data;
   const eaTone: BadgeTone = !overview.eaOnline
     ? 'danger'
-    : (overview.eaLatencyMs ?? 0) > 1_000
+    : (overview.eaLatencyMs ?? 0) > 500
       ? 'warning'
       : 'positive';
   const eaLabel = !overview.eaOnline
     ? 'Offline'
-    : (overview.eaLatencyMs ?? 0) > 1_000
+    : (overview.eaLatencyMs ?? 0) > 500
       ? 'Slow'
       : 'Online';
 
@@ -192,33 +220,54 @@ export function DashboardPage() {
       label: 'Latency',
       badgeLabel: 'Latency',
       value: overview.eaOnline ? formatLatency(overview.eaLatencyMs) : 'Offline',
-      sub: overview.eaOnline
-        ? 'Heartbeat round-trip'
-        : 'No live EA presence detected',
+      sub: overview.eaOnline ? 'Heartbeat round-trip' : 'No live EA presence detected',
       icon: TimerReset,
       tone: eaTone,
     },
     {
-      label: 'Signals',
-      badgeLabel: 'Signals',
-      value: String(overview.signalCount),
-      sub: 'Stored in the pipeline',
-      icon: Activity,
-      tone: 'info' as const,
+      label: 'Balance',
+      badgeLabel: 'Account',
+      value: formatCurrency(overview.accountStatus?.balance),
+      sub: overview.accountStatus
+        ? `Equity ${formatCurrency(overview.accountStatus.equity)}`
+        : 'Awaiting EA account status',
+      icon: Wallet,
+      tone: overview.accountStatus ? 'info' : 'neutral',
     },
     {
-      label: 'Execution Logs',
-      badgeLabel: 'Logs',
-      value: String(overview.recentExecutionLogs.length),
-      sub: 'Most recent dispatch entries',
-      icon: Radio,
-      tone: 'neutral' as const,
+      label: 'Open Positions',
+      badgeLabel: 'Exposure',
+      value: overview.accountStatus ? String(overview.accountStatus.openPositions) : '--',
+      sub: overview.accountStatus
+        ? `Margin ${formatCurrency(overview.accountStatus.margin)}`
+        : 'No live position telemetry yet',
+      icon: Gauge,
+      tone:
+        (overview.accountStatus?.drawdownPercent ?? 0) > 10
+          ? 'warning'
+          : 'neutral',
+    },
+    {
+      label: 'Win Rate',
+      badgeLabel: 'Analytics',
+      value: formatPercent(overview.analytics.winRate),
+      sub: `${overview.analytics.wins} wins / ${overview.analytics.losses} losses`,
+      icon: TrendingUp,
+      tone: overview.analytics.winRate >= 50 ? 'positive' : 'warning',
+    },
+    {
+      label: 'Profit Factor',
+      badgeLabel: 'P&L',
+      value: overview.analytics.profitFactor.toFixed(2),
+      sub: `Net ${formatCurrency(overview.analytics.netProfit)}`,
+      icon: LineChart,
+      tone: overview.analytics.netProfit >= 0 ? 'positive' : 'danger',
     },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(({ label, badgeLabel, value, sub, icon: Icon, tone }) => (
           <div
             key={label}
@@ -228,7 +277,7 @@ export function DashboardPage() {
               <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
                 {label}
               </span>
-              <Badge tone={tone}>{badgeLabel}</Badge>
+              <Badge tone={tone as BadgeTone}>{badgeLabel}</Badge>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-800">
@@ -281,7 +330,7 @@ export function DashboardPage() {
         <EaSocketDemoCard apiKey={user?.apiKey} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-3">
         <Card title="Recent Signals" eyebrow="Signal Pipeline">
           <div className="divide-y divide-gray-100 dark:divide-slate-800">
             {overview.recentSignals.length === 0 ? (
@@ -296,9 +345,7 @@ export function DashboardPage() {
                 >
                   <div className="min-w-0 space-y-1">
                     <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                      {signal.parsedData
-                        ? `${signal.parsedData.symbol} ${signal.parsedData.type}`
-                        : signal.rawMessage}
+                      {signalSummary(signal.rawMessage, signal.parsedData)}
                     </p>
                     <p className="truncate text-xs text-gray-500 dark:text-slate-500">
                       {signal.sourceChannel ?? 'Manual ingest'} | {formatTimestamp(signal.createdAt)}
@@ -319,6 +366,35 @@ export function DashboardPage() {
                       {signal.status}
                     </Badge>
                   </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card title="Recent Trades" eyebrow="EA Activity">
+          <div className="divide-y divide-gray-100 dark:divide-slate-800">
+            {overview.recentTrades.length === 0 ? (
+              <p className="py-6 text-center text-sm text-gray-400 dark:text-slate-500">
+                No trade events have been reported by the EA yet.
+              </p>
+            ) : (
+              overview.recentTrades.map((trade) => (
+                <div
+                  key={trade.id}
+                  className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                      {trade.symbol} {trade.type} | ticket {trade.ticket}
+                    </p>
+                    <p className="truncate text-xs text-gray-500 dark:text-slate-500">
+                      {trade.status} | {formatTimestamp(trade.updatedAt)}
+                    </p>
+                  </div>
+                  <Badge tone={trade.profit >= 0 ? 'positive' : 'danger'}>
+                    {formatCurrency(trade.profit)}
+                  </Badge>
                 </div>
               ))
             )}
@@ -373,6 +449,49 @@ export function DashboardPage() {
               TradePilot will keep parsing and validating signals, but live dispatch is paused
               until an authenticated EA reconnects.
             </p>
+          </div>
+        </Card>
+      ) : null}
+
+      {overview.accountStatus ? (
+        <Card
+          title="Account Monitoring"
+          eyebrow="Live Telemetry"
+          description={`Latest report ${formatTimestamp(overview.accountStatus.reportedAt)}`}
+        >
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Balance
+              </p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {formatCurrency(overview.accountStatus.balance)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Equity
+              </p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {formatCurrency(overview.accountStatus.equity)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Free Margin
+              </p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {formatCurrency(overview.accountStatus.freeMargin)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Drawdown
+              </p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {formatPercent(overview.accountStatus.drawdownPercent)}
+              </p>
+            </div>
           </div>
         </Card>
       ) : null}
