@@ -170,7 +170,7 @@ export const signalRecordSchema = z.object({
   rawMessage: z.string().min(1),
   rawMessageHash: z.string().min(16).nullable().optional(),
   sourceChannel: z.string().nullable().optional(),
-  parsedData: signalDtoSchema.nullable(),
+  parsedData: signalDtoSchema.nullable().catch(null),
   status: signalStatusSchema,
   confidence: z.number().min(0).max(1).nullable().optional(),
   createdAt: z.string(),
