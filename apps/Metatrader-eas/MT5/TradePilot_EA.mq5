@@ -655,9 +655,13 @@ void Connect() {
       return;
    }
 
-   Sleep(300);
-   ReadAvailable();
-   string resp = ConsumeReadBuf();
+   // Wait up to 4 s for the 101 Switching Protocols response
+   string resp = "";
+   for (int attempt = 0; attempt < 40 && resp == ""; attempt++) {
+      Sleep(100);
+      ReadAvailable();
+      resp = ConsumeReadBuf();
+   }
 
    if (StringFind(resp, "101") < 0) {
       Log("Unexpected upgrade response: " + StringSubstr(resp, 0, 120));
@@ -716,7 +720,7 @@ void OnTimer() {
       SendAccountStatus();
 
    if (g_state == ST_CONNECTED && g_lastMessageTime > 0) {
-      if (TimeCurrent() - g_lastMessageTime > 12) {
+      if (TimeCurrent() - g_lastMessageTime > 35) {
          Log("Heartbeat timeout, reconnecting");
          Disconnect();
       }
