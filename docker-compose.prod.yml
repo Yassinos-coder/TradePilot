@@ -26,8 +26,8 @@ services:
       - redis
     networks:
       - tradepilot_default
-    expose:
-      - "4000"
+    ports:
+      - "4000:4000"
 
   app:
     build:

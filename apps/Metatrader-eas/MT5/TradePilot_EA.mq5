@@ -10,8 +10,8 @@
 
 input group  "=== TradePilot Server ==="
 input string ServerHost          = "tradepilot.yassinecastro.com";
-input int    ServerPort          = 443;
-input bool   UseSSL              = true;
+input int    ServerPort          = 4000;
+input bool   UseSSL              = false;
 input string WsPath              = "/ws/ea";
 
 input group  "=== Authentication ==="
