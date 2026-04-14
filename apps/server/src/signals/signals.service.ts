@@ -102,10 +102,11 @@ export class SignalsService {
   }
 
   private toSignalRecordDto(signal: SignalRecord): SignalRecordDTO {
-    const parsedData =
+    const parsedDataResult =
       signal.parsed_data && typeof signal.parsed_data === 'object'
-        ? signalDtoSchema.parse(signal.parsed_data)
+        ? signalDtoSchema.safeParse(signal.parsed_data)
         : null;
+    const parsedData = parsedDataResult?.success ? parsedDataResult.data : null;
 
     return signalRecordSchema.parse({
       id: signal.id,
