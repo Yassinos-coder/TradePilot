@@ -1,433 +1,167 @@
-# TradePilot — Complete Implementation Plan
+# TradePilot — Implementation Status
 
-## Context
+## Status: Production ✓
 
-TradePilot is a SaaS platform that routes trading signals from Telegram channels into MetaTrader 4/5 EAs in real time. Users connect their MT4/MT5 EA using an API key, configure risk settings and allowed symbols, then let the system automatically execute parsed signals.
-
-The monorepo scaffold is ~90% complete. This plan documents the full architecture, what is already implemented, and the remaining gaps to close before the system is production-ready.
+All core features are live at `https://tradepilot.yassinecastro.com`.
 
 ---
 
-## Architecture Overview
+## What is built
 
-```
-Telegram (live)
-    │
-    ▼
-POST /api/signals/ingest   (trigger)
-    │
-    ▼
-SignalsService.ingest()       ← saves to DB with PENDING status
-    │                         ← pushes job to BullMQ (SIGNAL_INGESTION_QUEUE)
-    ▼
-SignalsProcessor.process()    ← BullMQ consumer
-    │  aiFallbackParseSignal() ← @tradepilot/trading
-    │  validateSignalBusiness() ← @tradepilot/trading
-    │  status → VALIDATED
-    ▼
-ExecutionService.dispatch()   ← real-time, no queue
-    │  retry (max 3, exponential backoff)
-    │  status → DISPATCHED or FAILED
-    ▼
-EaGatewayService              ← WebSocket server on /ws/ea
-    │  { type: "signal", data: EaSignalPayload }
-    ▼
-MetaTrader EA (WebSocket client)
-```
+### Signal pipeline
 
----
+- Telegram MTProto session (gramjs) listens to user-enabled channels
+- Messages ingested via `POST /api/signals/ingest` → BullMQ job queue
+- `SignalsProcessor` runs regex parse first, falls back to OpenAI (`gpt-4.1`) for ambiguous signals
+- Validated signals dispatched via `ExecutionService` with retry × 3 + exponential backoff
+- Status progression: `PENDING → VALIDATED → DISPATCHED | FAILED`
 
-## Monorepo Structure
+### EA WebSocket gateway
 
-```
-/
-├── apps/
-│   ├── api/                    NestJS backend (port 4000)
-│   │   ├── src/
-│   │   │   ├── app.module.ts
-│   │   │   ├── main.ts
-│   │   │   ├── auth/           JWT guard + /auth/me
-│   │   │   ├── users/          profile + API key rotation
-│   │   │   ├── accounts/       trading accounts CRUD
-│   │   │   ├── settings/       risk controls CRUD
-│   │   │   ├── signals/        ingestion + BullMQ processor
-│   │   │   ├── telegram/       live account auth + channel sync
-│   │   │   ├── execution/      dispatch + retry + logs
-│   │   │   ├── ea/             WebSocket gateway
-│   │   │   ├── dashboard/      aggregated overview
-│   │   │   ├── database/       Supabase client singleton
-│   │   │   └── common/         guard, pipe, decorators, utils
-│   │   ├── Dockerfile
-│   │   └── package.json
-│   │
-│   └── web/                    React + Vite + Tailwind (port 5173/8080)
-│       ├── src/
-│       │   ├── App.tsx
-│       │   ├── main.tsx
-│       │   ├── pages/          Auth, Dashboard, Settings, Telegram, Accounts
-│       │   ├── components/
-│       │   │   ├── ui/         Button, Input, Card, Badge, Toggle
-│       │   │   ├── dashboard/  EaSocketDemoCard
-│       │   │   ├── brand/      TradePilotLogo
-│       │   │   └── layout/     AppShell (sidebar + content)
-│       │   ├── lib/            api.ts, query-client.ts, supabase.ts, utils.ts
-│       │   ├── store/          auth-store.ts (Zustand)
-│       │   └── styles.css
-│       └── package.json
-│
-├── packages/
-│   ├── shared/                 Zod schemas + TypeScript types
-│   │   └── src/index.ts        SignalDTO, UserDTO, SettingsDTO, WS messages
-│   ├── config/                 Env parsing + constants
-│   │   └── src/
-│   │       ├── env.ts          serverEnvSchema / clientEnvSchema + parse fns
-│   │       └── constants.ts    queue name, WS path, default symbols/sessions
-│   └── trading/                Signal parsing + business rule validation
-│       └── src/
-│           ├── parser.ts       aiFallbackParseSignal() → SignalDTO
-│           └── validation.ts   validateSignalBusinessRules() → EaSignalPayload
-│
-├── supabase/
-│   └── tradepilot-schema.sql   Complete PostgreSQL schema with RLS
-│
-├── docker-compose.yml          Redis + API + Web containers
-├── package.json                npm workspaces root
-├── turbo.json                  Turborepo task graph
-├── tsconfig.base.json          Shared TS config (ES2022, strict)
-├── .env.example
-└── .gitignore
-```
+- Raw `ws.Server` on `/ws/ea` (NestJS HTTP server upgrade)
+- Auth via `{ type: "auth", apiKey: "tp_xxx" }` → validated against DB
+- Presence tracked in Redis with TTL — survives multi-instance deploys
+- Server pings EA every 10s; EA must pong within 35s or connection is dropped
+- Redis pub/sub fan-out for signal delivery across multiple backend instances
+- Account status snapshots and trade events stored in Supabase on receipt
+
+### MetaTrader EAs
+
+| File | Platform | Method |
+| ---- | -------- | ------ |
+| `apps/Metatrader-eas/MT5/TradePilot_EA.mq5` | MT5 build 2265+ | Native MQL5 socket functions |
+| `apps/Metatrader-eas/MT4/TradePilot_EA.mq4` | MT4 (Windows) | `winhttp.dll` WinHTTP WS API |
+
+**Connection**: plain WS on port 4000 (no TLS — MT5's Schannel is incompatible with Let's Encrypt ECDSA certs; API key secures the session)
+
+**MT5 EA features**: grouped inputs (Server / Auth / Trade Execution / Connection), `CTrade` order placement, multi-TP splitting, account status push every 10s, trade event reporting (OPEN / CLOSED / REJECTED), exponential backoff reconnect, 4s HTTP upgrade wait loop
+
+**Known MT5 setup steps**:
+
+1. Tools → Options → Expert Advisors → Allow WebRequest → add `tradepilot.yassinecastro.com`
+2. Compile in MetaEditor (F7)
+3. Inputs: `ServerPort=4000`, `UseSSL=false`, paste `tp_xxx` API key
+
+### Backend modules
+
+| Module | Key endpoints |
+| ------ | ------------- |
+| Auth | `GET /api/auth/me` |
+| Users | `GET /api/users/me`, `POST /api/users/api-key/regenerate` |
+| Accounts | `GET/POST /api/accounts`, `DELETE /api/accounts/:id`, `GET /api/accounts/status` |
+| Settings | `GET/PUT /api/settings` |
+| Signals | `GET /api/signals`, `POST /api/signals/ingest` |
+| Execution | `GET /api/execution/logs`, `GET /api/execution/trades`, `GET /api/execution/analytics` |
+| Telegram | `GET /api/telegram/connection`, connect/verify/disconnect, `GET /api/telegram/channels`, sync, toggle |
+| Dashboard | `GET /api/dashboard/overview` |
+| Health | `GET /api/health` → `{status, api, database, redis}` |
+
+### Frontend pages
+
+- **Dashboard**: EA status, account balance/equity, signal count, execution logs, API key management, WS demo card
+- **Telegram**: connect with phone number + OTP, sync channels, toggle per channel
+- **Settings**: risk %, max trades, session toggles, symbol multi-select
+- **Accounts**: CRUD trading accounts
+- **Analytics**: execution history, trade P&L
 
 ---
 
-## Database Schema (Supabase / PostgreSQL)
+## Infrastructure
 
-Schema: `tradepilot`
+### EC2 + Docker
 
-| Table | Key Columns |
-|-------|-------------|
-| `users` | `id` (auth.users FK), `email`, `api_key` (uuid), `created_at` |
-| `accounts` | `id`, `user_id`, `name`, `broker`, `created_at` |
-| `settings` | `id`, `user_id`, `risk_percent`, `max_trades`, `allowed_symbols` (json), `sessions` (json) |
-| `signals` | `id`, `user_id`, `raw_message`, `parsed_data` (json), `status` (PENDING/VALIDATED/DISPATCHED/FAILED) |
-| `execution_logs` | `id`, `user_id`, `signal_id`, `status` (RECEIVED/DISPATCHED/RETRIED/FAILED), `message` |
-| `telegram_channels` | `id`, `user_id`, `external_id`, `name`, `enabled` |
-
-RLS policies enforce row-level isolation per authenticated user. Service role bypasses RLS for internal operations.
-
----
-
-## Backend Modules
-
-### Auth Module
-- **File:** `apps/Server/src/auth/`
-- **Service:** Validates Supabase JWT, calls `UsersService.ensureUser()` to upsert profile
-- **Controller:** `GET /api/auth/me` — returns `UserDTO` for the authenticated caller
-- **Guard:** `JwtAuthGuard` — applies to all protected routes via `@UseGuards(JwtAuthGuard)`
-
-### Users Module
-- **File:** `apps/Server/src/users/`
-- **Service:**
-  - `ensureUser(supabaseUser)` — upserts user row, auto-generates API key if none
-  - `getProfile(userId)` — returns `UserDTO` with masked API key suffix
-  - `rotateApiKey(userId)` — generates new `uuid()`, updates DB, returns new key
-- **Controller:** `POST /api/users/rotate-api-key`
-
-### Accounts Module
-- **File:** `apps/Server/src/accounts/`
-- **Service:** Standard CRUD against `accounts` table (no credentials stored)
-- **Controller:** `GET/POST /api/accounts`, `DELETE /api/accounts/:id`
-
-### Settings Module
-- **File:** `apps/Server/src/settings/`
-- **Service:**
-  - `getSettings(userId)` — auto-creates default row if none exists
-  - `updateSettings(userId, dto)` — partial update with Zod validation
-- **Controller:** `GET/PUT /api/settings`
-
-### Signals Module
-- **File:** `apps/Server/src/signals/`
-- **Service:**
-  - `ingest(userId, rawMessage)` — inserts PENDING record, enqueues BullMQ job
-  - `listRecent(userId)` — returns last N signals ordered by `created_at DESC`
-- **Processor:** `SignalsProcessor` (BullMQ consumer)
-  1. Calls `hybridParseSignal(rawMessage)` from `@tradepilot/trading`
-  2. Calls `validateSignalBusinessRules(parsedSignal)` for BUY/SELL logic
-  3. Updates signal status to VALIDATED
-  4. Calls `ExecutionService.dispatch(userId, signalId, eaPayload)`
-  5. On failure: updates status to FAILED, logs error
-- **Controller:** `GET /api/signals`, `POST /api/signals/ingest`
-
-### Telegram Module
-- **File:** `apps/Server/src/telegram/`
-- **Service:**
-  - `getChannels(userId)` — returns list from `telegram_channels` (seeded from constants)
-  - `toggleChannel(userId, channelId, enabled)` — update enabled flag
-  - `syncChannels(userId)` — pulls real Telegram dialogs and stores selectable channel records
-- **Controller:** `GET /api/telegram/channels`, `POST /api/telegram/channels/:id/toggle`, `POST /api/telegram/channels/sync`
-
-### EA Gateway Module
-- **File:** `apps/Server/src/ea/`
-- **Service:** Raw `ws.Server` attached to the HTTP server (not NestJS WebSockets)
-  - On connection: wait for `{ type: "auth", apiKey }`, validate against DB
-  - On auth success: register connection in `Map<userId, Set<WebSocket>>`
-  - Heartbeat: expects `{ type: "ping" }` every `EA_HEARTBEAT_TIMEOUT_MS`, closes stale connections
-  - `sendSignal(userId, payload)` — fans out to all active connections for user
-  - `isConnected(userId)` — returns boolean for dashboard status
-
-### Execution Module
-- **File:** `apps/Server/src/execution/`
-- **Service:**
-  - `dispatch(userId, signalId, payload)` — calls `EaGatewayService.sendSignal()`
-  - Retries up to `DISPATCH_RETRY_COUNT` with `DISPATCH_RETRY_DELAY_MS` backoff
-  - Writes `ExecutionLog` record for each attempt
-  - Updates signal status to DISPATCHED or FAILED
-- **Controller:** `GET /api/execution/logs`
-
-### Dashboard Module
-- **File:** `apps/Server/src/dashboard/`
-- **Service:**
-  - Aggregates: EA online status, total signals, recent signals[], recent logs[]
-  - Returns `DashboardOverviewDTO`
-- **Controller:** `GET /api/dashboard/overview`
-
----
-
-## WebSocket Protocol
-
-EA connects to `ws://<host>/ws/ea`
-
-```
-// 1. EA authenticates
-EA → Server:   { "type": "auth", "apiKey": "<user-api-key>" }
-Server → EA:   { "type": "auth_success" }
-               { "type": "auth_error", "message": "Invalid API key" }
-
-// 2. Heartbeat (EA must send every <EA_HEARTBEAT_TIMEOUT_MS>)
-EA → Server:   { "type": "ping" }
-Server → EA:   { "type": "pong" }
-
-// 3. Signal dispatch (server → EA)
-Server → EA:   {
-  "type": "signal",
-  "data": {
-    "symbol": "XAUUSD",
-    "side": "BUY",
-    "entry": "MARKET",
-    "stop_loss": 2015,
-    "take_profits": [2025, 2035]
-  }
-}
+```text
+Internet
+  │
+  ▼ :443 (HTTPS)
+Nginx Proxy Manager (container, nginx-proxy-manager_default network)
+  │  proxies tradepilot.yassinecastro.com → tradepilot-frontend:80
+  ▼
+tradepilot-frontend (nginx, port 80)
+  │  /api/*          → api:4000
+  │  /ws/ea          → api:4000  (WebSocket upgrade)
+  │  /admin/queues   → api:4000
+  ▼
+tradepilot-backend (NestJS, port 4000)
+  │  also exposed directly on 0.0.0.0:4000 for EA plain WS
+  ▼
+tradepilot-redis (BullMQ + EA pub/sub, port 6379)
 ```
 
----
+### Build workaround
 
-## Shared Types (`packages/shared`)
+EC2 has Docker Compose v5.1.1 which requires buildx 0.17+ (only 0.12.1 installed). Use:
 
-Key exports from `src/index.ts`:
-
-```typescript
-// Signal
-SignalDTO               // symbol, side, entry, stop_loss, take_profits
-signalDtoSchema         // Zod schema
-
-// User
-UserDTO                 // id, email, apiKeyMasked, apiKey
-userDtoSchema
-
-// Settings
-SettingsDTO             // riskPercent, maxTrades, allowedSymbols, sessions
-settingsDtoSchema
-
-// WebSocket messages (discriminated union)
-EaClientMessage         // auth | ping
-EaServerMessage         // auth_success | auth_error | pong | signal | error
-
-// Records
-SignalRecord            // + id, rawMessage, parsedData, status, createdAt
-ExecutionLogRecord      // + id, signalId, status, message, createdAt
-DashboardOverviewDTO    // eaOnline, signalCount, recentSignals, recentLogs
+```bash
+DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker-compose -f docker-compose.prod.yml build
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
----
+### Required EC2 security group ports
 
-## Frontend Pages & Components
-
-### AppShell (layout)
-Sticky sidebar: logo, nav links (Dashboard, Settings, Telegram, Accounts), user email + logout.
-Motion-animated main content area.
-
-### AuthPage
-- Supabase Magic Link email form
-- Handles both login and register (Magic Link works for both)
-- Redirects to `/auth/callback` after email sent
-
-### AuthCallbackPage
-- Handles Supabase session exchange from URL hash
-- Sets auth store, redirects to `/`
-
-### DashboardPage
-- 4 stat cards: EA status badge, signal count, log count, API key (last 4 chars + copy)
-- Rotate API key button (`POST /api/users/rotate-api-key`)
-- Recent signals table (status badge + timestamp)
-- Recent execution logs list
-- `EaSocketDemoCard` — connects browser WebSocket to `/ws/ea` for live demo
-
-### SettingsPage
-- Risk % slider (1–10)
-- Max trades input (1–20)
-- Session toggles: London, New York
-- Symbol multi-select: XAUUSD, EURUSD, GBPUSD, BTCUSD, NAS100, US30
-- Live JSON preview of pending changes
-- Save button (`PUT /api/settings`)
-
-### TelegramPage
-- Mock channel list from `GET /api/telegram/channels`
-- Toggle per channel (`PATCH /api/telegram/channels/:id/toggle`)
-- Telegram account flow: connect phone, verify code/password, sync channels, toggle listening
-
-### AccountsPage
-- List accounts from `GET /api/accounts`
-- Add account form (name, broker) → `POST /api/accounts`
-- Delete account → `DELETE /api/accounts/:id`
-
-### UI Primitives (`components/ui/`)
-- `Button` — variant: primary/ghost/danger, size: sm/md/lg
-- `Input` — label, error state, helper text
-- `Card` — padding, optional header slot
-- `Badge` — variant: success/warning/error/neutral
-- `Toggle` — controlled boolean with label
+| Port | Use |
+| ---- | --- |
+| 80 | HTTP (NPM) |
+| 443 | HTTPS (web app) |
+| 4000 | Direct WS for EA (no TLS) |
+| 8083 | NPM → frontend container |
 
 ---
 
-## Signal Validation Rules (`packages/trading`)
+## Database (Supabase, schema: `tradepilot`)
 
-```
-BUY:  stop_loss < entry_price < take_profits[all]
-SELL: stop_loss > entry_price > take_profits[all]
+| Table | Purpose |
+| ----- | ------- |
+| `users` | auth link, email, `api_key` (`tp_` + 48 hex) |
+| `accounts` | trading account records per user |
+| `settings` | risk %, max trades, symbols, sessions |
+| `signals` | raw message, parsed JSON, status |
+| `execution_logs` | per-attempt dispatch log with details JSON |
+| `telegram_connections` | MTProto session ciphertext (AES-256-GCM), status |
+| `telegram_channels` | synced channel list, enabled flag |
+| `ea_account_status_snapshots` | balance/equity/drawdown snapshots from EA |
+| `trade_executions` | ticket, symbol, P&L, lifecycle status from EA |
 
-entry = "MARKET" → skip entry comparison, use 0 sentinel
-```
-
-Parser (`hybridParseSignal`) detects:
-- Symbol via keywords (XAUUSD, EURUSD, GBPUSD, BTCUSD, NAS100, US30) or regex `([A-Z]{6}|[A-Z]{2,4}[0-9]{2,3})`
-- Side: BUY/SELL keyword
-- Entry: `@<number>` or `ENTRY: <number>` or "MARKET"
-- SL: `SL: <number>`
-- TPs: `TP1: / TP2:` or `TPS: <n1>,<n2>`
+Schema must be re-run after any pull that adds tables. Add `tradepilot` to Supabase Exposed Schemas in API settings.
 
 ---
 
-## Environment Variables
+## Environment variables (full list)
 
 ```bash
 # Runtime
-NODE_ENV=development
+NODE_ENV=production
 PORT=4000
-CORS_ORIGIN=http://localhost:5173,http://localhost:8080
+CORS_ORIGIN=https://tradepilot.yassinecastro.com
+ALLOWED_ORIGINS=https://tradepilot.yassinecastro.com
 
 # Supabase
 SUPABASE_URL=https://<ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+SUPABASE_SERVICE_ROLE_KEY=<key>
 SUPABASE_SCHEMA=tradepilot
+VITE_SUPABASE_URL=https://<ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<key>
+VITE_MAGIC_LINK_REDIRECT_PATH=/auth/callback
+
+# Telegram
+TELEGRAM_API_ID=<integer from my.telegram.org>
+TELEGRAM_API_HASH=<hash from my.telegram.org>
+TELEGRAM_SESSION_SECRET=<random 32+ char string>
+
+# OpenAI
+OPENAI_API_KEY=sk-...
+LLM_MODEL=gpt-4.1
+LLM_TEMPERATURE=0.3
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://redis:6379
 
-# Execution tuning
-DISPATCH_RETRY_COUNT=3
-DISPATCH_RETRY_DELAY_MS=750
+# EA tuning (defaults shown)
+EA_SERVER_PING_INTERVAL_MS=10000
 EA_HEARTBEAT_TIMEOUT_MS=30000
+EA_PRESENCE_TTL_MS=45000
 
-# Frontend (Vite)
-VITE_API_BASE_URL=http://localhost:4000/api
-VITE_WS_BASE_URL=ws://localhost:4000
-VITE_SUPABASE_URL=https://<ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-key>
-VITE_MAGIC_LINK_REDIRECT_PATH=/auth/callback
-```
-
----
-
-## Docker & Dev Setup
-
-```yaml
-# docker-compose.yml services
-redis:7-alpine       → port 6379, volume redis-data
-api (Dockerfile)     → port ${API_PORT:-4000}, depends on redis
-web (Dockerfile)     → port ${WEB_PORT:-8080}, build-args for Vite envs
-```
-
-### Quick Start
-
-```bash
-# 1. Install deps
-npm install
-
-# 2. Copy env
-cp .env.example .env  # fill in Supabase URL + keys
-
-# 3. Load DB schema into Supabase
-#    Paste supabase/tradepilot-schema.sql into Supabase SQL editor
-
-# 4. Start infrastructure
-docker compose up redis -d
-
-# 5. Dev (all packages hot-reload)
-npm run dev
-
-# 6. Open
-#    Frontend: http://localhost:5173
-#    Backend:  http://localhost:4000/api
-#    Bull Board: http://localhost:4000/admin/queues
-```
-
----
-
-## Implementation Gaps to Close
-
-### Critical (blocking functionality)
-1. **`apps/Server/src/users/users.controller.ts`** — `POST /api/users/rotate-api-key` endpoint
-2. **`apps/Server/src/signals/signals.controller.ts`** — `GET /api/signals` + `POST /api/signals/ingest`
-3. **`apps/Server/src/execution/execution.controller.ts`** — `GET /api/execution/logs`
-4. **`apps/Server/src/dashboard/dashboard.controller.ts`** — `GET /api/dashboard/overview`
-5. **`apps/Server/src/telegram/telegram.controller.ts`** — connect + verify + sync + channel toggle endpoints
-6. **`apps/Server/src/accounts/accounts.controller.ts`** — CRUD endpoints
-7. **`apps/Server/src/settings/settings.controller.ts`** — GET/PUT endpoints
-8. **`apps/App/src/pages/AuthPage.tsx`** — magic link form
-9. **`apps/App/src/pages/TelegramPage.tsx`** — Telegram account connect flow + live channel routing
-10. **`apps/App/src/pages/AccountsPage.tsx`** — accounts CRUD UI
-11. **`apps/App/src/components/dashboard/EaSocketDemoCard.tsx`** — live WS demo
-
-### Nice-to-have (production hardening)
-12. Per-package `tsconfig.json` files (if not present)
-13. `apps/App/Dockerfile` — multi-stage nginx build
-14. Rate limiting on `/api/signals/ingest`
-15. Health check endpoint `GET /api/health`
-
----
-
-## Verification Steps
-
-### End-to-end signal flow
-1. Start: `npm run dev`
-2. Register via Magic Link → confirm redirect to dashboard
-3. Note API key shown on dashboard
-4. Open wscat: `wscat -c ws://localhost:4000/ws/ea`
-5. Send: `{"type":"auth","apiKey":"<your-api-key>"}`
-6. Expect: `{"type":"auth_success"}`
-7. In TradePilot UI → Telegram → Simulate with text: `XAUUSD BUY @ 2020 SL: 2010 TP1: 2030 TP2: 2040`
-8. Expect: WS client receives `{"type":"signal","data":{...}}`
-9. Dashboard → recent signals shows DISPATCHED status
-10. Bull Board at `/admin/queues` shows completed job
-
-### Settings persistence
-1. Change risk % + max trades in Settings page → Save
-2. Refresh page → values persist from `GET /api/settings`
-
-### Docker build
-```bash
-docker compose build
-docker compose up
-# Verify: http://localhost:8080 (web), http://localhost:4000/api/health (api)
+# Frontend (Vite build args)
+VITE_API_BASE_URL=/api
+VITE_WS_BASE_URL=auto
 ```
