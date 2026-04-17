@@ -41,28 +41,24 @@ export function AccountsPage() {
       return;
     }
 
-    const firstAccount = accountsQuery.data?.find((account) => account.externalAccountId);
-
-    if (firstAccount?.externalAccountId) {
-      setSelectedAccountId(firstAccount.externalAccountId);
-    }
+    const first = accountsQuery.data?.[0];
+    if (first) setSelectedAccountId(first.id);
   }, [accountsQuery.data, selectedAccountId]);
 
+  const accounts = accountsQuery.data ?? [];
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId);
+  const selectedExternalId = selectedAccount?.externalAccountId;
+
   const historyQuery = useQuery({
-    queryKey: ['accounts', 'status-history', selectedAccountId ?? 'none'],
-    queryFn: () => apiClient.accountStatusHistory(selectedAccountId, 24),
-    enabled: Boolean(selectedAccountId),
+    queryKey: ['accounts', 'status-history', selectedExternalId ?? 'none'],
+    queryFn: () => apiClient.accountStatusHistory(selectedExternalId, 24),
+    enabled: Boolean(selectedExternalId),
     refetchInterval: 10_000,
   });
 
   if (accountsQuery.isLoading) {
     return <AccountsSkeleton />;
   }
-
-  const accounts = accountsQuery.data ?? [];
-  const selectedAccount = accounts.find(
-    (account) => account.externalAccountId === selectedAccountId,
-  );
   const history = historyQuery.data ?? [];
 
   return (
@@ -97,13 +93,13 @@ export function AccountsPage() {
             </div>
           ) : (
             accounts.map((account) => {
-              const active = account.externalAccountId === selectedAccountId;
+              const active = account.id === selectedAccountId;
 
               return (
                 <button
                   key={account.id}
                   type="button"
-                  onClick={() => setSelectedAccountId(account.externalAccountId ?? undefined)}
+                  onClick={() => setSelectedAccountId(account.id)}
                   className={[
                     'min-w-[220px] rounded-3xl border px-4 py-4 text-left transition-colors',
                     active
@@ -189,7 +185,7 @@ export function AccountsPage() {
         eyebrow="10-second snapshots"
         description="The EA sends balance, equity, margin, free margin, drawdown, and open position counts every 10 seconds."
       >
-        {!selectedAccountId ? (
+        {!selectedAccountId || !selectedExternalId ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
             <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
               Pick an account to inspect its latest telemetry

@@ -7,7 +7,7 @@ const rawServerEnvSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   CORS_ORIGIN: z.string().optional(),
   OPENAI_API_KEY: z.string().min(20),
-  LLM_MODEL: z.string().min(1).default('gpt-5.2'),
+  LLM_MODEL: z.string().min(1).default('gpt-4o'),
   LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.1),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
