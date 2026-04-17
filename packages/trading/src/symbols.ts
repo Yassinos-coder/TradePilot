@@ -41,8 +41,7 @@ export function deriveBaseSymbol(input: string) {
         return (
           cleaned === candidate ||
           cleaned.startsWith(candidate) ||
-          cleaned.endsWith(candidate) ||
-          cleaned.includes(candidate)
+          cleaned.endsWith(candidate)
         );
       })
     ) {
