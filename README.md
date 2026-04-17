@@ -6,7 +6,7 @@ Live at: `https://tradepilot.yassinecastro.com`
 
 ## Stack
 
-- `apps/Server`: NestJS + Supabase + BullMQ + Redis + raw WebSocket EA gateway
+- `apps/server`: NestJS + Supabase + BullMQ + Redis + raw WebSocket EA gateway
 - `apps/App`: React + Vite + Tailwind CSS + React Query + Zustand
 - `apps/Metatrader-eas`: MT5 and MT4 Expert Advisors (MQL5/MQL4)
 - `packages/shared`: Zod schemas and DTO contracts
