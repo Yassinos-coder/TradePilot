@@ -3,58 +3,95 @@ import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 
 import { SignalDTO, signalDtoSchema } from '@tradepilot/shared';
+import { canonicalizeSignalSymbol } from '@tradepilot/trading';
 
 const aiResponseSchema = z.object({
+  action: z.enum(['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL']),
   symbol: z.string().min(1),
-  type: z.enum(['BUY', 'SELL']),
-  entry: z.enum(['MARKET', 'LIMIT']),
+  type: z.enum(['BUY', 'SELL']).nullable(),
+  entry: z.enum(['MARKET', 'LIMIT']).nullable(),
   entry_price: z.number().nullable(),
-  stop_loss: z.number().positive(),
-  take_profits: z.array(z.number().positive()).min(1),
+  stop_loss: z.number().nullable(),
+  take_profits: z.array(z.number()),
+  close_percent: z.number().nullable(),
+  new_stop_loss: z.number().nullable(),
 });
 
 const OPENAI_SIGNAL_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['symbol', 'type', 'entry', 'entry_price', 'stop_loss', 'take_profits'],
+  required: [
+    'action',
+    'symbol',
+    'type',
+    'entry',
+    'entry_price',
+    'stop_loss',
+    'take_profits',
+    'close_percent',
+    'new_stop_loss',
+  ],
   properties: {
+    action: {
+      type: 'string',
+      enum: ['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL'],
+    },
     symbol: {
       type: 'string',
     },
     type: {
-      type: 'string',
-      enum: ['BUY', 'SELL'],
+      type: ['string', 'null'],
+      enum: ['BUY', 'SELL', null],
     },
     entry: {
-      type: 'string',
-      enum: ['MARKET', 'LIMIT'],
+      type: ['string', 'null'],
+      enum: ['MARKET', 'LIMIT', null],
     },
     entry_price: {
       type: ['number', 'null'],
     },
     stop_loss: {
-      type: 'number',
+      type: ['number', 'null'],
     },
     take_profits: {
       type: 'array',
-      minItems: 1,
       items: {
         type: 'number',
       },
+    },
+    close_percent: {
+      type: ['number', 'null'],
+    },
+    new_stop_loss: {
+      type: ['number', 'null'],
     },
   },
 } as const;
 
 const SYSTEM_PROMPT = [
-  'Extract a trading signal from the message.',
+  'Extract a trading instruction from the message.',
   'Return strict JSON only. No markdown. No commentary.',
-  'Rules:',
-  '- Normalize GOLD and XAU to XAUUSD.',
-  '- If the message says BUY NOW or SELL NOW, use "entry": "MARKET" and "entry_price": null.',
-  '- If an explicit entry price is present, use "entry": "LIMIT" and "entry_price": that price.',
-  '- stop_loss must be numeric.',
-  '- take_profits must be an array of one or more numbers.',
-  '- Ignore celebratory updates, chat noise, and messages that are not actual fresh trading signals.',
+  'Supported actions:',
+  '- OPEN',
+  '- PARTIAL_CLOSE',
+  '- CLOSE_ALL',
+  '- MOVE_SL',
+  'Normalization rules:',
+  '- GOLD and XAU mean XAUUSD.',
+  '- US30 may also appear as DJ30 or DOW.',
+  '- NAS100 may also appear as US100 or NASDAQ.',
+  'Behavior rules:',
+  '- Detect percentages like 25%, 50%, half, secure partial profit as PARTIAL_CLOSE.',
+  '- Detect close all / exit all instructions as CLOSE_ALL.',
+  '- Detect move SL, move stop, breakeven, break even, BE as MOVE_SL.',
+  '- Support English, French, and Arabic slang.',
+  '- If the message is a fresh trade entry, return OPEN.',
+  '- For MARKET orders, entry is MARKET and entry_price is null when no numeric entry is present.',
+  '- For LIMIT orders, entry is LIMIT and entry_price must be numeric.',
+  '- For PARTIAL_CLOSE, only close_percent should be set from 1 to 100.',
+  '- For CLOSE_ALL, type, entry, prices, and stop values can be null.',
+  '- For MOVE_SL, set new_stop_loss when a specific value is provided; if the message says breakeven/BE and includes entry price, use that entry price as new_stop_loss.',
+  '- Ignore emojis, hype, and non-instructional chat.',
 ].join('\n');
 
 @Injectable()
@@ -73,7 +110,7 @@ export class AiParsingService {
       body: JSON.stringify({
         model: this.configService.get<string>('LLM_MODEL') ?? 'gpt-5.2',
         temperature: this.configService.get<number>('LLM_TEMPERATURE') ?? 0.1,
-        max_output_tokens: 300,
+        max_output_tokens: 350,
         input: [
           {
             role: 'system',
@@ -124,34 +161,21 @@ export class AiParsingService {
     }
 
     const parsed = aiResponseSchema.parse(JSON.parse(outputText));
-    const symbol = this.normalizeSymbol(parsed.symbol);
-    const entryPrice = parsed.entry === 'LIMIT' ? parsed.entry_price : null;
-
-    if (parsed.entry === 'LIMIT' && entryPrice === null) {
-      throw new Error('OpenAI returned a LIMIT order without an entry price');
-    }
 
     return signalDtoSchema.parse({
-      symbol,
+      action: parsed.action,
+      symbol: canonicalizeSignalSymbol(parsed.symbol),
       type: parsed.type,
       entry: parsed.entry,
-      entryPrice,
+      entryPrice: parsed.entry_price,
       stopLoss: parsed.stop_loss,
-      takeProfits: parsed.take_profits,
+      takeProfits: parsed.take_profits.filter((value) => Number.isFinite(value) && value > 0),
+      closePercent: parsed.close_percent,
+      newStopLoss: parsed.new_stop_loss,
       sourceChannel,
-      confidence: 0.82,
+      confidence: 0.84,
       parser: 'OPENAI',
     });
-  }
-
-  private normalizeSymbol(symbol: string) {
-    const normalized = symbol.trim().toUpperCase();
-
-    if (normalized === 'GOLD' || normalized === 'XAU') {
-      return 'XAUUSD';
-    }
-
-    return normalized;
   }
 
   private extractOutputText(payload: Record<string, unknown>) {

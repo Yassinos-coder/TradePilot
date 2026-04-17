@@ -997,3 +997,219 @@ using (
     where auth_user_id = auth.uid()
   )
 );
+
+alter table tradepilot.accounts
+  alter column broker drop not null;
+
+alter table tradepilot.accounts
+  add column if not exists external_account_id text;
+
+alter table tradepilot.accounts
+  add column if not exists source text not null default 'MANUAL';
+
+alter table tradepilot.accounts
+  add column if not exists last_seen_at timestamptz;
+
+alter table tradepilot.accounts
+  add column if not exists latency_ms integer;
+
+update tradepilot.accounts
+set source = 'MANUAL'
+where source is null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'accounts_source_check'
+      and conrelid = 'tradepilot.accounts'::regclass
+  ) then
+    alter table tradepilot.accounts drop constraint accounts_source_check;
+  end if;
+
+  alter table tradepilot.accounts
+    add constraint accounts_source_check check (source in ('MANUAL', 'EA'));
+exception
+  when duplicate_object then null;
+end $$;
+
+drop index if exists tradepilot.idx_accounts_user_external_account_id;
+create unique index if not exists idx_accounts_user_external_account_id
+  on tradepilot.accounts(user_id, external_account_id);
+
+alter table tradepilot.signals
+  add column if not exists telegram_message_id text;
+
+alter table tradepilot.signals
+  add column if not exists telegram_channel_id text;
+
+alter table tradepilot.signals
+  add column if not exists message_timestamp timestamptz;
+
+alter table tradepilot.signals
+  add column if not exists ingestion_source text not null default 'MANUAL';
+
+update tradepilot.signals
+set ingestion_source = 'MANUAL'
+where ingestion_source is null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'signals_ingestion_source_check'
+      and conrelid = 'tradepilot.signals'::regclass
+  ) then
+    alter table tradepilot.signals drop constraint signals_ingestion_source_check;
+  end if;
+
+  alter table tradepilot.signals
+    add constraint signals_ingestion_source_check check (
+      ingestion_source in ('MANUAL', 'TELEGRAM_REALTIME', 'TELEGRAM_BACKFILL')
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+create unique index if not exists idx_signals_unique_telegram_message
+  on tradepilot.signals(user_id, telegram_channel_id, telegram_message_id)
+  where telegram_channel_id is not null and telegram_message_id is not null;
+
+alter table tradepilot.execution_logs
+  add column if not exists account_id text;
+
+alter table tradepilot.execution_logs
+  add column if not exists account_name text;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'execution_logs_status_check'
+      and conrelid = 'tradepilot.execution_logs'::regclass
+  ) then
+    alter table tradepilot.execution_logs drop constraint execution_logs_status_check;
+  end if;
+
+  alter table tradepilot.execution_logs
+    add constraint execution_logs_status_check check (
+      status in (
+        'RECEIVED',
+        'RETRYING',
+        'DISPATCHED',
+        'PARSE_FAILED',
+        'PARSING_COMPLETED',
+        'VALIDATION_FAILED',
+        'VALIDATION_COMPLETED',
+        'TELEGRAM_MESSAGE_RECEIVED',
+        'SYMBOL_MAPPED',
+        'SYMBOL_MAPPING_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED',
+        'ACCOUNT_STATUS_RECEIVED',
+        'TRADE_OPENED',
+        'TRADE_CLOSED',
+        'TRADE_REJECTED',
+        'COMMAND_SUCCEEDED',
+        'COMMAND_FAILED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+alter table tradepilot.ea_account_status_snapshots
+  add column if not exists account_id text;
+
+alter table tradepilot.ea_account_status_snapshots
+  add column if not exists account_name text;
+
+update tradepilot.ea_account_status_snapshots
+set account_id = 'legacy'
+where account_id is null;
+
+alter table tradepilot.ea_account_status_snapshots
+  alter column account_id set not null;
+
+alter table tradepilot.trade_executions
+  add column if not exists account_id text;
+
+alter table tradepilot.trade_executions
+  add column if not exists account_name text;
+
+update tradepilot.trade_executions
+set account_id = 'legacy'
+where account_id is null;
+
+alter table tradepilot.trade_executions
+  alter column account_id set not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'trade_executions_user_id_ticket_key'
+      and conrelid = 'tradepilot.trade_executions'::regclass
+  ) then
+    alter table tradepilot.trade_executions
+      drop constraint trade_executions_user_id_ticket_key;
+  end if;
+end $$;
+
+drop index if exists tradepilot.idx_trade_executions_user_created_at;
+
+create index if not exists idx_trade_executions_user_created_at
+  on tradepilot.trade_executions(user_id, created_at desc);
+
+create unique index if not exists idx_trade_executions_user_account_ticket
+  on tradepilot.trade_executions(user_id, account_id, ticket);
+
+create table if not exists tradepilot.user_symbols (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references tradepilot.users(id) on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  base_symbol text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, account_id, symbol)
+);
+
+drop trigger if exists trg_user_symbols_updated_at on tradepilot.user_symbols;
+create trigger trg_user_symbols_updated_at
+before update on tradepilot.user_symbols
+for each row execute function tradepilot.set_updated_at();
+
+create index if not exists idx_user_symbols_user_account
+  on tradepilot.user_symbols(user_id, account_id);
+
+grant all on tradepilot.user_symbols to postgres, service_role;
+grant select on tradepilot.user_symbols to authenticated;
+
+alter table tradepilot.user_symbols enable row level security;
+
+drop policy if exists service_role_user_symbols on tradepilot.user_symbols;
+create policy service_role_user_symbols
+on tradepilot.user_symbols
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists user_symbols_select_own on tradepilot.user_symbols;
+create policy user_symbols_select_own
+on tradepilot.user_symbols
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);

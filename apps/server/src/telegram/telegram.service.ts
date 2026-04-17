@@ -99,6 +99,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly clientsByUserId = new Map<string, TelegramClient>();
   private readonly subscriptionsByUserId = new Map<string, TelegramSubscription>();
   private readonly channelsByUserId = new Map<string, Map<string, TelegramChannelRecord>>();
+  private backfillTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly configService: ConfigService,
@@ -115,9 +116,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.restoreConnectedClients();
+    this.startBackfillLoop();
   }
 
   async onModuleDestroy() {
+    if (this.backfillTimer) {
+      clearInterval(this.backfillTimer);
+    }
+
     const disconnects = Array.from(this.clientsByUserId.values()).map((client) =>
       client.disconnect().catch(() => undefined),
     );
@@ -562,7 +568,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const sessionString = decryptText(
       ciphertext,
-      this.configService.getOrThrow<string>('TELEGRAM_SESSION_SECRET'),
+      this.getSessionSecret(),
     );
 
     return this.createClient(sessionString);
@@ -591,6 +597,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       try {
         const eventRecord = event as {
           message?: {
+            id?: number;
+            date?: Date | number;
             message?: string;
             peerId?: unknown;
           };
@@ -614,7 +622,17 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
-        await this.signalsService.ingestRawSignal(userId, messageText, channel.name);
+        const messageTimestamp = this.toTelegramTimestamp(eventRecord.message?.date);
+
+        await this.signalsService.ingestTelegramMessage({
+          userId,
+          rawMessage: messageText,
+          sourceChannel: channel.name,
+          telegramChannelId: externalId,
+          telegramMessageId: this.asString(eventRecord.message?.id),
+          messageTimestamp,
+          ingestionSource: 'TELEGRAM_REALTIME',
+        });
       } catch (error) {
         this.logger.warn(
           `Failed to process a Telegram message for user ${userId}: ${this.formatTelegramError(
@@ -628,6 +646,68 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const event = new NewMessage({});
     client.addEventHandler(handler, event);
     this.subscriptionsByUserId.set(userId, { handler, event });
+  }
+
+  private startBackfillLoop() {
+    this.backfillTimer = setInterval(() => {
+      void this.backfillEnabledChannels();
+    }, 30_000);
+    this.backfillTimer.unref?.();
+  }
+
+  private async backfillEnabledChannels() {
+    for (const [userId, client] of this.clientsByUserId.entries()) {
+      try {
+        const enabledChannels = Array.from((await this.getEnabledChannelMap(userId)).values()).filter(
+          (channel) => channel.enabled,
+        );
+
+        for (const channel of enabledChannels) {
+          await this.backfillChannelMessages(userId, client, channel);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Telegram backfill failed for user ${userId}: ${this.formatTelegramError(
+            error,
+            'Unknown Telegram backfill failure',
+          )}`,
+        );
+      }
+    }
+  }
+
+  private async backfillChannelMessages(
+    userId: string,
+    client: TelegramClient,
+    channel: TelegramChannelRecord,
+  ) {
+    const entity = channel.username ? channel.username : channel.external_id;
+    const messages = await client.getMessages(entity as never, {
+      limit: 20,
+    });
+
+    for (const message of messages) {
+      const messageRecord = message as unknown as {
+        id?: number;
+        date?: Date | number;
+        message?: string;
+      };
+      const messageText = messageRecord.message?.trim();
+
+      if (!messageText) {
+        continue;
+      }
+
+      await this.signalsService.ingestTelegramMessage({
+        userId,
+        rawMessage: messageText,
+        sourceChannel: channel.name,
+        telegramChannelId: channel.external_id,
+        telegramMessageId: this.asString(messageRecord.id),
+        messageTimestamp: this.toTelegramTimestamp(messageRecord.date),
+        ingestionSource: 'TELEGRAM_BACKFILL',
+      });
+    }
   }
 
   private async getEnabledChannelMap(userId: string) {
@@ -821,7 +901,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const sessionString = client.session.save();
     return encryptText(
       typeof sessionString === 'string' ? sessionString : String(sessionString),
-      this.configService.getOrThrow<string>('TELEGRAM_SESSION_SECRET'),
+      this.getSessionSecret(),
     );
   }
 
@@ -861,6 +941,26 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     return null;
+  }
+
+  private toTelegramTimestamp(value: unknown) {
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const milliseconds = value > 10_000_000_000 ? value : value * 1000;
+      return new Date(milliseconds).toISOString();
+    }
+
+    return null;
+  }
+
+  private getSessionSecret() {
+    return (
+      this.configService.get<string>('TELEGRAM_SESSION_SECRET') ??
+      this.configService.getOrThrow<string>('TELEGRAM_SESSION_STRING')
+    );
   }
 
   private isConfigured() {

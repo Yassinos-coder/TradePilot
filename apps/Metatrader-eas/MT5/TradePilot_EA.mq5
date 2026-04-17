@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "2.00"
+#property version   "3.00"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -21,7 +21,7 @@ input group  "=== Trade Execution ==="
 input double LotSize             = 0.01;
 input int    UseTpCount          = 3;
 input int    Slippage            = 10;
-input ulong  MagicNumber         = 20260414;
+input ulong  MagicNumber         = 20260417;
 input bool   EnableTrading       = true;
 
 input group  "=== Connection ==="
@@ -34,7 +34,9 @@ int           g_socket           = INVALID_HANDLE;
 int           g_reconnectAttempt = 0;
 datetime      g_reconnectAfter   = 0;
 datetime      g_lastMessageTime  = 0;
+datetime      g_lastPingSentAt   = 0;
 datetime      g_lastAccountStatusSent = 0;
+datetime      g_lastSymbolsSent  = 0;
 CTrade        g_trade;
 string        g_wsKey            = "dGhlIHNhbXBsZSBub25jZQ==";
 
@@ -43,6 +45,15 @@ int   g_readLen = 0;
 
 void Log(string msg) {
    Print("[TradePilot] ", msg);
+}
+
+string EscapeJson(string value) {
+   string result = value;
+   StringReplace(result, "\\", "\\\\");
+   StringReplace(result, "\"", "\\\"");
+   StringReplace(result, "\r", " ");
+   StringReplace(result, "\n", " ");
+   return result;
 }
 
 string JsonStr(string json, string key) {
@@ -97,6 +108,40 @@ string JsonNullableNumber(bool hasValue, double value, int digits) {
    if (!hasValue)
       return "null";
    return DoubleToString(value, digits);
+}
+
+string AccountId() {
+   return (string)AccountInfoInteger(ACCOUNT_LOGIN);
+}
+
+string AccountNameLabel() {
+   string accountName = AccountInfoString(ACCOUNT_NAME);
+   if (accountName == "")
+      return AccountInfoString(ACCOUNT_SERVER);
+   return accountName;
+}
+
+double NormalizeVolumeForSymbol(string symbol, double volume) {
+   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   double minVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+
+   if (step <= 0.0)
+      step = 0.01;
+
+   double normalized = MathFloor(volume / step + 0.5) * step;
+
+   if (minVolume > 0.0 && normalized < minVolume)
+      normalized = minVolume;
+
+   if (maxVolume > 0.0 && normalized > maxVolume)
+      normalized = maxVolume;
+
+   int digits = 2;
+   if (step < 0.1) digits = 3;
+   if (step < 0.01) digits = 4;
+
+   return NormalizeDouble(normalized, digits);
 }
 
 bool WsSend(string text);
@@ -257,6 +302,73 @@ int ExtractSignalObjects(string message, string &objects[]) {
    return count;
 }
 
+void SendCommandResult(
+   string action,
+   string symbol,
+   bool success,
+   string message,
+   string signalId,
+   string executionKey
+) {
+   if (g_state != ST_CONNECTED || g_socket == INVALID_HANDLE)
+      return;
+
+   string payload = StringFormat(
+      "{\"type\":\"command_result\",\"accountId\":\"%s\",\"action\":\"%s\",\"symbol\":\"%s\",\"status\":\"%s\",\"message\":\"%s\",\"signal_id\":%s,\"execution_key\":%s}",
+      AccountId(),
+      action,
+      symbol,
+      success ? "SUCCESS" : "ERROR",
+      EscapeJson(message),
+      signalId == "" ? "null" : "\"" + EscapeJson(signalId) + "\"",
+      executionKey == "" ? "null" : "\"" + EscapeJson(executionKey) + "\""
+   );
+
+   if (WsSend(payload))
+      Log("-> command_result " + action + " " + (success ? "SUCCESS" : "ERROR"));
+}
+
+void SendSymbols() {
+   if (g_state != ST_CONNECTED || g_socket == INVALID_HANDLE)
+      return;
+
+   int total = SymbolsTotal(false);
+   string payload = StringFormat(
+      "{\"type\":\"symbols\",\"accountId\":\"%s\",\"symbols\":[",
+      AccountId()
+   );
+
+   for (int i = 0; i < total; i++) {
+      string symbol = SymbolName(i, false);
+      if (symbol == "")
+         continue;
+
+      if (StringSubstr(payload, StringLen(payload) - 1, 1) != "[")
+         payload += ",";
+
+      payload += "\"" + EscapeJson(symbol) + "\"";
+   }
+
+   payload += "]}";
+
+   if (WsSend(payload)) {
+      g_lastSymbolsSent = TimeCurrent();
+      Log("-> symbols");
+   }
+}
+
+void SendHeartbeat() {
+   if (g_state != ST_CONNECTED || g_socket == INVALID_HANDLE)
+      return;
+
+   long timestamp = (long)TimeCurrent() * 1000;
+   string payload = StringFormat("{\"type\":\"ping\",\"timestamp\":%I64d}", timestamp);
+
+   if (WsSend(payload)) {
+      g_lastPingSentAt = TimeCurrent();
+   }
+}
+
 void SendAccountStatus() {
    if (g_state != ST_CONNECTED || g_socket == INVALID_HANDLE)
       return;
@@ -271,7 +383,8 @@ void SendAccountStatus() {
       drawdown = MathMax(0.0, (balance - equity) / balance * 100.0);
 
    string payload = StringFormat(
-      "{\"type\":\"account_status\",\"data\":{\"balance\":%s,\"equity\":%s,\"margin\":%s,\"freeMargin\":%s,\"drawdownPercent\":%s,\"openPositions\":%d}}",
+      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%s,\"equity\":%s,\"margin\":%s,\"freeMargin\":%s,\"drawdownPercent\":%s,\"openPositions\":%d}}",
+      AccountId(),
       DoubleToString(balance, 2),
       DoubleToString(equity, 2),
       DoubleToString(margin, 2),
@@ -310,7 +423,8 @@ void SendTradeEvent(
       return;
 
    string payload = StringFormat(
-      "{\"type\":\"trade_event\",\"data\":{\"ticket\":\"%I64u\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%s,\"entry_price\":%s,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%s,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
+      "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%I64u\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%s,\"entry_price\":%s,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%s,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
+      AccountId(),
       ticket,
       symbol,
       side,
@@ -321,7 +435,7 @@ void SendTradeEvent(
       JsonNullableNumber(hasTakeProfit, takeProfit, 5),
       DoubleToString(profit, 2),
       status,
-      comment,
+      EscapeJson(comment),
       IsoTimestamp(openedAt),
       hasClosedAt ? "\"" + IsoTimestamp(closedAt) + "\"" : "null"
    );
@@ -469,17 +583,19 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
    string symbol = JsonStr(data, "symbol");
    string side = JsonStr(data, "type");
    string entryKind = JsonStr(data, "entry");
+   string signalId = JsonStr(data, "signal_id");
+   string executionKey = JsonStr(data, "execution_key");
    double entryPrice = JsonNum(data, "entry_price");
    double stopLoss = JsonNum(data, "stop_loss");
    double takeProfit = JsonNum(data, "take_profit");
 
    if (symbol == "" || side == "" || entryKind == "") {
-      Log("Invalid trade payload");
+      SendCommandResult("OPEN", symbol, false, "Invalid trade payload", signalId, executionKey);
       return false;
    }
 
    if (!EnableTrading) {
-      Log("EnableTrading=false, dry run only");
+      SendCommandResult("OPEN", symbol, true, "EnableTrading=false dry run", signalId, executionKey);
       return true;
    }
 
@@ -503,10 +619,12 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
    }
 
    if (success) {
+      SendCommandResult("OPEN", symbol, true, "Trade request accepted", signalId, executionKey);
       Log(StringFormat("Trade accepted: %s %s lot %.2f TP %.5f", symbol, side, lotPerTrade, takeProfit));
       return true;
    }
 
+   SendCommandResult("OPEN", symbol, false, g_trade.ResultRetcodeDescription(), signalId, executionKey);
    Log(StringFormat("Trade failed: retcode=%d %s", (int)g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
    SendRejectedTradeEvent(symbol, side, lotPerTrade, entryKind, entryPrice, stopLoss, takeProfit, comment);
    return false;
@@ -530,6 +648,166 @@ void HandleSignalMessage(string msg) {
       ExecuteTradePayload(payloads[i], lotPerTrade, i + 1);
 }
 
+bool ExecutePartialClose(string symbol, double percent) {
+   bool anySuccess = false;
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+
+      if (PositionGetString(POSITION_SYMBOL) != symbol)
+         continue;
+
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      double closeVolume = NormalizeVolumeForSymbol(symbol, volume * percent / 100.0);
+      if (closeVolume <= 0.0 || closeVolume > volume)
+         closeVolume = volume;
+
+      if (g_trade.PositionClosePartial(ticket, closeVolume))
+         anySuccess = true;
+   }
+
+   return anySuccess;
+}
+
+bool ExecuteCloseAll(string symbol) {
+   bool anySuccess = false;
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+
+      if (PositionGetString(POSITION_SYMBOL) != symbol)
+         continue;
+
+      if (g_trade.PositionClose(ticket))
+         anySuccess = true;
+   }
+
+   for (int j = OrdersTotal() - 1; j >= 0; j--) {
+      ulong orderTicket = OrderGetTicket(j);
+      if (orderTicket == 0 || !OrderSelect(orderTicket))
+         continue;
+
+      if (OrderGetString(ORDER_SYMBOL) != symbol)
+         continue;
+
+      ENUM_ORDER_TYPE orderType = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if (orderType == ORDER_TYPE_BUY_LIMIT ||
+          orderType == ORDER_TYPE_SELL_LIMIT ||
+          orderType == ORDER_TYPE_BUY_STOP ||
+          orderType == ORDER_TYPE_SELL_STOP ||
+          orderType == ORDER_TYPE_BUY_STOP_LIMIT ||
+          orderType == ORDER_TYPE_SELL_STOP_LIMIT) {
+         if (g_trade.OrderDelete(orderTicket))
+            anySuccess = true;
+      }
+   }
+
+   return anySuccess;
+}
+
+bool ExecuteMoveSl(string symbol, double newStopLoss) {
+   bool anySuccess = false;
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+
+      if (PositionGetString(POSITION_SYMBOL) != symbol)
+         continue;
+
+      double takeProfit = PositionGetDouble(POSITION_TP);
+      if (g_trade.PositionModify(ticket, newStopLoss, takeProfit))
+         anySuccess = true;
+   }
+
+   return anySuccess;
+}
+
+void HandlePartialCloseMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+   double percent = JsonNum(msg, "percent");
+
+   if (symbol == "" || percent <= 0.0 || percent > 100.0) {
+      SendCommandResult("PARTIAL_CLOSE", symbol, false, "Invalid partial close payload", signalId, executionKey);
+      return;
+   }
+
+   if (!EnableTrading) {
+      SendCommandResult("PARTIAL_CLOSE", symbol, true, "EnableTrading=false dry run", signalId, executionKey);
+      return;
+   }
+
+   bool success = ExecutePartialClose(symbol, percent);
+   SendCommandResult(
+      "PARTIAL_CLOSE",
+      symbol,
+      success,
+      success ? "Partial close request executed" : "No matching positions were partially closed",
+      signalId,
+      executionKey
+   );
+}
+
+void HandleCloseAllMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+
+   if (symbol == "") {
+      SendCommandResult("CLOSE_ALL", symbol, false, "Invalid close all payload", signalId, executionKey);
+      return;
+   }
+
+   if (!EnableTrading) {
+      SendCommandResult("CLOSE_ALL", symbol, true, "EnableTrading=false dry run", signalId, executionKey);
+      return;
+   }
+
+   bool success = ExecuteCloseAll(symbol);
+   SendCommandResult(
+      "CLOSE_ALL",
+      symbol,
+      success,
+      success ? "Close all request executed" : "No matching positions or orders were closed",
+      signalId,
+      executionKey
+   );
+}
+
+void HandleMoveSlMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+   double newStopLoss = JsonNum(msg, "new_stop_loss");
+
+   if (symbol == "" || newStopLoss <= 0.0) {
+      SendCommandResult("MOVE_SL", symbol, false, "Invalid move SL payload", signalId, executionKey);
+      return;
+   }
+
+   if (!EnableTrading) {
+      SendCommandResult("MOVE_SL", symbol, true, "EnableTrading=false dry run", signalId, executionKey);
+      return;
+   }
+
+   bool success = ExecuteMoveSl(symbol, newStopLoss);
+   SendCommandResult(
+      "MOVE_SL",
+      symbol,
+      success,
+      success ? "Move SL request executed" : "No matching positions were updated",
+      signalId,
+      executionKey
+   );
+}
+
 void HandleMessage(string msg) {
    g_lastMessageTime = TimeCurrent();
 
@@ -540,6 +818,7 @@ void HandleMessage(string msg) {
       g_state = ST_CONNECTED;
       g_reconnectAttempt = 0;
       Log("Auth success, ready for signals");
+      SendSymbols();
       SendAccountStatus();
       return;
    }
@@ -558,12 +837,26 @@ void HandleMessage(string msg) {
    }
 
    if (type == "pong") {
-      Log("<- pong");
       return;
    }
 
    if (type == "signal") {
       HandleSignalMessage(msg);
+      return;
+   }
+
+   if (type == "partial_close") {
+      HandlePartialCloseMessage(msg);
+      return;
+   }
+
+   if (type == "close_all") {
+      HandleCloseAllMessage(msg);
+      return;
+   }
+
+   if (type == "move_sl") {
+      HandleMoveSlMessage(msg);
    }
 }
 
@@ -655,7 +948,6 @@ void Connect() {
       return;
    }
 
-   // Wait up to 4 s for the 101 Switching Protocols response
    string resp = "";
    for (int attempt = 0; attempt < 40 && resp == ""; attempt++) {
       Sleep(100);
@@ -670,7 +962,12 @@ void Connect() {
    }
 
    g_state = ST_AUTHENTICATING;
-   string authMsg = "{\"type\":\"auth\",\"apiKey\":\"" + ApiKey + "\"}";
+   string authMsg = StringFormat(
+      "{\"type\":\"auth\",\"apiKey\":\"%s\",\"accountId\":\"%s\",\"accountName\":\"%s\"}",
+      EscapeJson(ApiKey),
+      AccountId(),
+      EscapeJson(AccountNameLabel())
+   );
    if (!WsSend(authMsg)) {
       Log("Auth send failed");
       Disconnect();
@@ -716,11 +1013,17 @@ void OnTimer() {
    if (g_state == ST_AUTHENTICATING || g_state == ST_CONNECTED)
       ProcessFrames();
 
+   if (g_state == ST_CONNECTED && (TimeCurrent() - g_lastPingSentAt >= 5))
+      SendHeartbeat();
+
    if (g_state == ST_CONNECTED && (TimeCurrent() - g_lastAccountStatusSent >= 10))
       SendAccountStatus();
 
+   if (g_state == ST_CONNECTED && (TimeCurrent() - g_lastSymbolsSent >= 60))
+      SendSymbols();
+
    if (g_state == ST_CONNECTED && g_lastMessageTime > 0) {
-      if (TimeCurrent() - g_lastMessageTime > 35) {
+      if (TimeCurrent() - g_lastMessageTime > 12) {
          Log("Heartbeat timeout, reconnecting");
          Disconnect();
       }

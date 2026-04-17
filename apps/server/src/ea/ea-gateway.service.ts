@@ -26,12 +26,12 @@ import {
   accountStatusDtoSchema,
   eaInboundMessageSchema,
 } from '@tradepilot/shared';
+import { deriveBaseSymbol } from '@tradepilot/trading';
 
 import { DatabaseService } from '../database/database.service';
 import {
   AccountStatusSnapshotRecord,
   ExecutionStatus,
-  TradeExecutionRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
@@ -39,12 +39,15 @@ import { UsersService } from '../users/users.service';
 import {
   DispatchAckMessage,
   DispatchEventMessage,
+  EaConnectionAccountState,
   EaConnectionState,
 } from '../execution/execution.types';
 
 interface SocketMetadata {
   connectionId: string;
   userId?: string;
+  accountId?: string;
+  accountName?: string;
   lastSeenAt: number;
   latencyMs: number | null;
   lastServerPingAt: number | null;
@@ -53,6 +56,8 @@ interface SocketMetadata {
 interface PresencePayload {
   connectionId: string;
   instanceId: string;
+  accountId: string;
+  accountName: string | null;
   lastSeenAt: number;
   latencyMs: number | null;
 }
@@ -63,7 +68,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private readonly instanceId = randomUUID();
   private server?: WebSocketServer;
   private heartbeatTimer?: NodeJS.Timeout;
-  private readonly socketsByUser = new Map<string, Set<WebSocket>>();
+  private readonly socketsByUser = new Map<string, Map<string, WebSocket>>();
   private readonly socketMetadata = new Map<WebSocket, SocketMetadata>();
   private attached = false;
   private unsubscribeDispatch?: () => Promise<void>;
@@ -114,6 +119,21 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   }
 
   async getConnectionState(userId: string): Promise<EaConnectionState> {
+    const accounts = await this.listConnectionStates(userId);
+    const latest = [...accounts].sort(
+      (left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime(),
+    )[0];
+
+    return {
+      online: accounts.length > 0,
+      latencyMs: latest?.latencyMs ?? null,
+      lastSeenAt: latest?.lastSeenAt ?? null,
+      connectionCount: accounts.length,
+      accounts,
+    };
+  }
+
+  async listConnectionStates(userId: string): Promise<EaConnectionAccountState[]> {
     const presenceKeys = await this.redisService.scanKeys(
       `${EA_PRESENCE_KEY_PREFIX}:${userId}:*`,
     );
@@ -130,19 +150,19 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           return null;
         }
       })
-      .filter((value): value is PresencePayload => Boolean(value))
-      .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+      .filter((value): value is PresencePayload => Boolean(value));
 
-    const latest = presences[0];
-    const accountStatus = await this.getLatestAccountStatus(userId);
+    const latestStatuses = await this.getLatestStatusesByAccount(userId);
 
-    return {
-      online: presences.length > 0,
-      latencyMs: latest?.latencyMs ?? null,
-      lastSeenAt: latest ? new Date(latest.lastSeenAt).toISOString() : null,
-      connectionCount: presences.length,
-      accountStatus,
-    };
+    return presences
+      .sort((left, right) => right.lastSeenAt - left.lastSeenAt)
+      .map((presence) => ({
+        accountId: presence.accountId,
+        accountName: presence.accountName,
+        latencyMs: presence.latencyMs,
+        lastSeenAt: new Date(presence.lastSeenAt).toISOString(),
+        accountStatus: latestStatuses.get(presence.accountId) ?? null,
+      }));
   }
 
   onModuleDestroy() {
@@ -219,17 +239,17 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         return;
       }
 
-      await this.registerSocket(client, user.id);
+      await this.registerSocket(client, user.id, message.accountId, message.accountName);
       this.sendMessage(client, { type: 'auth_success' });
       return;
     }
 
     const metadata = this.socketMetadata.get(client);
 
-    if (!metadata?.userId) {
+    if (!metadata?.userId || !metadata.accountId) {
       this.sendMessage(client, {
         type: 'error',
-        message: 'Authenticate before sending heartbeat messages',
+        message: 'Authenticate before sending telemetry messages',
       });
       return;
     }
@@ -255,13 +275,38 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
+    if (message.type === 'symbols') {
+      await this.storeSymbols(metadata.userId, metadata.accountId, message.symbols);
+      return;
+    }
+
     if (message.type === 'account_status') {
-      await this.storeAccountStatus(metadata.userId, message.data);
+      await this.storeAccountStatus(
+        metadata.userId,
+        metadata.accountId,
+        metadata.accountName ?? null,
+        message.data,
+      );
       return;
     }
 
     if (message.type === 'trade_event') {
-      await this.storeTradeEvent(metadata.userId, message.data);
+      await this.storeTradeEvent(
+        metadata.userId,
+        metadata.accountId,
+        metadata.accountName ?? null,
+        message.data,
+      );
+      return;
+    }
+
+    if (message.type === 'command_result') {
+      await this.storeCommandResult(
+        metadata.userId,
+        metadata.accountId,
+        metadata.accountName ?? null,
+        message,
+      );
     }
   }
 
@@ -273,28 +318,31 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     const event = payload as DispatchEventMessage;
-    const connections = this.socketsByUser.get(event.userId);
+    const userConnections = this.socketsByUser.get(event.userId);
 
-    if (!connections || connections.size === 0) {
+    if (!userConnections || userConnections.size === 0) {
       return;
     }
 
-    const outboundMessage: WebSocketOutboundMessage = {
-      type: 'signal',
-      data: event.trades,
-    };
-    const serializedMessage = JSON.stringify(outboundMessage);
     let deliveredCount = 0;
+    const deliveredAccountIds: string[] = [];
 
-    for (const connection of connections) {
+    for (const command of event.commands) {
+      const connection = userConnections.get(command.accountId);
+
+      if (!connection) {
+        continue;
+      }
+
       if (connection.readyState !== WebSocket.OPEN) {
         await this.removeConnection(connection);
         continue;
       }
 
       try {
-        connection.send(serializedMessage);
+        connection.send(JSON.stringify(command.message));
         deliveredCount += 1;
+        deliveredAccountIds.push(command.accountId);
       } catch (error) {
         this.logger.warn(`Failed to forward signal to EA socket: ${String(error)}`);
         await this.removeConnection(connection);
@@ -306,6 +354,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         eventId: event.eventId,
         delivered: true,
         deliveredCount,
+        deliveredAccountIds,
         instanceId: this.instanceId,
         userId: event.userId,
       };
@@ -317,22 +366,37 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
-  private async registerSocket(client: WebSocket, userId: string) {
+  private async registerSocket(
+    client: WebSocket,
+    userId: string,
+    accountId: string,
+    accountName: string,
+  ) {
     const metadata = this.socketMetadata.get(client);
 
     if (!metadata) {
       return;
     }
 
+    const existingConnections = this.socketsByUser.get(userId) ?? new Map<string, WebSocket>();
+    const previousConnection = existingConnections.get(accountId);
+
+    if (previousConnection && previousConnection !== client) {
+      await this.removeConnection(previousConnection);
+      previousConnection.close();
+    }
+
     this.socketMetadata.set(client, {
       ...metadata,
       userId,
+      accountId,
+      accountName,
       lastSeenAt: Date.now(),
     });
 
-    const existingConnections = this.socketsByUser.get(userId) ?? new Set<WebSocket>();
-    existingConnections.add(client);
+    existingConnections.set(accountId, client);
     this.socketsByUser.set(userId, existingConnections);
+    await this.upsertEaAccount(userId, accountId, accountName, metadata.latencyMs, metadata.lastSeenAt);
     await this.persistPresence(client);
   }
 
@@ -383,7 +447,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           continue;
         }
 
-        if (metadata.userId && socket.readyState === WebSocket.OPEN) {
+        if (metadata.userId && metadata.accountId && socket.readyState === WebSocket.OPEN) {
           const timestamp = Date.now();
 
           this.socketMetadata.set(socket, {
@@ -402,17 +466,25 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private async persistPresence(client: WebSocket) {
     const metadata = this.socketMetadata.get(client);
 
-    if (!metadata?.userId) {
+    if (!metadata?.userId || !metadata.accountId) {
       return;
     }
 
     const ttlMs = this.configService.get<number>('EA_PRESENCE_TTL_MS') ?? 18_000;
-
+    await this.upsertEaAccount(
+      metadata.userId,
+      metadata.accountId,
+      metadata.accountName ?? metadata.accountId,
+      metadata.latencyMs,
+      metadata.lastSeenAt,
+    );
     await this.redisService.setJson(
-      this.getPresenceKey(metadata.userId, metadata.connectionId),
+      this.getPresenceKey(metadata.userId, metadata.accountId),
       {
         connectionId: metadata.connectionId,
         instanceId: this.instanceId,
+        accountId: metadata.accountId,
+        accountName: metadata.accountName ?? null,
         lastSeenAt: metadata.lastSeenAt,
         latencyMs: metadata.latencyMs,
       } satisfies PresencePayload,
@@ -427,11 +499,11 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
-    if (metadata.userId) {
+    if (metadata.userId && metadata.accountId) {
       const connections = this.socketsByUser.get(metadata.userId);
 
       if (connections) {
-        connections.delete(client);
+        connections.delete(metadata.accountId);
 
         if (connections.size === 0) {
           this.socketsByUser.delete(metadata.userId);
@@ -439,19 +511,94 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       }
 
       await this.redisService.delete(
-        this.getPresenceKey(metadata.userId, metadata.connectionId),
+        this.getPresenceKey(metadata.userId, metadata.accountId),
       );
     }
 
     this.socketMetadata.delete(client);
   }
 
-  private async storeAccountStatus(userId: string, payload: EaAccountStatusPayload) {
+  private async upsertEaAccount(
+    userId: string,
+    accountId: string,
+    accountName: string,
+    latencyMs: number | null,
+    lastSeenAt: number,
+  ) {
+    const { error } = await this.databaseService
+      .getClient()
+      .from('accounts')
+      .upsert(
+        {
+          user_id: userId,
+          external_account_id: accountId,
+          name: accountName,
+          broker: 'MetaTrader',
+          source: 'EA',
+          last_seen_at: new Date(lastSeenAt).toISOString(),
+          latency_ms: latencyMs,
+        },
+        {
+          onConflict: 'user_id,external_account_id',
+        },
+      );
+
+    if (error) {
+      this.logger.warn(`Failed to upsert EA account ${accountId}: ${error.message}`);
+    }
+  }
+
+  private async storeSymbols(userId: string, accountId: string, symbols: string[]) {
+    const uniqueSymbols = Array.from(
+      new Set(
+        symbols
+          .map((symbol) => symbol.trim())
+          .filter((symbol) => symbol.length > 0),
+      ),
+    );
+
+    const client = this.databaseService.getClient();
+    const { error: deleteError } = await client
+      .from('user_symbols')
+      .delete()
+      .eq('user_id', userId)
+      .eq('account_id', accountId);
+
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+
+    if (uniqueSymbols.length === 0) {
+      return;
+    }
+
+    const { error } = await client.from('user_symbols').insert(
+      uniqueSymbols.map((symbol) => ({
+        user_id: userId,
+        account_id: accountId,
+        symbol,
+        base_symbol: deriveBaseSymbol(symbol),
+      })),
+    );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  private async storeAccountStatus(
+    userId: string,
+    accountId: string,
+    accountName: string | null,
+    payload: EaAccountStatusPayload,
+  ) {
     const { data, error } = await this.databaseService
       .getClient()
       .from('ea_account_status_snapshots')
       .insert({
         user_id: userId,
+        account_id: accountId,
+        account_name: accountName,
         balance: payload.balance,
         equity: payload.equity,
         margin: payload.margin,
@@ -472,15 +619,24 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       'ACCOUNT_STATUS_RECEIVED',
       'Received EA account status update',
       {
+        accountId,
+        accountName,
         balance: payload.balance,
         equity: payload.equity,
         drawdownPercent: payload.drawdownPercent,
         openPositions: payload.openPositions,
       },
+      accountId,
+      accountName,
     );
   }
 
-  private async storeTradeEvent(userId: string, payload: EaTradeEventPayload) {
+  private async storeTradeEvent(
+    userId: string,
+    accountId: string,
+    accountName: string | null,
+    payload: EaTradeEventPayload,
+  ) {
     const { error } = await this.databaseService
       .getClient()
       .from('trade_executions')
@@ -488,6 +644,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         {
           user_id: userId,
           signal_id: payload.signal_id ?? null,
+          account_id: accountId,
+          account_name: accountName,
           ticket: payload.ticket,
           symbol: payload.symbol,
           type: payload.type,
@@ -503,7 +661,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           closed_at: payload.closed_at,
         },
         {
-          onConflict: 'user_id,ticket',
+          onConflict: 'user_id,account_id,ticket',
         },
       );
 
@@ -512,17 +670,52 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     const status = this.tradeEventToExecutionStatus(payload.status);
-    const message = this.tradeEventMessage(payload);
+    const message = this.tradeEventMessage(payload, accountId);
 
-    await this.insertExecutionEvent(userId, payload.signal_id ?? null, status, message, {
-      ticket: payload.ticket,
-      symbol: payload.symbol,
-      volume: payload.volume,
-      profit: payload.profit,
-      status: payload.status,
-      openedAt: payload.opened_at,
-      closedAt: payload.closed_at,
-    });
+    await this.insertExecutionEvent(
+      userId,
+      payload.signal_id ?? null,
+      status,
+      message,
+      {
+        accountId,
+        accountName,
+        ticket: payload.ticket,
+        symbol: payload.symbol,
+        volume: payload.volume,
+        profit: payload.profit,
+        status: payload.status,
+        openedAt: payload.opened_at,
+        closedAt: payload.closed_at,
+      },
+      accountId,
+      accountName,
+    );
+  }
+
+  private async storeCommandResult(
+    userId: string,
+    accountId: string,
+    accountName: string | null,
+    payload: Extract<WebSocketInboundMessage, { type: 'command_result' }>,
+  ) {
+    await this.insertExecutionEvent(
+      userId,
+      payload.signal_id ?? null,
+      payload.status === 'SUCCESS' ? 'COMMAND_SUCCEEDED' : 'COMMAND_FAILED',
+      payload.message,
+      {
+        accountId,
+        accountName,
+        action: payload.action,
+        symbol: payload.symbol,
+        executionKey: payload.execution_key,
+        details: payload.details ?? null,
+      },
+      accountId,
+      accountName,
+      payload.execution_key ?? null,
+    );
   }
 
   private async insertExecutionEvent(
@@ -531,6 +724,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     status: ExecutionStatus,
     message: string,
     details: Record<string, unknown> | null,
+    accountId: string | null,
+    accountName: string | null,
+    executionKey?: string | null,
   ) {
     const { error } = await this.databaseService
       .getClient()
@@ -538,6 +734,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       .insert({
         user_id: userId,
         signal_id: signalId,
+        account_id: accountId,
+        account_name: accountName,
+        execution_key: executionKey ?? null,
         status,
         message,
         details,
@@ -549,25 +748,28 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
-  private async getLatestAccountStatus(userId: string): Promise<AccountStatusDTO | null> {
+  private async getLatestStatusesByAccount(userId: string) {
     const { data, error } = await this.databaseService
       .getClient()
       .from('ea_account_status_snapshots')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(250);
 
     if (error) {
       throw new Error(error.message);
     }
 
-    if (!data) {
-      return null;
+    const result = new Map<string, AccountStatusDTO>();
+
+    for (const snapshot of (data ?? []) as AccountStatusSnapshotRecord[]) {
+      if (!result.has(snapshot.account_id)) {
+        result.set(snapshot.account_id, this.toAccountStatusDto(snapshot));
+      }
     }
 
-    return this.toAccountStatusDto(data as AccountStatusSnapshotRecord);
+    return result;
   }
 
   private tradeEventToExecutionStatus(status: EaTradeEventPayload['status']): ExecutionStatus {
@@ -581,19 +783,21 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
-  private tradeEventMessage(payload: EaTradeEventPayload) {
+  private tradeEventMessage(payload: EaTradeEventPayload, accountId: string) {
     switch (payload.status) {
       case 'OPEN':
-        return `EA opened ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} opened ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
       case 'CLOSED':
-        return `EA closed ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} closed ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
       default:
-        return `EA rejected ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} rejected ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
     }
   }
 
   private toAccountStatusDto(snapshot: AccountStatusSnapshotRecord): AccountStatusDTO {
     return accountStatusDtoSchema.parse({
+      accountId: snapshot.account_id,
+      accountName: snapshot.account_name,
       balance: snapshot.balance,
       equity: snapshot.equity,
       margin: snapshot.margin,
@@ -604,8 +808,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     });
   }
 
-  private getPresenceKey(userId: string, connectionId: string) {
-    return `${EA_PRESENCE_KEY_PREFIX}:${userId}:${connectionId}`;
+  private getPresenceKey(userId: string, accountId: string) {
+    return `${EA_PRESENCE_KEY_PREFIX}:${userId}:${accountId}`;
   }
 
   private sendMessage(client: WebSocket, message: WebSocketOutboundMessage) {

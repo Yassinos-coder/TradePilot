@@ -9,10 +9,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@tradepilot/shared': fileURLToPath(
-        new URL('../../packages/shared/dist/index.mjs', import.meta.url),
+        new URL('../../packages/shared/src/index.ts', import.meta.url),
       ),
       '@tradepilot/config': fileURLToPath(
-        new URL('../../packages/config/dist/index.mjs', import.meta.url),
+        new URL('../../packages/config/src/index.ts', import.meta.url),
       ),
     },
   },

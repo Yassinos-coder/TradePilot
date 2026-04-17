@@ -1,134 +1,83 @@
-import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Building2, Gauge, Plus, RefreshCw, Trash2, Wallet } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Activity, Gauge, RefreshCw, Wallet } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
 import {
   formatCurrency,
+  formatLatency,
   formatPercent,
   formatTimestamp,
 } from '../lib/utils';
-import { queryClient } from '../lib/query-client';
-import { useToastStore } from '../store/toast-store';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Input } from '../components/ui/Input';
 import { Skeleton } from '../components/ui/Skeleton';
 
 function AccountsSkeleton() {
   return (
-    <div className="max-w-5xl space-y-5">
-      <Card title="Live Account Telemetry" eyebrow="EA Reporting">
-        <div className="grid gap-3 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-28 w-full" />
-          ))}
-        </div>
-      </Card>
-      <Card title="Recent Trades" eyebrow="Execution Feed">
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-14 w-full" />
-          ))}
-        </div>
-      </Card>
-      <Card title="Trading Accounts" eyebrow="Portfolio">
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <Skeleton key={index} className="h-14 w-full" />
-          ))}
-        </div>
-      </Card>
+    <div className="space-y-5">
+      <Skeleton className="h-24 w-full" />
+      <div className="grid gap-4 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Skeleton key={index} className="h-72 w-full" />
+        ))}
+      </div>
+      <Skeleton className="h-96 w-full" />
     </div>
   );
 }
 
 export function AccountsPage() {
-  const pushToast = useToastStore((state) => state.push);
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
-  });
-  const accountStatusQuery = useQuery({
-    queryKey: ['accounts', 'status'],
-    queryFn: apiClient.accountStatus,
     refetchInterval: 10_000,
   });
-  const tradesQuery = useQuery({
-    queryKey: ['execution', 'trades'],
-    queryFn: apiClient.executionTrades,
+  const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (selectedAccountId || !(accountsQuery.data ?? []).length) {
+      return;
+    }
+
+    const firstAccount = accountsQuery.data?.find((account) => account.externalAccountId);
+
+    if (firstAccount?.externalAccountId) {
+      setSelectedAccountId(firstAccount.externalAccountId);
+    }
+  }, [accountsQuery.data, selectedAccountId]);
+
+  const historyQuery = useQuery({
+    queryKey: ['accounts', 'status-history', selectedAccountId ?? 'none'],
+    queryFn: () => apiClient.accountStatusHistory(selectedAccountId, 24),
+    enabled: Boolean(selectedAccountId),
     refetchInterval: 10_000,
   });
 
-  const [name, setName] = useState('');
-  const [broker, setBroker] = useState('');
-
-  const createMutation = useMutation({
-    mutationFn: apiClient.createAccount,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      setName('');
-      setBroker('');
-      pushToast({
-        tone: 'success',
-        title: 'Account created',
-        description: 'The broker label was added without storing credentials.',
-      });
-    },
-    onError: () => {
-      pushToast({
-        tone: 'error',
-        title: 'Account creation failed',
-        description: 'TradePilot could not save the new account label.',
-      });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: apiClient.deleteAccount,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      pushToast({
-        tone: 'success',
-        title: 'Account removed',
-        description: 'The account label was deleted.',
-      });
-    },
-    onError: () => {
-      pushToast({
-        tone: 'error',
-        title: 'Delete failed',
-        description: 'TradePilot could not remove that account entry.',
-      });
-    },
-  });
-
-  if (accountsQuery.isLoading || accountStatusQuery.isLoading || tradesQuery.isLoading) {
+  if (accountsQuery.isLoading) {
     return <AccountsSkeleton />;
   }
 
   const accounts = accountsQuery.data ?? [];
-  const accountStatus = accountStatusQuery.data;
-  const trades = tradesQuery.data ?? [];
+  const selectedAccount = accounts.find(
+    (account) => account.externalAccountId === selectedAccountId,
+  );
+  const history = historyQuery.data ?? [];
 
   return (
-    <div className="max-w-5xl space-y-5">
+    <div className="space-y-5">
       <Card
-        title="Live Account Telemetry"
-        eyebrow="EA Reporting"
-        description={
-          accountStatus
-            ? `Latest report ${formatTimestamp(accountStatus.reportedAt)}`
-            : 'Waiting for the EA to publish account status.'
-        }
+        title="Connected MetaTrader Accounts"
+        eyebrow="Realtime Routing"
+        description="Every account keeps its own live socket, symbol list, balance feed, and execution telemetry."
         actions={
           <Button
             variant="secondary"
             size="sm"
             onClick={() => {
-              void accountStatusQuery.refetch();
-              void tradesQuery.refetch();
+              void accountsQuery.refetch();
+              void historyQuery.refetch();
             }}
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -136,222 +85,178 @@ export function AccountsPage() {
           </Button>
         }
       >
-        {accountStatus ? (
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
-                <Wallet className="h-3.5 w-3.5" />
-                Balance
-              </div>
-              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
-                {formatCurrency(accountStatus.balance)}
+        <div className="flex flex-wrap gap-3">
+          {accounts.length === 0 ? (
+            <div className="w-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                No MetaTrader accounts registered yet
               </p>
-              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-                Equity {formatCurrency(accountStatus.equity)}
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-500">
+                Start the EA on MT4 or MT5 and authenticate with your TradePilot API key.
               </p>
             </div>
+          ) : (
+            accounts.map((account) => {
+              const active = account.externalAccountId === selectedAccountId;
 
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
-                <Gauge className="h-3.5 w-3.5" />
-                Drawdown
-              </div>
-              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
-                {formatPercent(accountStatus.drawdownPercent)}
-              </p>
-              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-                Open positions {accountStatus.openPositions}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
-                Margin
-              </p>
-              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
-                {formatCurrency(accountStatus.margin)}
-              </p>
-              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-                Free margin {formatCurrency(accountStatus.freeMargin)}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">
-                EA Status
-              </p>
-              <p className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
-                Live
-              </p>
-              <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-                Telemetry active
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
-            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              No EA account report yet
-            </p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-500">
-              Once the EA connects and starts sending `account_status`, the balance, equity,
-              margin, and drawdown metrics will appear here.
-            </p>
-          </div>
-        )}
-      </Card>
-
-      <Card
-        title="Recent Trades"
-        eyebrow="Execution Feed"
-        description="Trades are reported directly by the EA as positions open, close, or fail."
-      >
-        {trades.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
-            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              No trade events yet
-            </p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-500">
-              Dispatch a live signal and keep the EA online to see trade lifecycle updates.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100 dark:divide-slate-800">
-            {trades.map((trade) => (
-              <div
-                key={trade.id}
-                className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                    {trade.symbol} {trade.type} | ticket {trade.ticket}
-                  </p>
-                  <p className="truncate text-xs text-gray-400 dark:text-slate-500">
-                    {trade.status} | {formatTimestamp(trade.updatedAt)}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <Badge tone={trade.status === 'OPEN' ? 'info' : trade.profit >= 0 ? 'positive' : 'danger'}>
-                    {trade.status}
-                  </Badge>
-                  <Badge tone={trade.profit >= 0 ? 'positive' : 'danger'}>
-                    {formatCurrency(trade.profit)}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <Card
-        title="Trading Accounts"
-        eyebrow="Portfolio"
-        description="Labels only. No broker usernames, passwords, or terminal credentials are stored."
-        actions={
-          <Badge tone="info">
-            {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}
-          </Badge>
-        }
-      >
-        {accounts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-800">
-              <Building2 className="h-5 w-5 text-gray-400 dark:text-slate-500" />
-            </div>
-            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-              No accounts yet
-            </p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-              Add a broker label below to keep your account list organized.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100 dark:divide-slate-800">
-            {accounts.map((account) => (
-              <div
-                key={account.id}
-                className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-500/10">
-                    <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+              return (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => setSelectedAccountId(account.externalAccountId ?? undefined)}
+                  className={[
+                    'min-w-[220px] rounded-3xl border px-4 py-4 text-left transition-colors',
+                    active
+                      ? 'border-sky-300 bg-sky-50 dark:border-sky-500/40 dark:bg-sky-500/10'
+                      : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700',
+                  ].join(' ')}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">
                       {account.name}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-slate-500">
-                      {account.broker}
-                    </p>
+                    <Badge tone={account.online ? 'positive' : 'neutral'} dot>
+                      {account.online ? 'Online' : 'Offline'}
+                    </Badge>
                   </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="hidden text-xs text-gray-400 dark:text-slate-500 sm:block">
-                    {formatTimestamp(account.createdAt)}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteMutation.mutate(account.id)}
-                    isLoading={
-                      deleteMutation.isPending && deleteMutation.variables === account.id
-                    }
-                    className="text-gray-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-500">
+                    {account.externalAccountId ?? 'Manual entry'}
+                  </p>
+                  <div className="mt-4 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>{formatLatency(account.latencyMs)}</span>
+                    <span>{account.lastSeenAt ? formatTimestamp(account.lastSeenAt) : '--'}</span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
       </Card>
 
-      <Card
-        title="Add Account"
-        eyebrow="Safe Metadata"
-        description="Only the display name and broker label are stored."
-      >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-
-            if (name.trim() && broker.trim()) {
-              createMutation.mutate({
-                name: name.trim(),
-                broker: broker.trim(),
-              });
-            }
-          }}
-          className="space-y-4"
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="Account name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Primary Live"
-              required
-            />
-            <Input
-              label="Broker"
-              value={broker}
-              onChange={(event) => setBroker(event.target.value)}
-              placeholder="IC Markets"
-              required
-            />
+      {selectedAccount ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/88">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                Balance
+              </span>
+              <Wallet className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+            </div>
+            <p className="mt-4 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+              {formatCurrency(selectedAccount.latestStatus?.balance)}
+            </p>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-500">
+              Equity {formatCurrency(selectedAccount.latestStatus?.equity)}
+            </p>
           </div>
 
-          <Button
-            type="submit"
-            isLoading={createMutation.isPending}
-            disabled={!name.trim() || !broker.trim()}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add account
-          </Button>
-        </form>
+          <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/88">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                Drawdown
+              </span>
+              <Gauge className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+            </div>
+            <p className="mt-4 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+              {formatPercent(selectedAccount.latestStatus?.drawdownPercent)}
+            </p>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-500">
+              Open positions {selectedAccount.latestStatus?.openPositions ?? 0}
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/88">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                Connectivity
+              </span>
+              <Activity className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+            </div>
+            <p className="mt-4 text-2xl font-semibold text-slate-950 dark:text-slate-100">
+              {selectedAccount.online ? 'Online' : 'Offline'}
+            </p>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-500">
+              {selectedAccount.lastSeenAt
+                ? `Last seen ${formatTimestamp(selectedAccount.lastSeenAt)}`
+                : 'No heartbeat yet'}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <Card
+        title="Account Status History"
+        eyebrow="10-second snapshots"
+        description="The EA sends balance, equity, margin, free margin, drawdown, and open position counts every 10 seconds."
+      >
+        {!selectedAccountId ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              Pick an account to inspect its latest telemetry
+            </p>
+          </div>
+        ) : historyQuery.isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : history.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              No status history yet
+            </p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-500">
+              Keep the EA connected for a few seconds and the status feed will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="-mx-5 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 font-semibold">Reported</th>
+                  <th className="px-5 py-3 font-semibold">Balance</th>
+                  <th className="px-5 py-3 font-semibold">Equity</th>
+                  <th className="px-5 py-3 font-semibold">Margin</th>
+                  <th className="px-5 py-3 font-semibold">Free Margin</th>
+                  <th className="px-5 py-3 font-semibold">Drawdown</th>
+                  <th className="px-5 py-3 font-semibold">Open Positions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((snapshot) => (
+                  <tr
+                    key={`${snapshot.accountId}-${snapshot.reportedAt}`}
+                    className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                  >
+                    <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
+                      {formatTimestamp(snapshot.reportedAt)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {formatCurrency(snapshot.balance)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {formatCurrency(snapshot.equity)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {formatCurrency(snapshot.margin)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {formatCurrency(snapshot.freeMargin)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {formatPercent(snapshot.drawdownPercent)}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {snapshot.openPositions}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -110,8 +110,19 @@ export const apiClient = {
     const { data } = await api.get<AccountDTO[]>('/accounts');
     return data;
   },
-  async accountStatus() {
-    const { data } = await api.get<AccountStatusDTO | null>('/accounts/status');
+  async accountStatus(accountId?: string) {
+    const { data } = await api.get<AccountStatusDTO | null>('/accounts/status', {
+      params: accountId ? { accountId } : undefined,
+    });
+    return data;
+  },
+  async accountStatusHistory(accountId?: string, limit = 50) {
+    const { data } = await api.get<AccountStatusDTO[]>('/accounts/status/history', {
+      params: {
+        limit,
+        ...(accountId ? { accountId } : {}),
+      },
+    });
     return data;
   },
   async createAccount(payload: CreateAccountInput) {
@@ -125,16 +136,22 @@ export const apiClient = {
     const { data } = await api.get<SignalRecordDTO[]>('/signals');
     return data;
   },
-  async executionLogs() {
-    const { data } = await api.get<ExecutionLogDTO[]>('/execution/logs');
+  async executionLogs(accountId?: string) {
+    const { data } = await api.get<ExecutionLogDTO[]>('/execution/logs', {
+      params: accountId ? { accountId } : undefined,
+    });
     return data;
   },
-  async executionTrades() {
-    const { data } = await api.get<TradeExecutionDTO[]>('/execution/trades');
+  async executionTrades(accountId?: string) {
+    const { data } = await api.get<TradeExecutionDTO[]>('/execution/trades', {
+      params: accountId ? { accountId } : undefined,
+    });
     return data;
   },
-  async executionAnalytics() {
-    const { data } = await api.get<AnalyticsSummaryDTO>('/execution/analytics');
+  async executionAnalytics(accountId?: string) {
+    const { data } = await api.get<AnalyticsSummaryDTO>('/execution/analytics', {
+      params: accountId ? { accountId } : undefined,
+    });
     return data;
   },
 };

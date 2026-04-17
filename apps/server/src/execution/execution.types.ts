@@ -1,4 +1,9 @@
-import { AccountStatusDTO, EaTradePayload, SettingsDTO, SignalDTO } from '@tradepilot/shared';
+import {
+  AccountStatusDTO,
+  SettingsDTO,
+  SignalDTO,
+  WebSocketOutboundMessage,
+} from '@tradepilot/shared';
 
 export interface DispatchSignalInput {
   userId: string;
@@ -20,20 +25,38 @@ export interface ExecutionGuardResult {
   reason?: string;
 }
 
+export interface DispatchAccountCommand {
+  accountId: string;
+  accountName: string | null;
+  requestedSymbol: string;
+  resolvedSymbol: string;
+  matchType: 'exact' | 'startsWith' | 'normalized';
+  message: WebSocketOutboundMessage;
+}
+
 export interface DispatchEventMessage {
   eventId: string;
   executionKey: string;
   signalId: string;
   userId: string;
-  trades: EaTradePayload[];
+  commands: DispatchAccountCommand[];
 }
 
 export interface DispatchAckMessage {
   eventId: string;
   delivered: boolean;
   deliveredCount: number;
+  deliveredAccountIds: string[];
   instanceId: string;
   userId: string;
+}
+
+export interface EaConnectionAccountState {
+  accountId: string;
+  accountName: string | null;
+  latencyMs: number | null;
+  lastSeenAt: string;
+  accountStatus?: AccountStatusDTO | null;
 }
 
 export interface EaConnectionState {
@@ -41,5 +64,5 @@ export interface EaConnectionState {
   latencyMs: number | null;
   lastSeenAt: string | null;
   connectionCount: number;
-  accountStatus?: AccountStatusDTO | null;
+  accounts: EaConnectionAccountState[];
 }

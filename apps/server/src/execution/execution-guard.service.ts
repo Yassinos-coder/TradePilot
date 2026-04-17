@@ -1,8 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { deriveBaseSymbol } from '@tradepilot/trading';
+
 import { DatabaseService } from '../database/database.service';
-import { SignalRecord } from '../database/database.types';
+import { SignalRecord, TradeExecutionRecord } from '../database/database.types';
 
 import { ExecutionGuardInput, ExecutionGuardResult } from './execution.types';
 
@@ -27,7 +29,6 @@ export class ExecutionGuardService {
       this.configService.get<number>('GUARD_SYMBOL_COOLDOWN_MS') ?? 3_000;
     const maxTradesPerSymbol =
       this.configService.get<number>('GUARD_MAX_TRADES_PER_SYMBOL') ?? 1;
-
     const duplicateWindowStart = new Date(Date.now() - duplicateWindowMs).toISOString();
     const client = this.databaseService.getClient();
 
@@ -45,7 +46,7 @@ export class ExecutionGuardService {
         .eq('user_id', input.userId)
         .eq('status', 'OPEN')
         .order('created_at', { ascending: false })
-        .limit(100),
+        .limit(250),
     ]);
 
     if (recentSignalsResult.error) {
@@ -57,10 +58,7 @@ export class ExecutionGuardService {
     }
 
     const recentSignals = (recentSignalsResult.data ?? []) as SignalRecord[];
-    const openTrades = (openTradesResult.data ?? []) as Array<{
-      symbol: string;
-      created_at: string;
-    }>;
+    const openTrades = (openTradesResult.data ?? []) as TradeExecutionRecord[];
 
     const duplicateSignal = recentSignals.find(
       (signal) =>
@@ -74,6 +72,21 @@ export class ExecutionGuardService {
       };
     }
 
+    if (input.signal.action !== 'OPEN') {
+      const matchingOpenTrades = openTrades.filter(
+        (trade) => deriveBaseSymbol(trade.symbol) === input.signal.symbol,
+      );
+
+      if (matchingOpenTrades.length === 0) {
+        return {
+          allowed: false,
+          reason: `No open trades are currently tracked for ${input.signal.symbol}`,
+        };
+      }
+
+      return { allowed: true };
+    }
+
     if (openTrades.length >= input.settings.maxTrades) {
       return {
         allowed: false,
@@ -81,22 +94,34 @@ export class ExecutionGuardService {
       };
     }
 
-    const symbolDispatches = openTrades.filter(
-      (trade) => trade.symbol === input.signal.symbol,
+    const sameSymbolOpenTrades = openTrades.filter(
+      (trade) => deriveBaseSymbol(trade.symbol) === input.signal.symbol,
     );
 
-    if (symbolDispatches.length >= maxTradesPerSymbol) {
+    if (sameSymbolOpenTrades.length >= maxTradesPerSymbol) {
       return {
         allowed: false,
         reason: `Symbol trade limit reached for ${input.signal.symbol}`,
       };
     }
 
-    const latestSymbolDispatch = symbolDispatches[0];
+    const latestSameSymbolSignal = recentSignals.find((signal) => {
+      if (signal.id === input.signalId || signal.status !== 'DISPATCHED') {
+        return false;
+      }
+
+      const parsed = signal.parsed_data;
+      const symbol =
+        parsed && typeof parsed === 'object' && typeof parsed.symbol === 'string'
+          ? parsed.symbol.toUpperCase()
+          : null;
+
+      return symbol === input.signal.symbol;
+    });
 
     if (
-      latestSymbolDispatch &&
-      Date.now() - new Date(latestSymbolDispatch.created_at).getTime() < cooldownMs
+      latestSameSymbolSignal &&
+      Date.now() - new Date(latestSameSymbolSignal.created_at).getTime() < cooldownMs
     ) {
       return {
         allowed: false,

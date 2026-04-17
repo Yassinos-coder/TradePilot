@@ -1,13 +1,12 @@
 //+------------------------------------------------------------------+
-//|  TradePilot_EA.mq4                                               |
-//|  Connects to TradePilot WebSocket gateway and executes signals   |
-//|  Requires: Tools > Options > Expert Advisors > Allow DLL imports |
+//| TradePilot_EA.mq4                                                |
+//| Connects to TradePilot WebSocket gateway and executes signals    |
+//| Requires: Tools > Options > Expert Advisors > Allow DLL imports  |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "1.00"
+#property version   "3.00"
 #property strict
 
-//--- winhttp.dll WebSocket API
 #import "winhttp.dll"
    int  WinHttpOpen(string agent, int accessType, string proxy, string bypass, int flags);
    int  WinHttpConnect(int session, string server, int port, int reserved);
@@ -17,61 +16,60 @@
                            int optional, int optLen, int totalLen, int context);
    bool WinHttpReceiveResponse(int req, int reserved);
    int  WinHttpWebSocketCompleteUpgrade(int req, int context);
-   bool WinHttpWebSocketSend(int ws, int bufType,
-                             uchar &buf[], int bufLen);
-   bool WinHttpWebSocketReceive(int ws, uchar &buf[], int bufLen,
-                                int &bytesRead, int &bufType);
-   bool WinHttpWebSocketClose(int ws, int status,
-                              uchar &reason[], int reasonLen);
+   bool WinHttpWebSocketSend(int ws, int bufType, uchar &buf[], int bufLen);
+   bool WinHttpWebSocketReceive(int ws, uchar &buf[], int bufLen, int &bytesRead, int &bufType);
+   bool WinHttpWebSocketClose(int ws, int status, uchar &reason[], int reasonLen);
    bool WinHttpCloseHandle(int handle);
 #import
 
-//--- Input parameters
-input string ServerHost          = "tradepilot.yassinecastro.com"; // Server hostname
-input int    ServerPort          = 443;                             // Port (443=WSS, 80=WS)
-input bool   UseSSL              = true;                            // Use TLS
-input string WsPath              = "/ws/ea";                        // WebSocket endpoint
-input string ApiKey              = "";                              // TradePilot API key
-input double LotSize             = 0.01;                            // Lot size per trade
-input int    UseTpCount          = 1;                               // TPs to use (1-3)
-input int    Slippage            = 3;                               // Slippage in points
-input int    MagicNumber         = 20260413;                        // Magic number
-input bool   EnableTrading       = true;                            // false = log only
-input int    ReconnectDelaySec   = 5;                               // Base reconnect delay (s)
+input string ServerHost          = "tradepilot.yassinecastro.com";
+input int    ServerPort          = 443;
+input bool   UseSSL              = true;
+input string WsPath              = "/ws/ea";
+input string ApiKey              = "";
+input double LotSize             = 0.01;
+input int    UseTpCount          = 1;
+input int    Slippage            = 3;
+input int    MagicNumber         = 20260417;
+input bool   EnableTrading       = true;
+input int    ReconnectDelaySec   = 5;
 
-//--- WinHTTP constants
 #define WINHTTP_ACCESS_TYPE_DEFAULT_PROXY   0
 #define WINHTTP_NO_PROXY_NAME               ""
 #define WINHTTP_NO_PROXY_BYPASS             ""
 #define WINHTTP_FLAG_SECURE                 0x00800000
 #define WINHTTP_FLAG_ASYNC                  0x10000000
-#define WINHTTP_ADDREQ_FLAG_ADD             0x20000000
 #define WINHTTP_WS_BUFFER_TYPE_UTF8_MESSAGE 2
 
-//--- Connection states
 enum EState { ST_DISCONNECTED, ST_CONNECTED, ST_AUTHENTICATING };
 
-//--- Globals
-EState   g_state            = ST_DISCONNECTED;
-int      g_hSession         = 0;
-int      g_hConnect         = 0;
-int      g_hRequest         = 0;
-int      g_hWs              = 0;
-int      g_reconnectAttempt = 0;
-datetime g_reconnectAfter   = 0;
-datetime g_lastMessageTime  = 0;
-string   g_pendingMsg       = "";
+EState   g_state                 = ST_DISCONNECTED;
+int      g_hSession              = 0;
+int      g_hConnect              = 0;
+int      g_hRequest              = 0;
+int      g_hWs                   = 0;
+int      g_reconnectAttempt      = 0;
+datetime g_reconnectAfter        = 0;
+datetime g_lastMessageTime       = 0;
+datetime g_lastPingSentAt        = 0;
+datetime g_lastAccountStatusSent = 0;
+datetime g_lastSymbolsSent       = 0;
+int      g_openReportedTickets[];
+int      g_closedReportedTickets[];
 
-//+------------------------------------------------------------------+
-//| Utility log                                                      |
-//+------------------------------------------------------------------+
 void Log(string msg) {
    Print("[TradePilot] ", msg);
 }
 
-//+------------------------------------------------------------------+
-//| Extract a string value from JSON: "key":"value"                 |
-//+------------------------------------------------------------------+
+string EscapeJson(string value) {
+   string result = value;
+   StringReplace(result, "\\", "\\\\");
+   StringReplace(result, "\"", "\\\"");
+   StringReplace(result, "\r", " ");
+   StringReplace(result, "\n", " ");
+   return result;
+}
+
 string JsonStr(string json, string key) {
    string needle = "\"" + key + "\":\"";
    int p = StringFind(json, needle);
@@ -82,66 +80,88 @@ string JsonStr(string json, string key) {
    return StringSubstr(json, p, q - p);
 }
 
-//+------------------------------------------------------------------+
-//| Extract a numeric value from JSON: "key":number                 |
-//+------------------------------------------------------------------+
 double JsonNum(string json, string key) {
    string needle = "\"" + key + "\":";
    int p = StringFind(json, needle);
    if (p < 0) return 0.0;
    p += StringLen(needle);
-   while (p < StringLen(json) && StringGetCharacter(json, p) == ' ') p++;
+   while (p < StringLen(json) && (StringGetCharacter(json, p) == ' ' || StringGetCharacter(json, p) == '\t'))
+      p++;
+
+   if (StringSubstr(json, p, 4) == "null")
+      return 0.0;
+
    string num = "";
    int len = StringLen(json);
    for (int i = p; i < len; i++) {
       int c = StringGetCharacter(json, i);
-      if (c >= '0' && c <= '9') { num += CharToStr((char)c); continue; }
-      if (c == '.' || c == '-') { num += CharToStr((char)c); continue; }
+      if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+         num += CharToStr((char)c);
+         continue;
+      }
       break;
    }
    return (num == "") ? 0.0 : StrToDouble(num);
 }
 
-//+------------------------------------------------------------------+
-//| Extract take_profits array from JSON                            |
-//+------------------------------------------------------------------+
-void JsonTPs(string json, double &tps[], int &count) {
-   count = 0;
-   ArrayResize(tps, 3);
-   int p = StringFind(json, "\"take_profits\":[");
-   if (p < 0) return;
-   p += 16;
-   int len = StringLen(json);
-   string num = "";
-   for (int i = p; i < len; i++) {
-      int c = StringGetCharacter(json, i);
-      if (c == ']') {
-         if (num != "" && count < 3) { tps[count++] = StrToDouble(num); }
-         break;
-      }
-      if (c == ',') {
-         if (num != "" && count < 3) { tps[count++] = StrToDouble(num); num = ""; }
-         continue;
-      }
-      if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
-         num += CharToStr((char)c);
-      }
-   }
+string IsoTimestamp(datetime value) {
+   return TimeToString(value, TIME_DATE | TIME_SECONDS);
 }
 
-//+------------------------------------------------------------------+
-//| Send a UTF-8 text message over the WS handle                    |
-//+------------------------------------------------------------------+
+string AccountId() {
+   return IntegerToString(AccountNumber());
+}
+
+string AccountNameLabel() {
+   string name = AccountName();
+   if (name == "")
+      return AccountCompany();
+   return name;
+}
+
+double NormalizeVolumeForSymbol(string symbol, double volume) {
+   double step = MarketInfo(symbol, MODE_LOTSTEP);
+   double minLot = MarketInfo(symbol, MODE_MINLOT);
+   double maxLot = MarketInfo(symbol, MODE_MAXLOT);
+
+   if (step <= 0.0)
+      step = 0.01;
+
+   double normalized = MathFloor(volume / step + 0.5) * step;
+
+   if (minLot > 0.0 && normalized < minLot)
+      normalized = minLot;
+
+   if (maxLot > 0.0 && normalized > maxLot)
+      normalized = maxLot;
+
+   return NormalizeDouble(normalized, 2);
+}
+
+bool ContainsTicket(int &arr[], int ticket) {
+   for (int i = 0; i < ArraySize(arr); i++) {
+      if (arr[i] == ticket)
+         return true;
+   }
+   return false;
+}
+
+void AddTicket(int &arr[], int ticket) {
+   if (ContainsTicket(arr, ticket))
+      return;
+
+   int size = ArraySize(arr);
+   ArrayResize(arr, size + 1);
+   arr[size] = ticket;
+}
+
 bool WsSend(string text) {
    if (g_hWs == 0) return false;
    uchar buf[];
-   int len = StringToCharArray(text, buf, 0, WHOLE_ARRAY) - 1; // strip null
+   int len = StringToCharArray(text, buf, 0, WHOLE_ARRAY) - 1;
    return WinHttpWebSocketSend(g_hWs, WINHTTP_WS_BUFFER_TYPE_UTF8_MESSAGE, buf, len);
 }
 
-//+------------------------------------------------------------------+
-//| Try to read a message (non-blocking via short timeout approach)  |
-//+------------------------------------------------------------------+
 bool WsReceive(string &out) {
    if (g_hWs == 0) return false;
 
@@ -158,61 +178,413 @@ bool WsReceive(string &out) {
    return true;
 }
 
-//+------------------------------------------------------------------+
-//| Execute a trade from signal data                                 |
-//+------------------------------------------------------------------+
-void ExecuteSignal(string data) {
-   string symbol   = JsonStr(data, "symbol");
-   string side     = JsonStr(data, "type");
-   string entryStr = JsonStr(data, "entry");
-   double sl       = JsonNum(data, "stop_loss");
-
-   double tps[];
-   int tpCount;
-   JsonTPs(data, tps, tpCount);
-
-   if (symbol == "" || side == "") {
-      Log("Invalid signal — missing symbol or side");
+void SendCommandResult(string action, string symbol, bool success, string message, string signalId, string executionKey) {
+   if (g_state != ST_CONNECTED || g_hWs == 0)
       return;
+
+   string payload = StringFormat(
+      "{\"type\":\"command_result\",\"accountId\":\"%s\",\"action\":\"%s\",\"symbol\":\"%s\",\"status\":\"%s\",\"message\":\"%s\",\"signal_id\":%s,\"execution_key\":%s}",
+      AccountId(),
+      action,
+      symbol,
+      success ? "SUCCESS" : "ERROR",
+      EscapeJson(message),
+      signalId == "" ? "null" : "\"" + EscapeJson(signalId) + "\"",
+      executionKey == "" ? "null" : "\"" + EscapeJson(executionKey) + "\""
+   );
+
+   WsSend(payload);
+}
+
+void SendSymbols() {
+   if (g_state != ST_CONNECTED || g_hWs == 0)
+      return;
+
+   int total = SymbolsTotal(false);
+   string payload = StringFormat(
+      "{\"type\":\"symbols\",\"accountId\":\"%s\",\"symbols\":[",
+      AccountId()
+   );
+
+   for (int i = 0; i < total; i++) {
+      string symbol = SymbolName(i, false);
+      if (symbol == "")
+         continue;
+
+      if (StringSubstr(payload, StringLen(payload) - 1, 1) != "[")
+         payload += ",";
+
+      payload += "\"" + EscapeJson(symbol) + "\"";
    }
 
-   Log(StringFormat("<- signal: %s %s @ %s SL=%.5f TP[0]=%.5f",
-       symbol, side, entryStr, sl, tpCount > 0 ? tps[0] : 0));
+   payload += "]}";
 
-   if (!EnableTrading) {
-      Log("EnableTrading=false — dry run only");
+   if (WsSend(payload))
+      g_lastSymbolsSent = TimeCurrent();
+}
+
+void SendHeartbeat() {
+   if (g_state != ST_CONNECTED || g_hWs == 0)
       return;
+
+   long timestamp = TimeCurrent() * 1000;
+   string payload = StringFormat("{\"type\":\"ping\",\"timestamp\":%d}", timestamp);
+
+   if (WsSend(payload))
+      g_lastPingSentAt = TimeCurrent();
+}
+
+void SendAccountStatus() {
+   if (g_state != ST_CONNECTED || g_hWs == 0)
+      return;
+
+   double balance = AccountBalance();
+   double equity = AccountEquity();
+   double margin = AccountMargin();
+   double freeMargin = AccountFreeMargin();
+   double drawdown = 0.0;
+
+   if (balance > 0.0)
+      drawdown = MathMax(0.0, (balance - equity) / balance * 100.0);
+
+   int openPositions = 0;
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if (OrderType() == OP_BUY || OrderType() == OP_SELL)
+         openPositions++;
    }
 
-   bool isBuy = (side == "BUY");
+   string payload = StringFormat(
+      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"freeMargin\":%.2f,\"drawdownPercent\":%.2f,\"openPositions\":%d}}",
+      AccountId(),
+      balance,
+      equity,
+      margin,
+      freeMargin,
+      drawdown,
+      openPositions
+   );
 
-   int activeTps = MathMin(tpCount, MathMin(UseTpCount, 3));
-   if (activeTps == 0) activeTps = 1;
+   if (WsSend(payload))
+      g_lastAccountStatusSent = TimeCurrent();
+}
 
-   double lotPer = LotSize / activeTps;
+void SendTradeEvent(
+   string status,
+   int ticket,
+   string symbol,
+   string side,
+   double volume,
+   double entryPrice,
+   double exitPrice,
+   double stopLoss,
+   double takeProfit,
+   double profit,
+   string comment,
+   datetime openedAt,
+   datetime closedAt
+) {
+   if (g_state != ST_CONNECTED || g_hWs == 0)
+      return;
 
-   for (int i = 0; i < activeTps; i++) {
-      double tp      = (tpCount > i) ? tps[i] : 0.0;
-      double price   = isBuy ? Ask : Bid;
-      int    optype  = isBuy ? OP_BUY : OP_SELL;
-      color  clr     = isBuy ? Blue : Red;
-      string comment = StringFormat("TradePilot-TP%d", i + 1);
+   string payload = StringFormat(
+      "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%d\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%.2f,\"entry_price\":%.5f,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%.2f,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
+      AccountId(),
+      ticket,
+      symbol,
+      side,
+      volume,
+      entryPrice,
+      status == "OPEN" ? "null" : DoubleToStr(exitPrice, 5),
+      stopLoss > 0 ? DoubleToStr(stopLoss, 5) : "null",
+      takeProfit > 0 ? DoubleToStr(takeProfit, 5) : "null",
+      profit,
+      status,
+      EscapeJson(comment),
+      IsoTimestamp(openedAt),
+      status == "OPEN" ? "null" : "\"" + IsoTimestamp(closedAt) + "\""
+   );
 
-      int ticket = OrderSend(symbol, optype, lotPer, price,
-                             Slippage, sl, tp, comment,
-                             MagicNumber, 0, clr);
+   WsSend(payload);
+}
 
-      if (ticket > 0)
-         Log(StringFormat("Trade opened: ticket #%d %s %s %.2f SL=%.5f TP=%.5f",
-             ticket, symbol, side, lotPer, sl, tp));
-      else
-         Log(StringFormat("Trade failed: error=%d %s", GetLastError(), symbol));
+void SyncTradeEvents() {
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      int type = OrderType();
+      if (type != OP_BUY && type != OP_SELL)
+         continue;
+
+      int ticket = OrderTicket();
+      if (ContainsTicket(g_openReportedTickets, ticket))
+         continue;
+
+      SendTradeEvent(
+         "OPEN",
+         ticket,
+         OrderSymbol(),
+         type == OP_BUY ? "BUY" : "SELL",
+         OrderLots(),
+         OrderOpenPrice(),
+         0.0,
+         OrderStopLoss(),
+         OrderTakeProfit(),
+         OrderProfit() + OrderSwap() + OrderCommission(),
+         OrderComment(),
+         OrderOpenTime(),
+         0
+      );
+      AddTicket(g_openReportedTickets, ticket);
+   }
+
+   int historyTotal = OrdersHistoryTotal();
+   int start = MathMax(0, historyTotal - 100);
+   for (int j = historyTotal - 1; j >= start; j--) {
+      if (!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      int type = OrderType();
+      if (type != OP_BUY && type != OP_SELL)
+         continue;
+
+      int ticket = OrderTicket();
+      if (ContainsTicket(g_closedReportedTickets, ticket))
+         continue;
+
+      SendTradeEvent(
+         "CLOSED",
+         ticket,
+         OrderSymbol(),
+         type == OP_BUY ? "BUY" : "SELL",
+         OrderLots(),
+         OrderOpenPrice(),
+         OrderClosePrice(),
+         OrderStopLoss(),
+         OrderTakeProfit(),
+         OrderProfit() + OrderSwap() + OrderCommission(),
+         OrderComment(),
+         OrderOpenTime(),
+         OrderCloseTime()
+      );
+      AddTicket(g_closedReportedTickets, ticket);
    }
 }
 
-//+------------------------------------------------------------------+
-//| Handle a decoded WS message                                      |
-//+------------------------------------------------------------------+
+int ExtractSignalObjects(string message, string &objects[]) {
+   int dataPos = StringFind(message, "\"data\":[");
+   if (dataPos < 0) return 0;
+
+   int len = StringLen(message);
+   int depth = 0;
+   int start = -1;
+   int count = 0;
+   ArrayResize(objects, 0);
+
+   for (int i = dataPos + 8; i < len; i++) {
+      int c = StringGetCharacter(message, i);
+      if (c == '{') {
+         if (depth == 0)
+            start = i;
+         depth++;
+      } else if (c == '}') {
+         depth--;
+         if (depth == 0 && start >= 0) {
+            ArrayResize(objects, count + 1);
+            objects[count] = StringSubstr(message, start, i - start + 1);
+            count++;
+            start = -1;
+         }
+      } else if (c == ']' && depth == 0) {
+         break;
+      }
+   }
+
+   return count;
+}
+
+bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
+   string symbol = JsonStr(data, "symbol");
+   string side = JsonStr(data, "type");
+   string entryKind = JsonStr(data, "entry");
+   string signalId = JsonStr(data, "signal_id");
+   string executionKey = JsonStr(data, "execution_key");
+   double entryPrice = JsonNum(data, "entry_price");
+   double stopLoss = JsonNum(data, "stop_loss");
+   double takeProfit = JsonNum(data, "take_profit");
+
+   if (symbol == "" || side == "" || entryKind == "") {
+      SendCommandResult("OPEN", symbol, false, "Invalid trade payload", signalId, executionKey);
+      return false;
+   }
+
+   if (!EnableTrading) {
+      SendCommandResult("OPEN", symbol, true, "EnableTrading=false dry run", signalId, executionKey);
+      return true;
+   }
+
+   int cmd;
+   double price;
+   color clr;
+   bool isBuy = side == "BUY";
+   string comment = "TradePilot-" + IntegerToString(tradeIndex);
+
+   if (entryKind == "LIMIT" && entryPrice > 0.0) {
+      cmd = isBuy ? OP_BUYLIMIT : OP_SELLLIMIT;
+      price = entryPrice;
+   } else {
+      cmd = isBuy ? OP_BUY : OP_SELL;
+      price = isBuy ? Ask : Bid;
+   }
+
+   clr = isBuy ? Blue : Red;
+   int ticket = OrderSend(symbol, cmd, lotPerTrade, price, Slippage, stopLoss, takeProfit, comment, MagicNumber, 0, clr);
+
+   if (ticket > 0) {
+      SendCommandResult("OPEN", symbol, true, "Trade request accepted", signalId, executionKey);
+      return true;
+   }
+
+   SendCommandResult("OPEN", symbol, false, "OrderSend failed", signalId, executionKey);
+   return false;
+}
+
+bool ExecutePartialClose(string symbol, double percent) {
+   bool anySuccess = false;
+
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      int type = OrderType();
+      if ((type != OP_BUY && type != OP_SELL) || OrderSymbol() != symbol)
+         continue;
+
+      double closeLots = NormalizeVolumeForSymbol(symbol, OrderLots() * percent / 100.0);
+      if (closeLots <= 0.0 || closeLots > OrderLots())
+         closeLots = OrderLots();
+
+      double closePrice = type == OP_BUY ? Bid : Ask;
+      if (OrderClose(OrderTicket(), closeLots, closePrice, Slippage, clrNONE))
+         anySuccess = true;
+   }
+
+   return anySuccess;
+}
+
+bool ExecuteCloseAll(string symbol) {
+   bool anySuccess = false;
+
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      int type = OrderType();
+      if (OrderSymbol() != symbol)
+         continue;
+
+      if (type == OP_BUY || type == OP_SELL) {
+         double closePrice = type == OP_BUY ? Bid : Ask;
+         if (OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrNONE))
+            anySuccess = true;
+      } else if (type == OP_BUYLIMIT || type == OP_SELLLIMIT || type == OP_BUYSTOP || type == OP_SELLSTOP) {
+         if (OrderDelete(OrderTicket()))
+            anySuccess = true;
+      }
+   }
+
+   return anySuccess;
+}
+
+bool ExecuteMoveSl(string symbol, double newStopLoss) {
+   bool anySuccess = false;
+
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      int type = OrderType();
+      if ((type != OP_BUY && type != OP_SELL) || OrderSymbol() != symbol)
+         continue;
+
+      if (OrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, clrNONE))
+         anySuccess = true;
+   }
+
+   return anySuccess;
+}
+
+void HandleSignalMessage(string msg) {
+   string payloads[];
+   int payloadCount = ExtractSignalObjects(msg, payloads);
+
+   if (payloadCount <= 0) {
+      Log("Signal payload was empty");
+      return;
+   }
+
+   int activeCount = payloadCount;
+   if (UseTpCount > 0 && UseTpCount < activeCount)
+      activeCount = UseTpCount;
+
+   double lotPerTrade = activeCount > 0 ? LotSize / activeCount : LotSize;
+   for (int i = 0; i < activeCount; i++)
+      ExecuteOpenPayload(payloads[i], lotPerTrade, i + 1);
+}
+
+void HandlePartialCloseMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+   double percent = JsonNum(msg, "percent");
+
+   bool success = symbol != "" && percent > 0.0 && percent <= 100.0 && (!EnableTrading || ExecutePartialClose(symbol, percent));
+   SendCommandResult(
+      "PARTIAL_CLOSE",
+      symbol,
+      success,
+      success ? "Partial close request executed" : "No matching orders were partially closed",
+      signalId,
+      executionKey
+   );
+}
+
+void HandleCloseAllMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+
+   bool success = symbol != "" && (!EnableTrading || ExecuteCloseAll(symbol));
+   SendCommandResult(
+      "CLOSE_ALL",
+      symbol,
+      success,
+      success ? "Close all request executed" : "No matching orders were closed",
+      signalId,
+      executionKey
+   );
+}
+
+void HandleMoveSlMessage(string msg) {
+   string symbol = JsonStr(msg, "symbol");
+   string signalId = JsonStr(msg, "signal_id");
+   string executionKey = JsonStr(msg, "execution_key");
+   double newStopLoss = JsonNum(msg, "new_stop_loss");
+
+   bool success = symbol != "" && newStopLoss > 0.0 && (!EnableTrading || ExecuteMoveSl(symbol, newStopLoss));
+   SendCommandResult(
+      "MOVE_SL",
+      symbol,
+      success,
+      success ? "Move SL request executed" : "No matching orders were updated",
+      signalId,
+      executionKey
+   );
+}
+
 void HandleMessage(string msg) {
    g_lastMessageTime = TimeCurrent();
 
@@ -222,39 +594,48 @@ void HandleMessage(string msg) {
    if (type == "auth_success") {
       g_state = ST_CONNECTED;
       g_reconnectAttempt = 0;
-      Log("Auth success — ready for signals");
-   } else if (type == "error") {
+      Log("Auth success, ready for signals");
+      SendSymbols();
+      SendAccountStatus();
+      return;
+   }
+
+   if (type == "error") {
       Log("ERROR: " + JsonStr(msg, "message"));
       Disconnect();
-   } else if (type == "ping") {
+      return;
+   }
+
+   if (type == "ping") {
       double ts = JsonNum(msg, "timestamp");
       WsSend(StringFormat("{\"type\":\"pong\",\"timestamp\":%.0f}", ts));
-      Log(StringFormat("<- ping (ts=%.0f)", ts));
-   } else if (type == "pong") {
-      Log("<- pong");
-   } else if (type == "signal") {
-      int p = StringFind(msg, "\"data\":{");
-      if (p >= 0) {
-         int start = p + 7;
-         int depth = 0;
-         int end   = start;
-         int len   = StringLen(msg);
-         for (int i = start; i < len; i++) {
-            int c = StringGetCharacter(msg, i);
-            if (c == '{') depth++;
-            else if (c == '}') {
-               depth--;
-               if (depth == 0) { end = i + 1; break; }
-            }
-         }
-         ExecuteSignal(StringSubstr(msg, start, end - start));
-      }
+      return;
+   }
+
+   if (type == "pong") {
+      return;
+   }
+
+   if (type == "signal") {
+      HandleSignalMessage(msg);
+      return;
+   }
+
+   if (type == "partial_close") {
+      HandlePartialCloseMessage(msg);
+      return;
+   }
+
+   if (type == "close_all") {
+      HandleCloseAllMessage(msg);
+      return;
+   }
+
+   if (type == "move_sl") {
+      HandleMoveSlMessage(msg);
    }
 }
 
-//+------------------------------------------------------------------+
-//| Close all WinHTTP handles                                        |
-//+------------------------------------------------------------------+
 void CloseHandles() {
    if (g_hWs      != 0) { WinHttpCloseHandle(g_hWs);      g_hWs      = 0; }
    if (g_hRequest != 0) { WinHttpCloseHandle(g_hRequest);  g_hRequest = 0; }
@@ -262,9 +643,6 @@ void CloseHandles() {
    if (g_hSession != 0) { WinHttpCloseHandle(g_hSession);  g_hSession = 0; }
 }
 
-//+------------------------------------------------------------------+
-//| Disconnect and schedule reconnect                               |
-//+------------------------------------------------------------------+
 void Disconnect() {
    if (g_hWs != 0) {
       uchar reason[];
@@ -274,153 +652,134 @@ void Disconnect() {
    CloseHandles();
 
    int delaySec = ReconnectDelaySec;
-   for (int i = 0; i < g_reconnectAttempt && i < 7; i++) delaySec *= 2;
-   if (g_reconnectAttempt >= 8) delaySec = 600;
+   for (int i = 0; i < g_reconnectAttempt && i < 7; i++)
+      delaySec *= 2;
+   if (g_reconnectAttempt >= 8)
+      delaySec = 600;
 
    g_reconnectAfter = TimeCurrent() + delaySec;
    g_reconnectAttempt++;
    g_state = ST_DISCONNECTED;
 
-   Log(StringFormat("Disconnected — reconnecting in %d s (attempt %d)",
-       delaySec, g_reconnectAttempt));
+   Log(StringFormat("Disconnected, reconnecting in %d s (attempt %d)", delaySec, g_reconnectAttempt));
 }
 
-//+------------------------------------------------------------------+
-//| Establish WebSocket connection via WinHTTP                      |
-//+------------------------------------------------------------------+
 void Connect() {
    if (ApiKey == "") {
-      Log("ERROR: ApiKey is empty — set it in EA inputs");
+      Log("ERROR: ApiKey is empty");
       return;
    }
 
    CloseHandles();
 
-   Log(StringFormat("Connecting to %s:%d%s", ServerHost, ServerPort, WsPath));
-
    int flags = WINHTTP_FLAG_ASYNC;
-   g_hSession = WinHttpOpen("TradePilot-EA/1.0",
-                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                            WINHTTP_NO_PROXY_NAME,
-                            WINHTTP_NO_PROXY_BYPASS,
-                            flags);
+   g_hSession = WinHttpOpen("TradePilot-EA/3.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, flags);
    if (g_hSession == 0) {
-      Log("WinHttpOpen failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
    g_hConnect = WinHttpConnect(g_hSession, ServerHost, ServerPort, 0);
    if (g_hConnect == 0) {
-      Log("WinHttpConnect failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
    int reqFlags = UseSSL ? WINHTTP_FLAG_SECURE : 0;
-   g_hRequest = WinHttpOpenRequest(g_hConnect, "GET", WsPath,
-                                   "HTTP/1.1", "", 0, reqFlags);
+   g_hRequest = WinHttpOpenRequest(g_hConnect, "GET", WsPath, "HTTP/1.1", "", 0, reqFlags);
    if (g_hRequest == 0) {
-      Log("WinHttpOpenRequest failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
-   // Request WebSocket upgrade
    string upgradeHdr = "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                      + "Sec-WebSocket-Version: 13\r\n"
                      + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
 
    if (!WinHttpSendRequest(g_hRequest, upgradeHdr, -1, 0, 0, 0, 0)) {
-      Log("WinHttpSendRequest failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
    if (!WinHttpReceiveResponse(g_hRequest, 0)) {
-      Log("WinHttpReceiveResponse failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
    g_hWs = WinHttpWebSocketCompleteUpgrade(g_hRequest, 0);
    if (g_hWs == 0) {
-      Log("WinHttpWebSocketCompleteUpgrade failed: " + (string)GetLastError());
       Disconnect();
       return;
    }
 
-   // Authenticate
    g_state = ST_AUTHENTICATING;
-   string authMsg = "{\"type\":\"auth\",\"apiKey\":\"" + ApiKey + "\"}";
+   string authMsg = StringFormat(
+      "{\"type\":\"auth\",\"apiKey\":\"%s\",\"accountId\":\"%s\",\"accountName\":\"%s\"}",
+      EscapeJson(ApiKey),
+      AccountId(),
+      EscapeJson(AccountNameLabel())
+   );
+
    if (!WsSend(authMsg)) {
-      Log("Auth send failed");
       Disconnect();
       return;
    }
-   Log("-> auth");
+
    g_lastMessageTime = TimeCurrent();
 }
 
-//+------------------------------------------------------------------+
-//| Poll for incoming messages                                       |
-//+------------------------------------------------------------------+
 void PollMessages() {
    if (g_hWs == 0) return;
    if (g_state != ST_AUTHENTICATING && g_state != ST_CONNECTED) return;
 
    string msg;
-   // Drain available messages (up to 10 per tick to avoid blocking)
    for (int i = 0; i < 10; i++) {
       if (!WsReceive(msg)) break;
       if (msg != "") HandleMessage(msg);
    }
 
-   // Heartbeat timeout
-   if (g_state == ST_CONNECTED && g_lastMessageTime > 0) {
-      if (TimeCurrent() - g_lastMessageTime > 35) {
-         Log("Heartbeat timeout — reconnecting");
-         Disconnect();
-      }
+   if (g_state == ST_CONNECTED && TimeCurrent() - g_lastPingSentAt >= 5)
+      SendHeartbeat();
+
+   if (g_state == ST_CONNECTED && TimeCurrent() - g_lastAccountStatusSent >= 10)
+      SendAccountStatus();
+
+   if (g_state == ST_CONNECTED && TimeCurrent() - g_lastSymbolsSent >= 60)
+      SendSymbols();
+
+   if (g_state == ST_CONNECTED)
+      SyncTradeEvents();
+
+   if (g_state == ST_CONNECTED && g_lastMessageTime > 0 && TimeCurrent() - g_lastMessageTime > 12) {
+      Log("Heartbeat timeout, reconnecting");
+      Disconnect();
    }
 }
 
-//+------------------------------------------------------------------+
-//| OnInit                                                          |
-//+------------------------------------------------------------------+
 int OnInit() {
    EventSetTimer(1);
-   Log("EA initialised — connecting...");
+   Log("EA initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }
 
-//+------------------------------------------------------------------+
-//| OnDeinit                                                        |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
    EventKillTimer();
    CloseHandles();
    Log("EA removed");
 }
 
-//+------------------------------------------------------------------+
-//| OnTimer — 1 s interval                                          |
-//+------------------------------------------------------------------+
 void OnTimer() {
    if (g_state == ST_DISCONNECTED) {
       if (TimeCurrent() >= g_reconnectAfter)
          Connect();
       return;
    }
+
    PollMessages();
 }
 
-//+------------------------------------------------------------------+
-//| OnTick — additional polling on active markets                   |
-//+------------------------------------------------------------------+
 void OnTick() {
    if (g_state == ST_DISCONNECTED) return;
    PollMessages();
 }
-//+------------------------------------------------------------------+

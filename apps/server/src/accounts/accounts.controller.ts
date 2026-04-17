@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 
 import { CreateAccountInput, createAccountSchema } from '@tradepilot/shared';
 
@@ -15,8 +25,24 @@ export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get('status')
-  getLatestAccountStatus(@CurrentUser() user: RequestUser) {
-    return this.accountsService.getLatestAccountStatus(user.userId);
+  getLatestAccountStatus(
+    @CurrentUser() user: RequestUser,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.accountsService.getLatestAccountStatus(user.userId, accountId);
+  }
+
+  @Get('status/history')
+  getAccountStatusHistory(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.accountsService.listAccountStatusHistory(
+      user.userId,
+      Number(limit ?? 50),
+      accountId,
+    );
   }
 
   @Get()

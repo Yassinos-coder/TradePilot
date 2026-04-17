@@ -18,7 +18,8 @@ import {
   tradeExecutionDtoSchema,
 } from '@tradepilot/shared';
 import {
-  toEaTradePayloads,
+  resolveBrokerSymbol,
+  toEaCommandMessage,
 } from '@tradepilot/trading';
 
 import { hashText } from '../common/utils/hash';
@@ -28,6 +29,7 @@ import {
   AccountStatusSnapshotRecord,
   ExecutionLogRecord,
   TradeExecutionRecord,
+  UserSymbolRecord,
 } from '../database/database.types';
 import { EaGatewayService } from '../ea/ea-gateway.service';
 import { RedisService } from '../redis/redis.service';
@@ -36,6 +38,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ExecutionGuardService } from './execution-guard.service';
 import {
   DispatchAckMessage,
+  DispatchAccountCommand,
   DispatchEventMessage,
   DispatchSignalInput,
 } from './execution.types';
@@ -52,7 +55,7 @@ export class ExecutionService {
   ) {}
 
   async dispatchSignal(input: DispatchSignalInput): Promise<void> {
-    const executionKey = hashText(`${input.userId}:${input.signalId}`);
+    const executionKey = hashText(`${input.userId}:${input.signalId}:${input.signal.action}`);
     const alreadyDispatched = await this.hasSuccessfulDispatch(executionKey);
 
     if (alreadyDispatched) {
@@ -61,22 +64,18 @@ export class ExecutionService {
     }
 
     const settings = await this.settingsService.getSettings(input.userId);
-    const trades = toEaTradePayloads(input.signal, {
-      signalId: input.signalId,
-      executionKey,
-    });
 
     await this.recordLog(
       input.userId,
       input.signalId,
       'RECEIVED',
-      `Signal validated and prepared for ${trades.length} EA trade payload(s)`,
+      `Signal validated and prepared for ${input.signal.action} on ${input.signal.symbol}`,
       {
         executionKey,
         attempt: 0,
         details: {
           parser: input.signal.parser,
-          tradeCount: trades.length,
+          action: input.signal.action,
           symbol: input.signal.symbol,
         },
       },
@@ -133,7 +132,7 @@ export class ExecutionService {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const connectionState = await this.gateway.getConnectionState(input.userId);
 
-      if (!connectionState.online) {
+      if (!connectionState.online || connectionState.accounts.length === 0) {
         if (attempt < maxAttempts) {
           await this.recordLog(
             input.userId,
@@ -164,9 +163,39 @@ export class ExecutionService {
       }
 
       sawPresence = true;
+      const commands = await this.buildAccountCommands(
+        input.userId,
+        input.signalId,
+        executionKey,
+        input,
+        connectionState.accounts.map((account) => ({
+          accountId: account.accountId,
+          accountName: account.accountName ?? null,
+        })),
+      );
+
+      if (commands.length === 0) {
+        await this.updateSignalStatus(input.signalId, 'EXECUTION_REJECTED');
+        await this.recordLog(
+          input.userId,
+          input.signalId,
+          'SYMBOL_MAPPING_FAILED',
+          `No connected account exposed a broker symbol compatible with ${input.signal.symbol}`,
+          {
+            executionKey,
+            attempt,
+            details: {
+              requestedSymbol: input.signal.symbol,
+              connectedAccounts: connectionState.accounts.map((account) => account.accountId),
+            },
+          },
+        );
+        return;
+      }
+
       const ack = await this.publishDispatchAndAwaitAck(
         input,
-        trades,
+        commands,
         executionKey,
         attempt,
       );
@@ -177,14 +206,15 @@ export class ExecutionService {
           input.userId,
           input.signalId,
           'DISPATCHED',
-          `Signal dispatched to ${ack.deliveredCount} EA connection(s) with ${trades.length} trade payload(s)`,
+          `Signal dispatched to ${ack.deliveredCount} connected account(s)`,
           {
             executionKey,
             attempt,
             details: {
               deliveredCount: ack.deliveredCount,
-              tradeCount: trades.length,
-              latencyMs: connectionState.latencyMs,
+              deliveredAccountIds: ack.deliveredAccountIds,
+              action: input.signal.action,
+              requestedSymbol: input.signal.symbol,
             },
           },
         );
@@ -224,14 +254,24 @@ export class ExecutionService {
     );
   }
 
-  async listLogs(userId: string, limit = 10): Promise<ExecutionLogDTO[]> {
-    const { data: logs, error } = await this.databaseService
+  async listLogs(
+    userId: string,
+    limit = 10,
+    accountId?: string,
+  ): Promise<ExecutionLogDTO[]> {
+    let query = this.databaseService
       .getClient()
       .from('execution_logs')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data: logs, error } = await query;
 
     if (error) {
       throw new InternalServerErrorException(error.message);
@@ -240,14 +280,24 @@ export class ExecutionService {
     return (logs ?? []).map((log) => this.toExecutionLogDto(log as ExecutionLogRecord));
   }
 
-  async listRecentTrades(userId: string, limit = 10): Promise<TradeExecutionDTO[]> {
-    const { data, error } = await this.databaseService
+  async listRecentTrades(
+    userId: string,
+    limit = 10,
+    accountId?: string,
+  ): Promise<TradeExecutionDTO[]> {
+    let query = this.databaseService
       .getClient()
       .from('trade_executions')
       .select('*')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
       .limit(limit);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw new InternalServerErrorException(error.message);
@@ -256,15 +306,23 @@ export class ExecutionService {
     return (data ?? []).map((trade) => this.toTradeExecutionDto(trade as TradeExecutionRecord));
   }
 
-  async getLatestAccountStatus(userId: string): Promise<AccountStatusDTO | null> {
-    const { data, error } = await this.databaseService
+  async getLatestAccountStatus(
+    userId: string,
+    accountId?: string,
+  ): Promise<AccountStatusDTO | null> {
+    let query = this.databaseService
       .getClient()
       .from('ea_account_status_snapshots')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       throw new InternalServerErrorException(error.message);
@@ -277,36 +335,67 @@ export class ExecutionService {
     return this.toAccountStatusDto(data as AccountStatusSnapshotRecord);
   }
 
-  async getAnalytics(userId: string): Promise<AnalyticsSummaryDTO> {
-    const { data, error } = await this.databaseService
+  async listAccountStatusHistory(
+    userId: string,
+    limit = 50,
+    accountId?: string,
+  ): Promise<AccountStatusDTO[]> {
+    let query = this.databaseService
       .getClient()
-      .from('execution_logs')
+      .from('ea_account_status_snapshots')
       .select('*')
       .eq('user_id', userId)
-      .in('status', ['TRADE_CLOSED', 'TRADE_REJECTED'])
       .order('created_at', { ascending: false })
-      .limit(1000);
+      .limit(limit);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw new InternalServerErrorException(error.message);
     }
 
-    const logs = (data ?? []) as ExecutionLogRecord[];
-    const closedTrades = logs.filter((log) => log.status === 'TRADE_CLOSED');
+    return (data ?? []).map((snapshot) =>
+      this.toAccountStatusDto(snapshot as AccountStatusSnapshotRecord),
+    );
+  }
+
+  async getAnalytics(userId: string, accountId?: string): Promise<AnalyticsSummaryDTO> {
+    let query = this.databaseService
+      .getClient()
+      .from('trade_executions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'CLOSED')
+      .order('closed_at', { ascending: false })
+      .limit(5000);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const closedTrades = (data ?? []) as TradeExecutionRecord[];
     let wins = 0;
     let losses = 0;
     let grossProfit = 0;
     let grossLoss = 0;
 
-    for (const log of closedTrades) {
-      const profit = this.readNumericDetail(log.details, 'profit');
-
-      if (profit > 0) {
+    for (const trade of closedTrades) {
+      if (trade.profit > 0) {
         wins += 1;
-        grossProfit += profit;
-      } else if (profit < 0) {
+        grossProfit += trade.profit;
+      } else if (trade.profit < 0) {
         losses += 1;
-        grossLoss += Math.abs(profit);
+        grossLoss += Math.abs(trade.profit);
       }
     }
 
@@ -333,6 +422,8 @@ export class ExecutionService {
     status: ExecutionStatus,
     message: string,
     options?: {
+      accountId?: string | null;
+      accountName?: string | null;
       executionKey?: string;
       attempt?: number;
       details?: Record<string, unknown> | null;
@@ -344,6 +435,8 @@ export class ExecutionService {
       .insert({
         user_id: userId,
         signal_id: signalId,
+        account_id: options?.accountId ?? null,
+        account_name: options?.accountName ?? null,
         execution_key: options?.executionKey ?? null,
         attempt: options?.attempt ?? 0,
         status,
@@ -362,9 +455,111 @@ export class ExecutionService {
     return data as ExecutionLogRecord;
   }
 
+  private async buildAccountCommands(
+    userId: string,
+    signalId: string,
+    executionKey: string,
+    input: DispatchSignalInput,
+    accounts: Array<{ accountId: string; accountName: string | null }>,
+  ): Promise<DispatchAccountCommand[]> {
+    const accountIds = accounts.map((account) => account.accountId);
+    const symbolRows = await this.getSymbolsForAccounts(userId, accountIds);
+    const rowsByAccount = new Map<string, UserSymbolRecord[]>();
+
+    for (const row of symbolRows) {
+      const existing = rowsByAccount.get(row.account_id) ?? [];
+      existing.push(row);
+      rowsByAccount.set(row.account_id, existing);
+    }
+
+    const commands: DispatchAccountCommand[] = [];
+
+    for (const account of accounts) {
+      const availableSymbols = (rowsByAccount.get(account.accountId) ?? []).map(
+        (row) => row.symbol,
+      );
+      const resolved = resolveBrokerSymbol(input.signal.symbol, availableSymbols);
+
+      if (!resolved.resolvedSymbol || !resolved.matchType) {
+        await this.recordLog(
+          userId,
+          signalId,
+          'SYMBOL_MAPPING_FAILED',
+          `No compatible symbol was reported by account ${account.accountId} for ${input.signal.symbol}`,
+          {
+            accountId: account.accountId,
+            accountName: account.accountName,
+            executionKey,
+            attempt: 0,
+            details: {
+              requestedSymbol: input.signal.symbol,
+              availableSymbols,
+            },
+          },
+        );
+        continue;
+      }
+
+      const message = toEaCommandMessage(input.signal, {
+        signalId,
+        executionKey,
+        symbol: resolved.resolvedSymbol,
+      });
+
+      await this.recordLog(
+        userId,
+        signalId,
+        'SYMBOL_MAPPED',
+        `Mapped ${input.signal.symbol} to ${resolved.resolvedSymbol} for account ${account.accountId}`,
+        {
+          accountId: account.accountId,
+          accountName: account.accountName,
+          executionKey,
+          attempt: 0,
+          details: {
+            requestedSymbol: input.signal.symbol,
+            resolvedSymbol: resolved.resolvedSymbol,
+            matchType: resolved.matchType,
+            action: input.signal.action,
+          },
+        },
+      );
+
+      commands.push({
+        accountId: account.accountId,
+        accountName: account.accountName,
+        requestedSymbol: input.signal.symbol,
+        resolvedSymbol: resolved.resolvedSymbol,
+        matchType: resolved.matchType,
+        message,
+      });
+    }
+
+    return commands;
+  }
+
+  private async getSymbolsForAccounts(userId: string, accountIds: string[]) {
+    if (accountIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('user_symbols')
+      .select('*')
+      .eq('user_id', userId)
+      .in('account_id', accountIds);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return (data ?? []) as UserSymbolRecord[];
+  }
+
   private async publishDispatchAndAwaitAck(
     input: DispatchSignalInput,
-    trades: DispatchEventMessage['trades'],
+    commands: DispatchAccountCommand[],
     executionKey: string,
     attempt: number,
   ): Promise<DispatchAckMessage | null> {
@@ -378,7 +573,7 @@ export class ExecutionService {
       executionKey,
       signalId: input.signalId,
       userId: input.userId,
-      trades,
+      commands,
     };
 
     await this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event));
@@ -424,6 +619,8 @@ export class ExecutionService {
     return executionLogSchema.parse({
       id: log.id,
       signalId: log.signal_id,
+      accountId: log.account_id,
+      accountName: log.account_name,
       executionKey: log.execution_key,
       attempt: log.attempt,
       status: log.status,
@@ -437,6 +634,8 @@ export class ExecutionService {
     return tradeExecutionDtoSchema.parse({
       id: trade.id,
       signalId: trade.signal_id,
+      accountId: trade.account_id,
+      accountName: trade.account_name,
       ticket: trade.ticket,
       symbol: trade.symbol,
       type: trade.type,
@@ -457,6 +656,8 @@ export class ExecutionService {
 
   private toAccountStatusDto(snapshot: AccountStatusSnapshotRecord): AccountStatusDTO {
     return accountStatusDtoSchema.parse({
+      accountId: snapshot.account_id,
+      accountName: snapshot.account_name,
       balance: snapshot.balance,
       equity: snapshot.equity,
       margin: snapshot.margin,
@@ -465,23 +666,5 @@ export class ExecutionService {
       openPositions: snapshot.open_positions,
       reportedAt: snapshot.created_at,
     });
-  }
-
-  private readNumericDetail(details: Record<string, unknown> | null, key: string) {
-    const value = details?.[key];
-
-    if (typeof value === 'number') {
-      return value;
-    }
-
-    if (typeof value === 'string' && value.trim().length > 0) {
-      const parsed = Number(value);
-
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-
-    return 0;
   }
 }

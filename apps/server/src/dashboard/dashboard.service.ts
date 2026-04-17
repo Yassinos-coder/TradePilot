@@ -3,41 +3,54 @@ import { Injectable } from '@nestjs/common';
 import { DASHBOARD_RESULT_LIMIT } from '@tradepilot/config';
 import { DashboardOverviewDTO, dashboardOverviewSchema } from '@tradepilot/shared';
 
-import { EaGatewayService } from '../ea/ea-gateway.service';
+import { AccountsService } from '../accounts/accounts.service';
 import { ExecutionService } from '../execution/execution.service';
 import { SignalsService } from '../signals/signals.service';
 
 @Injectable()
 export class DashboardService {
   constructor(
-    private readonly gateway: EaGatewayService,
+    private readonly accountsService: AccountsService,
     private readonly signalsService: SignalsService,
     private readonly executionService: ExecutionService,
   ) {}
 
   async getOverview(userId: string): Promise<DashboardOverviewDTO> {
     const [
+      connectedAccounts,
       recentSignals,
       recentExecutionLogs,
-      connectionState,
       signalCount,
       recentTrades,
       analytics,
+      lastTelegramMessage,
+      latestAccountStatus,
     ] = await Promise.all([
+      this.accountsService.listAccounts(userId),
       this.signalsService.listRecentSignals(userId, DASHBOARD_RESULT_LIMIT),
       this.executionService.listLogs(userId, DASHBOARD_RESULT_LIMIT),
-      this.gateway.getConnectionState(userId),
       this.signalsService.countSignals(userId),
       this.executionService.listRecentTrades(userId, DASHBOARD_RESULT_LIMIT),
       this.executionService.getAnalytics(userId),
+      this.signalsService.getLatestTelegramMessage(userId),
+      this.accountsService.getLatestAccountStatus(userId),
     ]);
 
+    const onlineAccounts = connectedAccounts.filter((account) => account.online);
+    const latestOnlineAccount = [...onlineAccounts].sort((left, right) => {
+      const leftTime = left.lastSeenAt ? new Date(left.lastSeenAt).getTime() : 0;
+      const rightTime = right.lastSeenAt ? new Date(right.lastSeenAt).getTime() : 0;
+      return rightTime - leftTime;
+    })[0];
+
     return dashboardOverviewSchema.parse({
-      eaOnline: connectionState.online,
-      eaLatencyMs: connectionState.latencyMs,
-      eaLastSeenAt: connectionState.lastSeenAt,
+      eaOnline: onlineAccounts.length > 0,
+      eaLatencyMs: latestOnlineAccount?.latencyMs ?? null,
+      eaLastSeenAt: latestOnlineAccount?.lastSeenAt ?? null,
       signalCount,
-      accountStatus: connectionState.accountStatus ?? null,
+      accountStatus: latestAccountStatus ?? null,
+      connectedAccounts,
+      lastTelegramMessage,
       recentSignals,
       recentExecutionLogs,
       recentTrades,

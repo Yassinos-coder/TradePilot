@@ -12,17 +12,32 @@ export class ExecutionController {
   constructor(private readonly executionService: ExecutionService) {}
 
   @Get('analytics')
-  getAnalytics(@CurrentUser() user: RequestUser) {
-    return this.executionService.getAnalytics(user.userId);
+  getAnalytics(
+    @CurrentUser() user: RequestUser,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.executionService.getAnalytics(user.userId, accountId);
   }
 
   @Get('trades')
-  listRecentTrades(@CurrentUser() user: RequestUser, @Query('limit') limit?: string) {
-    return this.executionService.listRecentTrades(user.userId, Number(limit ?? 10));
+  listRecentTrades(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.executionService.listRecentTrades(
+      user.userId,
+      Number(limit ?? 10),
+      accountId,
+    );
   }
 
   @Get('logs')
-  listLogs(@CurrentUser() user: RequestUser, @Query('limit') limit?: string) {
-    return this.executionService.listLogs(user.userId, Number(limit ?? 10));
+  listLogs(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.executionService.listLogs(user.userId, Number(limit ?? 10), accountId);
   }
 }

@@ -15,6 +15,17 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@tradepilot/config": [
+        "packages/config/src/index.ts"
+      ],
+      "@tradepilot/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@tradepilot/trading": [
+        "packages/trading/src/index.ts"
+      ]
+    }
   }
 }

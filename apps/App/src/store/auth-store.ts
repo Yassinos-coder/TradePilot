@@ -14,6 +14,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   sendMagicLink: (email: string) => Promise<void>;
+  loginWithOAuth: (provider: 'google' | 'apple') => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: UserDTO) => void;
   clearError: () => void;
@@ -146,6 +147,47 @@ export const useAuthStore = create<AuthState>()((set) => ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to send magic link';
+
+      set((state) => ({
+        ...state,
+        isLoading: false,
+        error: message,
+      }));
+
+      throw error;
+    }
+  },
+  loginWithOAuth: async (provider) => {
+    set((state) => ({
+      ...state,
+      isLoading: true,
+      error: null,
+      magicLinkSent: false,
+    }));
+
+    try {
+      const callbackUrl = new URL('/auth/callback', window.location.origin);
+      callbackUrl.searchParams.set('next', '/');
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: callbackUrl.toString(),
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      set((state) => ({
+        ...state,
+        isLoading: false,
+        error: null,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Failed to sign in with ${provider}`;
 
       set((state) => ({
         ...state,

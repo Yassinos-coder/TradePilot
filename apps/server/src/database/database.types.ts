@@ -13,16 +13,24 @@ export type ExecutionStatus =
   | 'RETRYING'
   | 'DISPATCHED'
   | 'PARSE_FAILED'
+  | 'PARSING_COMPLETED'
   | 'VALIDATION_FAILED'
+  | 'VALIDATION_COMPLETED'
+  | 'TELEGRAM_MESSAGE_RECEIVED'
+  | 'SYMBOL_MAPPED'
+  | 'SYMBOL_MAPPING_FAILED'
   | 'EA_OFFLINE'
   | 'DISPATCH_TIMEOUT'
   | 'EXECUTION_REJECTED'
   | 'ACCOUNT_STATUS_RECEIVED'
   | 'TRADE_OPENED'
   | 'TRADE_CLOSED'
-  | 'TRADE_REJECTED';
+  | 'TRADE_REJECTED'
+  | 'COMMAND_SUCCEEDED'
+  | 'COMMAND_FAILED';
 
 export type TradeLifecycleStatus = 'OPEN' | 'CLOSED' | 'REJECTED';
+export type AccountSource = 'MANUAL' | 'EA';
 
 export interface UserRecord {
   id: string;
@@ -36,8 +44,12 @@ export interface UserRecord {
 export interface AccountRecord {
   id: string;
   user_id: string;
+  external_account_id: string | null;
   name: string;
-  broker: string;
+  broker: string | null;
+  source: AccountSource;
+  last_seen_at: string | null;
+  latency_ms: number | null;
   created_at: string;
 }
 
@@ -63,6 +75,10 @@ export interface SignalRecord {
   raw_message: string;
   raw_message_hash: string | null;
   source_channel: string | null;
+  telegram_message_id: string | null;
+  telegram_channel_id: string | null;
+  message_timestamp: string | null;
+  ingestion_source: 'MANUAL' | 'TELEGRAM_REALTIME' | 'TELEGRAM_BACKFILL';
   parsed_data: Record<string, unknown> | null;
   confidence: number | null;
   status: SignalStatus;
@@ -73,6 +89,8 @@ export interface ExecutionLogRecord {
   id: string;
   user_id: string;
   signal_id: string | null;
+  account_id: string | null;
+  account_name: string | null;
   execution_key: string | null;
   attempt: number;
   status: ExecutionStatus;
@@ -121,6 +139,8 @@ export interface TelegramConnectionRecord {
 export interface AccountStatusSnapshotRecord {
   id: string;
   user_id: string;
+  account_id: string;
+  account_name: string | null;
   balance: number;
   equity: number;
   margin: number;
@@ -134,6 +154,8 @@ export interface TradeExecutionRecord {
   id: string;
   user_id: string;
   signal_id: string | null;
+  account_id: string;
+  account_name: string | null;
   ticket: string;
   symbol: string;
   type: 'BUY' | 'SELL';
@@ -147,6 +169,16 @@ export interface TradeExecutionRecord {
   comment: string | null;
   opened_at: string;
   closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserSymbolRecord {
+  id: string;
+  user_id: string;
+  account_id: string;
+  symbol: string;
+  base_symbol: string;
   created_at: string;
   updated_at: string;
 }
