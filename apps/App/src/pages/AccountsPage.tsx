@@ -51,7 +51,7 @@ export function AccountsPage() {
 
   const historyQuery = useQuery({
     queryKey: ['accounts', 'status-history', selectedExternalId ?? 'none'],
-    queryFn: () => apiClient.accountStatusHistory(selectedExternalId, 24),
+    queryFn: () => apiClient.accountStatusHistory(selectedExternalId ?? undefined, 24),
     enabled: Boolean(selectedExternalId),
     refetchInterval: 10_000,
   });

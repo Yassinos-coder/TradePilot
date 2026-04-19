@@ -142,9 +142,9 @@ export const apiClient = {
     });
     return data;
   },
-  async executionTrades(accountId?: string) {
+  async executionTrades(accountId?: string, limit = 10) {
     const { data } = await api.get<TradeExecutionDTO[]>('/execution/trades', {
-      params: accountId ? { accountId } : undefined,
+      params: { limit, ...(accountId ? { accountId } : {}) },
     });
     return data;
   },

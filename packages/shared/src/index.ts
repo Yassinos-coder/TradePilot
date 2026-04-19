@@ -108,15 +108,161 @@ export const tradeExecutionDtoSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const symbolBreakdownSchema = z.object({
+  symbol: z.string(),
+  trades: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  winRate: z.number(),
+  netProfit: z.number(),
+  profitFactor: z.number(),
+  avgWin: z.number(),
+  avgLoss: z.number(),
+  expectancy: z.number(),
+});
+
+export const directionBreakdownSchema = z.object({
+  trades: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  winRate: z.number(),
+  netProfit: z.number(),
+});
+
+export const periodBreakdownSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  trades: z.number().int().nonnegative(),
+  wins: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+  winRate: z.number(),
+  netProfit: z.number(),
+});
+
+export const tradeTypeBreakdownSchema = z.object({
+  tradeType: z.string(),
+  trades: z.number().int().nonnegative(),
+  wins: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+  winRate: z.number(),
+  netProfit: z.number(),
+});
+
+export const bestWorstPeriodSchema = z.object({
+  period: z.string(),
+  netProfit: z.number(),
+});
+
+export const equityCurvePointSchema = z.object({
+  index: z.number().int().nonnegative(),
+  closedAt: z.string(),
+  cumulativePnL: z.number(),
+  drawdown: z.number(),
+  drawdownPercent: z.number(),
+});
+
 export const analyticsSummarySchema = z.object({
+  startingBalance: z.number().nullable(),
+  endingBalance: z.number().nullable(),
+  returnOnAccount: z.number().nullable(),
+  roi: z.number().nullable(),
+  annualizedReturn: z.number().nullable(),
+  cagr: z.number().nullable(),
+
   totalTrades: z.number().int().nonnegative(),
+  winningTrades: z.number().int().nonnegative(),
+  losingTrades: z.number().int().nonnegative(),
   wins: z.number().int().nonnegative(),
   losses: z.number().int().nonnegative(),
   winRate: z.number().min(0).max(100),
+  lossRate: z.number().min(0).max(100),
+  breakEvenRate: z.number().min(0).max(100).nullable(),
   profitFactor: z.number().min(0),
   netProfit: z.number(),
   grossProfit: z.number().min(0),
   grossLoss: z.number().min(0),
+  avgWin: z.number(),
+  avgLoss: z.number(),
+  winLossRatio: z.number().nullable(),
+  expectancy: z.number(),
+  expectedValuePerTrade: z.number(),
+  largestWin: z.number(),
+  largestLoss: z.number(),
+  averageTrade: z.number(),
+
+  sharpeRatio: z.number().nullable(),
+  sortinoRatio: z.number().nullable(),
+  calmarRatio: z.number().nullable(),
+  sterlingRatio: z.number().nullable(),
+  omegaRatio: z.number().nullable(),
+  informationRatio: z.number().nullable(),
+  treynorRatio: z.number().nullable(),
+  jensensAlpha: z.number().nullable(),
+
+  maxDrawdown: z.number(),
+  maxDrawdownPercent: z.number().nullable(),
+  averageDrawdown: z.number(),
+  drawdownDurationHours: z.number().nullable(),
+  recoveryFactor: z.number().nullable(),
+  ulcerIndex: z.number().nullable(),
+  painIndex: z.number().nullable(),
+
+  avgHoldTimeHours: z.number().nullable(),
+  avgWinHoldTimeHours: z.number().nullable(),
+  avgLossHoldTimeHours: z.number().nullable(),
+  tradesPerDay: z.number().nullable(),
+  tradesPerWeek: z.number().nullable(),
+  tradesPerMonth: z.number().nullable(),
+  bestDay: bestWorstPeriodSchema.nullable(),
+  worstDay: bestWorstPeriodSchema.nullable(),
+  bestMonth: bestWorstPeriodSchema.nullable(),
+  worstMonth: bestWorstPeriodSchema.nullable(),
+  timeInMarketPercent: z.number().nullable(),
+
+  maxConsecutiveWins: z.number().int(),
+  maxConsecutiveLosses: z.number().int(),
+  riskRewardRatio: z.number().nullable(),
+  riskPerTradePercent: z.number().nullable(),
+  valueAtRisk95: z.number().nullable(),
+  conditionalVar95: z.number().nullable(),
+  kellyCriterion: z.number().nullable(),
+  averageR: z.number().nullable(),
+  standardDeviationReturns: z.number().nullable(),
+  volatilityAnnualized: z.number().nullable(),
+
+  averagePositionSize: z.number().nullable(),
+  averageLeverage: z.number().nullable(),
+  maxLeverage: z.number().nullable(),
+  marginUtilization: z.number().nullable(),
+  exposurePercent: z.number().nullable(),
+  concentrationRisk: z.number().nullable(),
+
+  totalCommissionPaid: z.number().nullable(),
+  totalSwapRolloverFees: z.number().nullable(),
+  avgSpreadCostPerTrade: z.number().nullable(),
+  avgSlippage: z.number().nullable(),
+  netProfitAfterCosts: z.number(),
+
+  bySymbol: z.array(symbolBreakdownSchema),
+  longTrades: directionBreakdownSchema,
+  shortTrades: directionBreakdownSchema,
+  bySession: z.array(periodBreakdownSchema),
+  byDayOfWeek: z.array(periodBreakdownSchema),
+  byHourOfDay: z.array(periodBreakdownSchema),
+  byTradeType: z.array(tradeTypeBreakdownSchema),
+
+  equityHighWaterMark: z.number(),
+  equityCurveSlope: z.number().nullable(),
+  equityCurveRSquared: z.number().nullable(),
+  equityCurveLinearity: z.number().nullable(),
+  equityCurve: z.array(equityCurvePointSchema),
+
+  alpha: z.number().nullable(),
+  beta: z.number().nullable(),
+  correlationToBenchmark: z.number().nullable(),
+  trackingError: z.number().nullable(),
+
+  assumptions: z.array(z.string()),
 });
 
 export const telegramConnectionStatusSchema = z.enum([
@@ -409,6 +555,12 @@ export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
 export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
 export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
+export type SymbolBreakdownDTO = z.infer<typeof symbolBreakdownSchema>;
+export type DirectionBreakdownDTO = z.infer<typeof directionBreakdownSchema>;
+export type PeriodBreakdownDTO = z.infer<typeof periodBreakdownSchema>;
+export type TradeTypeBreakdownDTO = z.infer<typeof tradeTypeBreakdownSchema>;
+export type BestWorstPeriodDTO = z.infer<typeof bestWorstPeriodSchema>;
+export type EquityCurvePointDTO = z.infer<typeof equityCurvePointSchema>;
 export type TelegramConnectionStatus = z.infer<typeof telegramConnectionStatusSchema>;
 export type TelegramChannelKind = z.infer<typeof telegramChannelKindSchema>;
 export type TelegramConnectionDTO = z.infer<typeof telegramConnectionSchema>;

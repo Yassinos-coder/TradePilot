@@ -36,3 +36,19 @@ export function formatPercent(value: number | null | undefined, digits = 2) {
 
   return `${value.toFixed(digits)}%`;
 }
+
+export function formatDuration(hours: number | null | undefined) {
+  if (typeof hours !== 'number' || Number.isNaN(hours)) {
+    return '--';
+  }
+
+  if (hours < 1) {
+    return `${Math.round(hours * 60)}m`;
+  }
+
+  if (hours < 24) {
+    return `${hours.toFixed(1)}h`;
+  }
+
+  return `${(hours / 24).toFixed(1)}d`;
+}
