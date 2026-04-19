@@ -154,4 +154,7 @@ export const apiClient = {
     });
     return data;
   },
+  async dispatchManual(signalId: string, accountId: string) {
+    await api.post(`/execution/${signalId}/dispatch-manual`, { accountId });
+  },
 };

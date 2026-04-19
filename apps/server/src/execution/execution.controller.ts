@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { RequestUser } from '../auth/types/request-user.type';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -10,6 +10,15 @@ import { ExecutionService } from './execution.service';
 @Controller('execution')
 export class ExecutionController {
   constructor(private readonly executionService: ExecutionService) {}
+
+  @Post(':signalId/dispatch-manual')
+  dispatchManual(
+    @CurrentUser() user: RequestUser,
+    @Param('signalId') signalId: string,
+    @Body() body: { accountId: string },
+  ) {
+    return this.executionService.dispatchManual(user.userId, signalId, body.accountId);
+  }
 
   @Get('analytics')
   getAnalytics(

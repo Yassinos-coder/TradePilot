@@ -1,4 +1,11 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
@@ -15,6 +22,7 @@ import {
   accountStatusDtoSchema,
   analyticsSummarySchema,
   executionLogSchema,
+  signalDtoSchema,
   tradeExecutionDtoSchema,
 } from '@tradepilot/shared';
 import {
@@ -28,6 +36,7 @@ import { DatabaseService } from '../database/database.service';
 import {
   AccountStatusSnapshotRecord,
   ExecutionLogRecord,
+  SignalRecord,
   TradeExecutionRecord,
   UserSymbolRecord,
 } from '../database/database.types';
@@ -250,6 +259,109 @@ export class ExecutionService {
       {
         executionKey,
         attempt: maxAttempts,
+      },
+    );
+  }
+
+  async dispatchManual(userId: string, signalId: string, accountId: string): Promise<void> {
+    const { data: signalData, error: signalError } = await this.databaseService
+      .getClient()
+      .from('signals')
+      .select('*')
+      .eq('id', signalId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (signalError) {
+      throw new InternalServerErrorException(signalError.message);
+    }
+
+    if (!signalData) {
+      throw new NotFoundException('Signal not found');
+    }
+
+    const signal = signalData as SignalRecord;
+    const DISPATCHABLE_STATUSES: SignalStatus[] = ['VALIDATED', 'EA_OFFLINE', 'DISPATCH_TIMEOUT'];
+
+    if (!DISPATCHABLE_STATUSES.includes(signal.status)) {
+      throw new BadRequestException(
+        `Signal status '${signal.status}' cannot be manually dispatched`,
+      );
+    }
+
+    if (!signal.parsed_data) {
+      throw new BadRequestException('Signal has no parsed data to dispatch');
+    }
+
+    const parsedSignal = signalDtoSchema.parse(signal.parsed_data);
+    const connectionState = await this.gateway.getConnectionState(userId);
+    const targetAccount = connectionState.accounts.find((a) => a.accountId === accountId);
+
+    if (!targetAccount) {
+      throw new ConflictException('Target account is not connected');
+    }
+
+    const settings = await this.settingsService.getSettings(userId);
+    const guardResult = await this.guardService.evaluate({
+      userId,
+      signalId,
+      rawMessageHash: signal.raw_message_hash ?? '',
+      signal: parsedSignal,
+      settings,
+    });
+
+    if (!guardResult.allowed) {
+      throw new UnprocessableEntityException(
+        guardResult.reason ?? 'Execution guard rejected the signal',
+      );
+    }
+
+    const executionKey = hashText(
+      `manual:${userId}:${signalId}:${parsedSignal.action}:${accountId}`,
+    );
+    const input: DispatchSignalInput = {
+      userId,
+      signalId,
+      rawMessageHash: signal.raw_message_hash ?? '',
+      signal: parsedSignal,
+    };
+
+    const commands = await this.buildAccountCommands(userId, signalId, executionKey, input, [
+      { accountId, accountName: targetAccount.accountName },
+    ]);
+
+    if (commands.length === 0) {
+      throw new UnprocessableEntityException(
+        `No broker symbol compatible with ${parsedSignal.symbol} on this account`,
+      );
+    }
+
+    const ack = await this.publishDispatchAndAwaitAck(input, commands, executionKey, 1);
+
+    if (!ack?.delivered) {
+      await this.updateSignalStatus(signalId, 'DISPATCH_TIMEOUT');
+      await this.recordLog(
+        userId,
+        signalId,
+        'DISPATCH_TIMEOUT',
+        'Manual dispatch acknowledgement timed out',
+        { executionKey, attempt: 1 },
+      );
+      throw new ConflictException('Dispatch timed out — EA did not acknowledge');
+    }
+
+    await this.updateSignalStatus(signalId, 'DISPATCHED');
+    await this.recordLog(
+      userId,
+      signalId,
+      'DISPATCHED',
+      `Manually dispatched to account ${accountId}`,
+      {
+        executionKey,
+        attempt: 1,
+        accountId,
+        accountName: targetAccount.accountName,
+        details: { manualDispatch: true, accountId },
       },
     );
   }

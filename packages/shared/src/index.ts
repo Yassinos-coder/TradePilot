@@ -431,3 +431,9 @@ export type EaAccountStatusPayload = z.infer<typeof eaAccountStatusPayloadSchema
 export type EaTradeEventPayload = z.infer<typeof eaTradeEventPayloadSchema>;
 export type EaTradePayload = z.infer<typeof eaTradePayloadSchema>;
 export type EaCommandResultStatus = z.infer<typeof commandResultStatusSchema>;
+
+export const manualDispatchSchema = z.object({
+  accountId: z.string().uuid(),
+});
+
+export type ManualDispatchInput = z.infer<typeof manualDispatchSchema>;

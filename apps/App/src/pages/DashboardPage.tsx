@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Copy,
@@ -11,9 +12,13 @@ import {
   Wallet,
   Wifi,
   WifiOff,
+  Zap,
 } from 'lucide-react';
 
+import type { SignalRecordDTO } from '@tradepilot/shared';
+
 import { apiClient } from '../lib/api';
+import { ManualDispatchModal } from '../components/ui/ManualDispatchModal';
 import {
   formatCurrency,
   formatLatency,
@@ -111,6 +116,7 @@ export function DashboardPage() {
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
   const pushToast = useToastStore((state) => state.push);
+  const [dispatchSignal, setDispatchSignal] = useState<SignalRecordDTO | null>(null);
 
   const overviewQuery = useQuery({
     queryKey: ['overview'],
@@ -341,6 +347,7 @@ export function DashboardPage() {
                 </code>
                 <button
                   type="button"
+                  aria-label="Copy API key"
                   onClick={() => void copyApiKey()}
                   className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-sky-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-sky-400"
                 >
@@ -419,7 +426,7 @@ export function DashboardPage() {
                   className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/60"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-950 dark:text-slate-100">
                         {renderSignalSummary(signal)}
                       </p>
@@ -427,15 +434,30 @@ export function DashboardPage() {
                         {signal.sourceChannel ?? 'Manual ingest'} • {formatTimestamp(signal.createdAt)}
                       </p>
                     </div>
-                    <Badge
-                      tone={
-                        SIGNAL_STATUS_TONES[
-                          signal.status as keyof typeof SIGNAL_STATUS_TONES
-                        ] ?? 'neutral'
-                      }
-                    >
-                      {signal.status}
-                    </Badge>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {(['VALIDATED', 'EA_OFFLINE', 'DISPATCH_TIMEOUT'] as const).includes(
+                        signal.status as 'VALIDATED' | 'EA_OFFLINE' | 'DISPATCH_TIMEOUT',
+                      ) ? (
+                        <button
+                          type="button"
+                          aria-label="Execute manually"
+                          title="Execute manually"
+                          onClick={() => setDispatchSignal(signal)}
+                          className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-500/10 dark:hover:text-sky-400"
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      <Badge
+                        tone={
+                          SIGNAL_STATUS_TONES[
+                            signal.status as keyof typeof SIGNAL_STATUS_TONES
+                          ] ?? 'neutral'
+                        }
+                      >
+                        {signal.status}
+                      </Badge>
+                    </div>
                   </div>
                 </div>
               ))
@@ -514,6 +536,14 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {dispatchSignal ? (
+        <ManualDispatchModal
+          signal={dispatchSignal}
+          onlineAccounts={onlineAccounts}
+          onClose={() => setDispatchSignal(null)}
+        />
+      ) : null}
 
       {!overview.eaOnline ? (
         <Card
