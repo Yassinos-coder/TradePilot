@@ -9,3 +9,4 @@ build
 coverage
 apps/server/prisma/migrations
 *.log
+.worktrees
