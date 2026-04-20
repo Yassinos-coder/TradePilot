@@ -10,3 +10,4 @@ coverage
 apps/server/prisma/migrations
 *.log
 .worktrees
+*.ex5
