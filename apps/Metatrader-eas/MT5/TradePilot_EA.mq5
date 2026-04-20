@@ -122,6 +122,9 @@ string AccountNameLabel() {
 }
 
 double NormalizeVolumeForSymbol(string symbol, double volume) {
+   if (volume <= 0.0)
+      return 0.0;
+
    double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
    double minVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
    double maxVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
@@ -599,6 +602,12 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
       return true;
    }
 
+   double normalizedLot = NormalizeVolumeForSymbol(symbol, lotPerTrade);
+   if (normalizedLot <= 0.0) {
+      SendCommandResult("OPEN", symbol, false, "LotSize must be greater than zero", signalId, executionKey);
+      return false;
+   }
+
    g_trade.SetExpertMagicNumber(MagicNumber);
    g_trade.SetDeviationInPoints(Slippage);
 
@@ -608,25 +617,25 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
 
    if (entryKind == "LIMIT" && entryPrice > 0.0) {
       if (isBuy)
-         success = g_trade.BuyLimit(lotPerTrade, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
+         success = g_trade.BuyLimit(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
       else
-         success = g_trade.SellLimit(lotPerTrade, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
+         success = g_trade.SellLimit(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
    } else {
       if (isBuy)
-         success = g_trade.Buy(lotPerTrade, symbol, 0.0, stopLoss, takeProfit, comment);
+         success = g_trade.Buy(normalizedLot, symbol, 0.0, stopLoss, takeProfit, comment);
       else
-         success = g_trade.Sell(lotPerTrade, symbol, 0.0, stopLoss, takeProfit, comment);
+         success = g_trade.Sell(normalizedLot, symbol, 0.0, stopLoss, takeProfit, comment);
    }
 
    if (success) {
       SendCommandResult("OPEN", symbol, true, "Trade request accepted", signalId, executionKey);
-      Log(StringFormat("Trade accepted: %s %s lot %.2f TP %.5f", symbol, side, lotPerTrade, takeProfit));
+      Log(StringFormat("Trade accepted: %s %s lot %.2f TP %.5f", symbol, side, normalizedLot, takeProfit));
       return true;
    }
 
    SendCommandResult("OPEN", symbol, false, g_trade.ResultRetcodeDescription(), signalId, executionKey);
    Log(StringFormat("Trade failed: retcode=%d %s", (int)g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
-   SendRejectedTradeEvent(symbol, side, lotPerTrade, entryKind, entryPrice, stopLoss, takeProfit, comment);
+   SendRejectedTradeEvent(symbol, side, normalizedLot, entryKind, entryPrice, stopLoss, takeProfit, comment);
    return false;
 }
 
@@ -643,7 +652,7 @@ void HandleSignalMessage(string msg) {
    if (UseTpCount > 0 && UseTpCount < activeCount)
       activeCount = UseTpCount;
 
-   double lotPerTrade = (activeCount > 0) ? LotSize / activeCount : LotSize;
+   double lotPerTrade = LotSize;
    for (int i = 0; i < activeCount; i++)
       ExecuteTradePayload(payloads[i], lotPerTrade, i + 1);
 }

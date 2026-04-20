@@ -120,6 +120,9 @@ string AccountNameLabel() {
 }
 
 double NormalizeVolumeForSymbol(string symbol, double volume) {
+   if (volume <= 0.0)
+      return 0.0;
+
    double step = MarketInfo(symbol, MODE_LOTSTEP);
    double minLot = MarketInfo(symbol, MODE_MINLOT);
    double maxLot = MarketInfo(symbol, MODE_MAXLOT);
@@ -426,6 +429,12 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
       return true;
    }
 
+   double normalizedLot = NormalizeVolumeForSymbol(symbol, lotPerTrade);
+   if (normalizedLot <= 0.0) {
+      SendCommandResult("OPEN", symbol, false, "LotSize must be greater than zero", signalId, executionKey);
+      return false;
+   }
+
    int cmd;
    double price;
    color clr;
@@ -441,14 +450,22 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
    }
 
    clr = isBuy ? Blue : Red;
-   int ticket = OrderSend(symbol, cmd, lotPerTrade, price, Slippage, stopLoss, takeProfit, comment, MagicNumber, 0, clr);
+   ResetLastError();
+   int ticket = OrderSend(symbol, cmd, normalizedLot, price, Slippage, stopLoss, takeProfit, comment, MagicNumber, 0, clr);
 
    if (ticket > 0) {
       SendCommandResult("OPEN", symbol, true, "Trade request accepted", signalId, executionKey);
       return true;
    }
 
-   SendCommandResult("OPEN", symbol, false, "OrderSend failed", signalId, executionKey);
+   SendCommandResult(
+      "OPEN",
+      symbol,
+      false,
+      "OrderSend failed (" + IntegerToString(GetLastError()) + ")",
+      signalId,
+      executionKey
+   );
    return false;
 }
 
@@ -530,7 +547,7 @@ void HandleSignalMessage(string msg) {
    if (UseTpCount > 0 && UseTpCount < activeCount)
       activeCount = UseTpCount;
 
-   double lotPerTrade = activeCount > 0 ? LotSize / activeCount : LotSize;
+   double lotPerTrade = LotSize;
    for (int i = 0; i < activeCount; i++)
       ExecuteOpenPayload(payloads[i], lotPerTrade, i + 1);
 }
