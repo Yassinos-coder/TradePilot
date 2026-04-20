@@ -16,6 +16,8 @@ export class DashboardService {
   ) {}
 
   async getOverview(userId: string): Promise<DashboardOverviewDTO> {
+    await this.executionService.syncLiveExecutionData(userId);
+
     const [
       connectedAccounts,
       recentSignals,

@@ -32,6 +32,7 @@ import { DatabaseService } from '../database/database.service';
 import {
   AccountStatusSnapshotRecord,
   ExecutionStatus,
+  TradeExecutionRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
@@ -62,6 +63,12 @@ interface PresencePayload {
   latencyMs: number | null;
 }
 
+interface PendingStateSync {
+  pendingAccountIds: Set<string>;
+  resolve: () => void;
+  timeout: NodeJS.Timeout;
+}
+
 @Injectable()
 export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private readonly logger = new Logger(EaGatewayService.name);
@@ -70,6 +77,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private heartbeatTimer?: NodeJS.Timeout;
   private readonly socketsByUser = new Map<string, Map<string, WebSocket>>();
   private readonly socketMetadata = new Map<WebSocket, SocketMetadata>();
+  private readonly pendingStateSyncs = new Map<string, PendingStateSync>();
+  private readonly inFlightStateSyncs = new Map<string, Promise<void>>();
+  private readonly recentStateSyncs = new Map<string, number>();
   private attached = false;
   private unsubscribeDispatch?: () => Promise<void>;
 
@@ -163,6 +173,29 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         lastSeenAt: new Date(presence.lastSeenAt).toISOString(),
         accountStatus: latestStatuses.get(presence.accountId) ?? null,
       }));
+  }
+
+  async requestStateSync(userId: string, accountId?: string): Promise<void> {
+    const syncKey = `${userId}:${accountId ?? '*'}`;
+    const lastCompletedAt = this.recentStateSyncs.get(syncKey) ?? 0;
+    if (Date.now() - lastCompletedAt < 5_000) {
+      return;
+    }
+
+    const existing = this.inFlightStateSyncs.get(syncKey);
+
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const promise = this.performStateSync(userId, accountId).finally(() => {
+      this.inFlightStateSyncs.delete(syncKey);
+      this.recentStateSyncs.set(syncKey, Date.now());
+    });
+
+    this.inFlightStateSyncs.set(syncKey, promise);
+    await promise;
   }
 
   onModuleDestroy() {
@@ -307,6 +340,11 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         metadata.accountName ?? null,
         message,
       );
+      return;
+    }
+
+    if (message.type === 'sync_state_complete') {
+      this.resolvePendingStateSync(message.request_id, metadata.accountId);
     }
   }
 
@@ -398,6 +436,65 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     this.socketsByUser.set(userId, existingConnections);
     await this.upsertEaAccount(userId, accountId, accountName, metadata.latencyMs, metadata.lastSeenAt);
     await this.persistPresence(client);
+  }
+
+  private async performStateSync(userId: string, accountId?: string): Promise<void> {
+    const userConnections = this.socketsByUser.get(userId);
+
+    if (!userConnections || userConnections.size === 0) {
+      return;
+    }
+
+    const targets = accountId
+      ? [[accountId, userConnections.get(accountId) ?? null] as const]
+      : [...userConnections.entries()].map(([id, socket]) => [id, socket] as const);
+
+    const openTargets = targets.filter(
+      (entry): entry is readonly [string, WebSocket] => {
+        const socket = entry[1];
+        return socket !== null && socket.readyState === WebSocket.OPEN;
+      },
+    );
+
+    if (openTargets.length === 0) {
+      return;
+    }
+
+    const requestId = randomUUID();
+    const timeoutMs =
+      this.configService.get<number>('EA_STATE_SYNC_TIMEOUT_MS') ?? 10_000;
+
+    let resolveSync: () => void = () => undefined;
+    const donePromise = new Promise<void>((resolve) => {
+      resolveSync = resolve;
+    });
+
+    const timeout = setTimeout(() => {
+      this.pendingStateSyncs.delete(requestId);
+      resolveSync();
+    }, timeoutMs);
+
+    this.pendingStateSyncs.set(requestId, {
+      pendingAccountIds: new Set(openTargets.map(([id]) => id)),
+      resolve: resolveSync,
+      timeout,
+    });
+
+    for (const [, socket] of openTargets) {
+      this.sendMessage(socket, {
+        type: 'sync_state',
+        request_id: requestId,
+      });
+    }
+
+    const pending = this.pendingStateSyncs.get(requestId);
+    if (!pending || pending.pendingAccountIds.size === 0) {
+      clearTimeout(timeout);
+      this.pendingStateSyncs.delete(requestId);
+      resolveSync();
+    }
+
+    await donePromise;
   }
 
   private async touch(client: WebSocket) {
@@ -637,29 +734,51 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string | null,
     payload: EaTradeEventPayload,
   ) {
+    const record = {
+      user_id: userId,
+      signal_id: payload.signal_id ?? null,
+      account_id: accountId,
+      account_name: accountName,
+      ticket: payload.ticket,
+      symbol: payload.symbol,
+      type: payload.type,
+      volume: payload.volume,
+      entry_price: payload.entry_price,
+      exit_price: payload.exit_price,
+      stop_loss: payload.stop_loss,
+      take_profit: payload.take_profit,
+      profit: payload.profit,
+      status: payload.status,
+      comment: payload.comment ?? null,
+      opened_at: payload.opened_at,
+      closed_at: payload.closed_at,
+    };
+
+    const { data: existing, error: existingError } = await this.databaseService
+      .getClient()
+      .from('trade_executions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('account_id', accountId)
+      .eq('ticket', payload.ticket)
+      .maybeSingle();
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    if (
+      existing &&
+      this.isTradeExecutionUnchanged(existing as TradeExecutionRecord, record)
+    ) {
+      return;
+    }
+
     const { error } = await this.databaseService
       .getClient()
       .from('trade_executions')
       .upsert(
-        {
-          user_id: userId,
-          signal_id: payload.signal_id ?? null,
-          account_id: accountId,
-          account_name: accountName,
-          ticket: payload.ticket,
-          symbol: payload.symbol,
-          type: payload.type,
-          volume: payload.volume,
-          entry_price: payload.entry_price,
-          exit_price: payload.exit_price,
-          stop_loss: payload.stop_loss,
-          take_profit: payload.take_profit,
-          profit: payload.profit,
-          status: payload.status,
-          comment: payload.comment ?? null,
-          opened_at: payload.opened_at,
-          closed_at: payload.closed_at,
-        },
+        record,
         {
           onConflict: 'user_id,account_id,ticket',
         },
@@ -748,6 +867,47 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  private isTradeExecutionUnchanged(
+    existing: TradeExecutionRecord,
+    candidate: {
+      signal_id: string | null;
+      account_id: string;
+      account_name: string | null;
+      ticket: string;
+      symbol: string;
+      type: 'BUY' | 'SELL';
+      volume: number;
+      entry_price: number;
+      exit_price: number | null;
+      stop_loss: number | null;
+      take_profit: number | null;
+      profit: number;
+      status: TradeExecutionRecord['status'];
+      comment: string | null;
+      opened_at: string;
+      closed_at: string | null;
+    },
+  ) {
+    return (
+      existing.signal_id === candidate.signal_id &&
+      existing.account_id === candidate.account_id &&
+      (existing.account_name ?? null) === candidate.account_name &&
+      existing.ticket === candidate.ticket &&
+      existing.symbol === candidate.symbol &&
+      existing.type === candidate.type &&
+      existing.volume === candidate.volume &&
+      existing.entry_price === candidate.entry_price &&
+      existing.exit_price === candidate.exit_price &&
+      existing.stop_loss === candidate.stop_loss &&
+      existing.take_profit === candidate.take_profit &&
+      existing.profit === candidate.profit &&
+      existing.status === candidate.status &&
+      (existing.comment ?? null) === candidate.comment &&
+      existing.opened_at === candidate.opened_at &&
+      existing.closed_at === candidate.closed_at
+    );
+  }
+
   private async getLatestStatusesByAccount(userId: string) {
     const { data, error } = await this.databaseService
       .getClient()
@@ -816,6 +976,24 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(message));
     }
+  }
+
+  private resolvePendingStateSync(requestId: string, accountId: string) {
+    const pending = this.pendingStateSyncs.get(requestId);
+
+    if (!pending) {
+      return;
+    }
+
+    pending.pendingAccountIds.delete(accountId);
+
+    if (pending.pendingAccountIds.size > 0) {
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingStateSyncs.delete(requestId);
+    pending.resolve();
   }
 
   private tryParseJson(rawMessage: string) {

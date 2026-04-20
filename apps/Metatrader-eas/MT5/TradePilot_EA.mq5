@@ -37,11 +37,13 @@ datetime      g_lastMessageTime  = 0;
 datetime      g_lastPingSentAt   = 0;
 datetime      g_lastAccountStatusSent = 0;
 datetime      g_lastSymbolsSent  = 0;
+datetime      g_lastTradeHistorySyncAt = 0;
 CTrade        g_trade;
 string        g_wsKey            = "dGhlIHNhbXBsZSBub25jZQ==";
 
 uchar g_readBuf[];
 int   g_readLen = 0;
+ulong g_reportedDealTickets[];
 
 void Log(string msg) {
    Print("[TradePilot] ", msg);
@@ -145,6 +147,24 @@ double NormalizeVolumeForSymbol(string symbol, double volume) {
    if (step < 0.01) digits = 4;
 
    return NormalizeDouble(normalized, digits);
+}
+
+bool ContainsReportedDeal(ulong ticket) {
+   for (int i = 0; i < ArraySize(g_reportedDealTickets); i++) {
+      if (g_reportedDealTickets[i] == ticket)
+         return true;
+   }
+
+   return false;
+}
+
+void AddReportedDeal(ulong ticket) {
+   if (ticket == 0 || ContainsReportedDeal(ticket))
+      return;
+
+   int size = ArraySize(g_reportedDealTickets);
+   ArrayResize(g_reportedDealTickets, size + 1);
+   g_reportedDealTickets[size] = ticket;
 }
 
 bool WsSend(string text);
@@ -447,6 +467,22 @@ void SendTradeEvent(
       Log("-> trade_event " + status + " ticket " + (string)ticket);
 }
 
+void SendStateSyncComplete(string requestId, int syncedTrades) {
+   if (requestId == "" || g_state != ST_CONNECTED || g_socket == INVALID_HANDLE)
+      return;
+
+   string payload = StringFormat(
+      "{\"type\":\"sync_state_complete\",\"accountId\":\"%s\",\"request_id\":\"%s\",\"synced_at\":\"%s\",\"synced_trades\":%d}",
+      AccountId(),
+      EscapeJson(requestId),
+      EscapeJson(IsoTimestamp(TimeCurrent())),
+      syncedTrades
+   );
+
+   if (WsSend(payload))
+      Log("-> sync_state_complete");
+}
+
 datetime FindOpenedAt(long positionId, datetime fallback) {
    if (positionId <= 0)
       return fallback;
@@ -476,13 +512,13 @@ datetime FindOpenedAt(long positionId, datetime fallback) {
    return openedAt;
 }
 
-void SendTradeEventFromDeal(ulong dealTicket) {
+bool SendTradeEventFromDeal(ulong dealTicket) {
    if (!HistoryDealSelect(dealTicket))
-      return;
+      return false;
 
    long dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    if (dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
-      return;
+      return false;
 
    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
    string side = (dealType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
@@ -517,7 +553,7 @@ void SendTradeEventFromDeal(ulong dealTicket) {
          false,
          0
       );
-      return;
+      return true;
    }
 
    if (entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) {
@@ -542,7 +578,35 @@ void SendTradeEventFromDeal(ulong dealTicket) {
          true,
          dealTime
       );
+      return true;
    }
+
+   return false;
+}
+
+int SyncTradeHistory() {
+   if (g_state != ST_CONNECTED)
+      return 0;
+
+   if (!HistorySelect(0, TimeCurrent()))
+      return 0;
+
+   int syncedTrades = 0;
+   int total = HistoryDealsTotal();
+
+   for (int i = 0; i < total; i++) {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if (dealTicket == 0 || ContainsReportedDeal(dealTicket))
+         continue;
+
+      if (SendTradeEventFromDeal(dealTicket)) {
+         AddReportedDeal(dealTicket);
+         syncedTrades++;
+      }
+   }
+
+   g_lastTradeHistorySyncAt = TimeCurrent();
+   return syncedTrades;
 }
 
 void SendRejectedTradeEvent(
@@ -829,6 +893,7 @@ void HandleMessage(string msg) {
       Log("Auth success, ready for signals");
       SendSymbols();
       SendAccountStatus();
+      SyncTradeHistory();
       return;
    }
 
@@ -846,6 +911,17 @@ void HandleMessage(string msg) {
    }
 
    if (type == "pong") {
+      return;
+   }
+
+   if (type == "sync_state") {
+      string requestId = JsonStr(msg, "request_id");
+      SendSymbols();
+      SendAccountStatus();
+      int syncedTrades = 0;
+      if (ArraySize(g_reportedDealTickets) == 0 || TimeCurrent() - g_lastTradeHistorySyncAt >= 60)
+         syncedTrades = SyncTradeHistory();
+      SendStateSyncComplete(requestId, syncedTrades);
       return;
    }
 
@@ -1053,5 +1129,9 @@ void OnTradeTransaction(
    if (!HistorySelect(0, TimeCurrent()))
       return;
 
-   SendTradeEventFromDeal(trans.deal);
+   if (ContainsReportedDeal(trans.deal))
+      return;
+
+   if (SendTradeEventFromDeal(trans.deal))
+      AddReportedDeal(trans.deal);
 }

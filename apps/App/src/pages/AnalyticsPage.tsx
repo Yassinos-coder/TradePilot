@@ -806,7 +806,7 @@ export function AnalyticsPage() {
       <Card
         title="Trade History"
         eyebrow="Lifecycle"
-        description="Real trade events reported by the EA after execution, partial closes, and final exits."
+        description="Trade history mirrored from the connected EA's live MetaTrader account, including manual and automated activity."
       >
         {trades.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">

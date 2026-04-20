@@ -392,11 +392,17 @@ export class ExecutionService {
     return (logs ?? []).map((log) => this.toExecutionLogDto(log as ExecutionLogRecord));
   }
 
+  async syncLiveExecutionData(userId: string, accountId?: string): Promise<void> {
+    await this.gateway.requestStateSync(userId, accountId);
+  }
+
   async listRecentTrades(
     userId: string,
     limit = 10,
     accountId?: string,
   ): Promise<TradeExecutionDTO[]> {
+    await this.syncLiveExecutionData(userId, accountId);
+
     let query = this.databaseService
       .getClient()
       .from('trade_executions')
@@ -476,6 +482,8 @@ export class ExecutionService {
   }
 
   async getAnalytics(userId: string, accountId?: string): Promise<AnalyticsSummaryDTO> {
+    await this.syncLiveExecutionData(userId, accountId);
+
     let query = this.databaseService
       .getClient()
       .from('trade_executions')

@@ -476,6 +476,19 @@ export const eaCommandResultMessageSchema = z.object({
   details: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
+export const eaSyncStateMessageSchema = z.object({
+  type: z.literal('sync_state'),
+  request_id: z.string().min(1),
+});
+
+export const eaSyncStateCompleteMessageSchema = z.object({
+  type: z.literal('sync_state_complete'),
+  accountId: z.string().min(1),
+  request_id: z.string().min(1),
+  synced_at: z.string().nullable().optional(),
+  synced_trades: z.number().int().nonnegative().optional(),
+});
+
 export const eaAuthSuccessMessageSchema = z.object({
   type: z.literal('auth_success'),
 });
@@ -532,6 +545,7 @@ export const eaInboundMessageSchema = z.discriminatedUnion('type', [
   eaAccountStatusMessageSchema,
   eaTradeEventMessageSchema,
   eaCommandResultMessageSchema,
+  eaSyncStateCompleteMessageSchema,
 ]);
 
 export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
@@ -539,6 +553,7 @@ export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
   eaPingMessageSchema,
   eaPongMessageSchema,
   eaErrorMessageSchema,
+  eaSyncStateMessageSchema,
   eaSignalMessageSchema,
   eaPartialCloseMessageSchema,
   eaCloseAllMessageSchema,

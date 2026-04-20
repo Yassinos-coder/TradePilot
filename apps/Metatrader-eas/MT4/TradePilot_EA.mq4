@@ -54,6 +54,8 @@ datetime g_lastMessageTime       = 0;
 datetime g_lastPingSentAt        = 0;
 datetime g_lastAccountStatusSent = 0;
 datetime g_lastSymbolsSent       = 0;
+datetime g_lastTradeSyncAt       = 0;
+bool     g_fullHistorySynced     = false;
 int      g_openReportedTickets[];
 int      g_closedReportedTickets[];
 
@@ -313,7 +315,24 @@ void SendTradeEvent(
    WsSend(payload);
 }
 
-void SyncTradeEvents() {
+void SendStateSyncComplete(string requestId, int syncedTrades) {
+   if (requestId == "" || g_state != ST_CONNECTED || g_hWs == 0)
+      return;
+
+   string payload = StringFormat(
+      "{\"type\":\"sync_state_complete\",\"accountId\":\"%s\",\"request_id\":\"%s\",\"synced_at\":\"%s\",\"synced_trades\":%d}",
+      AccountId(),
+      EscapeJson(requestId),
+      EscapeJson(IsoTimestamp(TimeCurrent())),
+      syncedTrades
+   );
+
+   WsSend(payload);
+}
+
+int SyncTradeEvents(bool includeFullHistory) {
+   int syncedTrades = 0;
+
    for (int i = OrdersTotal() - 1; i >= 0; i--) {
       if (!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
@@ -342,10 +361,11 @@ void SyncTradeEvents() {
          0
       );
       AddTicket(g_openReportedTickets, ticket);
+      syncedTrades++;
    }
 
    int historyTotal = OrdersHistoryTotal();
-   int start = MathMax(0, historyTotal - 100);
+   int start = includeFullHistory ? 0 : MathMax(0, historyTotal - 200);
    for (int j = historyTotal - 1; j >= start; j--) {
       if (!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY))
          continue;
@@ -374,7 +394,10 @@ void SyncTradeEvents() {
          OrderCloseTime()
       );
       AddTicket(g_closedReportedTickets, ticket);
+      syncedTrades++;
    }
+
+   return syncedTrades;
 }
 
 int ExtractSignalObjects(string message, string &objects[]) {
@@ -614,6 +637,9 @@ void HandleMessage(string msg) {
       Log("Auth success, ready for signals");
       SendSymbols();
       SendAccountStatus();
+      SyncTradeEvents(true);
+      g_fullHistorySynced = true;
+      g_lastTradeSyncAt = TimeCurrent();
       return;
    }
 
@@ -630,6 +656,17 @@ void HandleMessage(string msg) {
    }
 
    if (type == "pong") {
+      return;
+   }
+
+   if (type == "sync_state") {
+      string requestId = JsonStr(msg, "request_id");
+      SendSymbols();
+      SendAccountStatus();
+      int syncedTrades = SyncTradeEvents(!g_fullHistorySynced);
+      g_fullHistorySynced = true;
+      g_lastTradeSyncAt = TimeCurrent();
+      SendStateSyncComplete(requestId, syncedTrades);
       return;
    }
 
@@ -677,6 +714,7 @@ void Disconnect() {
    g_reconnectAfter = TimeCurrent() + delaySec;
    g_reconnectAttempt++;
    g_state = ST_DISCONNECTED;
+   g_fullHistorySynced = false;
 
    Log(StringFormat("Disconnected, reconnecting in %d s (attempt %d)", delaySec, g_reconnectAttempt));
 }
@@ -764,8 +802,11 @@ void PollMessages() {
    if (g_state == ST_CONNECTED && TimeCurrent() - g_lastSymbolsSent >= 60)
       SendSymbols();
 
-   if (g_state == ST_CONNECTED)
-      SyncTradeEvents();
+   if (g_state == ST_CONNECTED && TimeCurrent() - g_lastTradeSyncAt >= 5) {
+      SyncTradeEvents(!g_fullHistorySynced);
+      g_fullHistorySynced = true;
+      g_lastTradeSyncAt = TimeCurrent();
+   }
 
    if (g_state == ST_CONNECTED && g_lastMessageTime > 0 && TimeCurrent() - g_lastMessageTime > 12) {
       Log("Heartbeat timeout, reconnecting");
