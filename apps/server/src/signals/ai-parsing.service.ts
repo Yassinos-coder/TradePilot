@@ -6,8 +6,8 @@ import { SignalDTO, signalDtoSchema } from '@tradepilot/shared';
 import { canonicalizeSignalSymbol } from '@tradepilot/trading';
 
 const aiResponseSchema = z.object({
-  action: z.enum(['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL']),
-  symbol: z.string().min(1),
+  action: z.enum(['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL', 'NO_SIGNAL']),
+  symbol: z.string().min(1).nullable(),
   type: z.enum(['BUY', 'SELL']).nullable(),
   entry: z.enum(['MARKET', 'LIMIT']).nullable(),
   entry_price: z.number().nullable(),
@@ -34,10 +34,10 @@ const OPENAI_SIGNAL_JSON_SCHEMA = {
   properties: {
     action: {
       type: 'string',
-      enum: ['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL'],
+      enum: ['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL', 'NO_SIGNAL'],
     },
     symbol: {
-      type: 'string',
+      type: ['string', 'null'],
     },
     type: {
       type: ['string', 'null'],
@@ -76,6 +76,7 @@ const SYSTEM_PROMPT = [
   '- PARTIAL_CLOSE',
   '- CLOSE_ALL',
   '- MOVE_SL',
+  '- NO_SIGNAL',
   'Normalization rules:',
   '- GOLD and XAU mean XAUUSD.',
   '- US30 may also appear as DJ30 or DOW.',
@@ -92,6 +93,7 @@ const SYSTEM_PROMPT = [
   '- For CLOSE_ALL, type, entry, prices, and stop values can be null.',
   '- For MOVE_SL, set new_stop_loss when a specific value is provided; if the message says breakeven/BE and includes entry price, use that entry price as new_stop_loss.',
   '- Ignore emojis, hype, and non-instructional chat.',
+  '- If no actionable trading instruction is present, return NO_SIGNAL and keep numeric fields null with an empty take_profits array.',
 ].join('\n');
 
 @Injectable()
@@ -161,6 +163,14 @@ export class AiParsingService {
     }
 
     const parsed = aiResponseSchema.parse(JSON.parse(outputText));
+
+    if (parsed.action === 'NO_SIGNAL') {
+      throw new Error('No actionable trading instruction found');
+    }
+
+    if (!parsed.symbol) {
+      throw new Error(`AI parser returned ${parsed.action} without a symbol`);
+    }
 
     return signalDtoSchema.parse({
       action: parsed.action,

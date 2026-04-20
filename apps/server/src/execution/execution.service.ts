@@ -1458,7 +1458,6 @@ export class ExecutionService {
       this.configService.get<number>('EA_DISPATCH_ACK_TIMEOUT_MS') ?? 2_000;
     const eventId = `${executionKey}:${attempt}:${Date.now()}`;
     const ackChannel = `${EA_DISPATCH_ACK_PREFIX}:${eventId}`;
-    const ackPromise = this.redisService.waitForMessage(ackChannel, ackTimeoutMs);
     const event: DispatchEventMessage = {
       eventId,
       executionKey,
@@ -1467,15 +1466,42 @@ export class ExecutionService {
       commands,
     };
 
-    await this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event));
+    let resolveAck: (ack: DispatchAckMessage | null) => void = () => undefined;
+    let settled = false;
 
-    const rawAck = await ackPromise;
+    const ackPromise = new Promise<DispatchAckMessage | null>((resolve) => {
+      resolveAck = resolve;
+    });
 
-    if (!rawAck) {
-      return null;
+    const unsubscribe = await this.redisService.subscribe(ackChannel, (rawMessage) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      try {
+        resolveAck(JSON.parse(rawMessage) as DispatchAckMessage);
+      } catch {
+        resolveAck(null);
+      }
+    });
+
+    const timeoutId = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolveAck(null);
+    }, ackTimeoutMs);
+
+    try {
+      await this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event));
+      return await ackPromise;
+    } finally {
+      clearTimeout(timeoutId);
+      await unsubscribe();
     }
-
-    return JSON.parse(rawAck) as DispatchAckMessage;
   }
 
   private async hasSuccessfulDispatch(executionKey: string): Promise<boolean> {
