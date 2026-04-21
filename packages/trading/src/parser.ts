@@ -11,6 +11,24 @@ const SYMBOL_PATTERNS: Array<{ pattern: RegExp; symbol: string }> = [
   { pattern: /\b(?:NAS100|US100|NASDAQ|NASDAQ100)\b/i, symbol: 'NAS100' },
   { pattern: /\b(?:US30|DJ30|DOW|DOWJONES)\b/i, symbol: 'US30' },
 ];
+const GENERIC_SYMBOL_CODES = [
+  'AUD',
+  'BTC',
+  'CAD',
+  'CHF',
+  'ETH',
+  'EUR',
+  'GBP',
+  'JPY',
+  'NZD',
+  'USD',
+  'XAG',
+  'XAU',
+] as const;
+const GENERIC_PAIR_PATTERN = new RegExp(
+  String.raw`\b((?:${GENERIC_SYMBOL_CODES.join('|')})\s*\/?\s*(?:${GENERIC_SYMBOL_CODES.join('|')}))\b`,
+  'i',
+);
 const PARTIAL_CLOSE_PATTERN =
   /\b(?:PARTIAL(?:LY)?\s+CLOSE|CLOSE\s+(?:PARTIAL|HALF)|SECURE|BOOK|FERMER?\s+(?:PARTIEL|PARTIELLEMENT)|اغلق(?:وا)?|سكر(?:وا)?)\b/i;
 const CLOSE_ALL_PATTERN =
@@ -29,10 +47,30 @@ function normalizeMessage(rawMessage: string) {
     .trim();
 }
 
+function normalizeSymbolToken(input: string) {
+  return input
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]/gi, '')
+    .toUpperCase();
+}
+
 function extractSymbol(message: string) {
   for (const candidate of SYMBOL_PATTERNS) {
     if (candidate.pattern.test(message)) {
       return candidate.symbol;
+    }
+  }
+
+  const genericPair = message.match(GENERIC_PAIR_PATTERN);
+  const genericSymbol = genericPair?.[1] ? normalizeSymbolToken(genericPair[1]) : null;
+
+  if (genericSymbol && genericSymbol.length === 6) {
+    const base = genericSymbol.slice(0, 3);
+    const quote = genericSymbol.slice(3);
+
+    if (base !== quote) {
+      return genericSymbol;
     }
   }
 
