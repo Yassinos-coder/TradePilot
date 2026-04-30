@@ -5,9 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-30
+
+### Added
+
+- cTrader/Spotware cBot EA (`apps/Metatrader-eas/spotware/TradePilot_cBot.cs`) — C# Expert Advisor for the cTrader platform using `System.Net.WebSockets`, implementing the identical JSON protocol as the MT4/MT5 EAs (auth, ping/pong, account status, symbols, trade events, signal execution, partial close, close all, move SL)
+- `usePagination` hook for generic client-side pagination with automatic page reset when data changes
+- `Pagination` component with prev/next controls, page number buttons, smart ellipsis for large page counts, and an item range counter
+
+### Changed
+
+- Dashboard Connected Accounts table, Recent Signals, Execution Logs, and Recent Trades lists are now paginated (10 / 5 / 5 / 5 items per page respectively)
+- Analytics Symbol Breakdown table and Trade History table are now paginated (15 / 25 items per page)
+- Trade history fetch limit raised from 200 to 500 records
+- Connected Accounts empty state copy updated to mention cTrader alongside MT4/MT5
+
 ## [0.2.1] - 2026-04-20
 
 ### Fixed
+
 - Dispatch acknowledgement race condition where the server could publish a signal before subscribing to its ACK channel, causing false `DISPATCH_TIMEOUT` retries
 - AI parsing fallback now supports explicit `NO_SIGNAL` output to avoid forcing non-instructional Telegram chatter into actionable trade commands
 - Added defensive validation to reject AI-parsed actions that omit a symbol
@@ -15,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-04-19
 
 ### Added
+
 - GitHub Actions auto-deploy workflow that triggers on pushes to the production branch
 - Manual trade dispatch button and modal for signals in `EA_OFFLINE` state or already validated
 - Compiled MT5 EA binary (`TradePilot_EA.ex5`) for direct broker deployment
@@ -25,11 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Supabase schema SQL file for reproducible database provisioning
 
 ### Changed
+
 - MT4 and MT5 EA source updated with refined WS reconnect logic and heartbeat handling
 - README updated to reflect full production status and deployment architecture
 - Dashboard, Accounts, and Auth pages refactored with improved layout and state management
 
 ### Fixed
+
 - `deriveBaseSymbol` no longer uses `includes()` to prevent false-positive symbol matches
 - Account auto-select and default LLM model not persisting correctly in settings
 - Backend Docker entrypoint misaligned with Linux deployment paths

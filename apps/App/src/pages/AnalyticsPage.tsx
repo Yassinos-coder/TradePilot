@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { usePagination } from '../hooks/usePagination';
+import { Pagination } from '../components/ui/Pagination';
 import {
   AlertTriangle,
   BarChart3,
@@ -374,15 +376,21 @@ export function AnalyticsPage() {
   });
   const tradesQuery = useQuery({
     queryKey: ['execution', 'trades', accountId ?? 'all'],
-    queryFn: () => apiClient.executionTrades(accountId, 200),
+    queryFn: () => apiClient.executionTrades(accountId, 500),
     refetchInterval: 15_000,
   });
+
+  const a = analyticsQuery.data;
+  const trades = tradesQuery.data ?? [];
+
+  const symbolsPagination = usePagination(a?.bySymbol ?? [], 15);
+  const tradesPagination = usePagination(trades, 25);
 
   if (accountsQuery.isLoading || analyticsQuery.isLoading || tradesQuery.isLoading) {
     return <AnalyticsSkeleton />;
   }
 
-  if (!analyticsQuery.data) {
+  if (!a) {
     return (
       <Card title="Analytics unavailable" eyebrow="Performance">
         <p className="text-sm text-gray-500 dark:text-slate-400">
@@ -391,9 +399,6 @@ export function AnalyticsPage() {
       </Card>
     );
   }
-
-  const a = analyticsQuery.data;
-  const trades = tradesQuery.data ?? [];
   const accountOptions = [
     { label: 'All accounts', value: 'all' },
     ...(accountsQuery.data ?? [])
@@ -703,7 +708,7 @@ export function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {a.bySymbol.map((row) => (
+                {symbolsPagination.pageItems.map((row) => (
                   <tr
                     key={row.symbol}
                     className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
@@ -748,6 +753,11 @@ export function AnalyticsPage() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            className="px-5 pt-4"
+            {...symbolsPagination}
+            onPageChange={symbolsPagination.setPage}
+          />
         </Card>
       )}
 
@@ -818,80 +828,87 @@ export function AnalyticsPage() {
             </p>
           </div>
         ) : (
-          <div className="-mx-5 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                <tr>
-                  <th className="px-5 py-3 font-semibold">Account</th>
-                  <th className="px-5 py-3 font-semibold">Instrument</th>
-                  <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold">Volume</th>
-                  <th className="px-5 py-3 font-semibold">Entry</th>
-                  <th className="px-5 py-3 font-semibold">Exit</th>
-                  <th className="px-5 py-3 font-semibold">PnL</th>
-                  <th className="px-5 py-3 font-semibold">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trades.map((trade) => (
-                  <tr
-                    key={trade.id}
-                    className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
-                  >
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                      <div>
-                        <p className="font-medium text-slate-950 dark:text-slate-100">
-                          {trade.accountName ?? trade.accountId}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-500">
-                          {trade.accountId}
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                      {trade.symbol} {trade.type}
-                    </td>
-                    <td className="px-5 py-4">
-                      <Badge
-                        tone={
-                          trade.status === 'OPEN'
-                            ? 'info'
-                            : trade.profit >= 0
-                              ? 'positive'
-                              : 'danger'
-                        }
-                      >
-                        {trade.status}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                      {trade.volume.toFixed(2)}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                      {trade.entryPrice.toFixed(2)}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                      {typeof trade.exitPrice === 'number' ? trade.exitPrice.toFixed(2) : '--'}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span
-                        className={
-                          trade.profit >= 0
-                            ? 'font-semibold text-emerald-600 dark:text-emerald-400'
-                            : 'font-semibold text-red-600 dark:text-red-400'
-                        }
-                      >
-                        {formatCurrency(trade.profit)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
-                      {formatTimestamp(trade.closedAt ?? trade.updatedAt)}
-                    </td>
+          <>
+            <div className="-mx-5 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 font-semibold">Account</th>
+                    <th className="px-5 py-3 font-semibold">Instrument</th>
+                    <th className="px-5 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 font-semibold">Volume</th>
+                    <th className="px-5 py-3 font-semibold">Entry</th>
+                    <th className="px-5 py-3 font-semibold">Exit</th>
+                    <th className="px-5 py-3 font-semibold">PnL</th>
+                    <th className="px-5 py-3 font-semibold">Updated</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {tradesPagination.pageItems.map((trade) => (
+                    <tr
+                      key={trade.id}
+                      className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                    >
+                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                        <div>
+                          <p className="font-medium text-slate-950 dark:text-slate-100">
+                            {trade.accountName ?? trade.accountId}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-500">
+                            {trade.accountId}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                        {trade.symbol} {trade.type}
+                      </td>
+                      <td className="px-5 py-4">
+                        <Badge
+                          tone={
+                            trade.status === 'OPEN'
+                              ? 'info'
+                              : trade.profit >= 0
+                                ? 'positive'
+                                : 'danger'
+                          }
+                        >
+                          {trade.status}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                        {trade.volume.toFixed(2)}
+                      </td>
+                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                        {trade.entryPrice.toFixed(2)}
+                      </td>
+                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                        {typeof trade.exitPrice === 'number' ? trade.exitPrice.toFixed(2) : '--'}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={
+                            trade.profit >= 0
+                              ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                              : 'font-semibold text-red-600 dark:text-red-400'
+                          }
+                        >
+                          {formatCurrency(trade.profit)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
+                        {formatTimestamp(trade.closedAt ?? trade.updatedAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              className="px-5 pt-4"
+              {...tradesPagination}
+              onPageChange={tradesPagination.setPage}
+            />
+          </>
         )}
       </Card>
 

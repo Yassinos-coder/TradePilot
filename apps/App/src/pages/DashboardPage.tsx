@@ -31,7 +31,9 @@ import { useToastStore } from '../store/toast-store';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { Pagination } from '../components/ui/Pagination';
 import { Skeleton } from '../components/ui/Skeleton';
+import { usePagination } from '../hooks/usePagination';
 
 const SIGNAL_STATUS_TONES = {
   DISPATCHED: 'positive',
@@ -165,11 +167,18 @@ export function DashboardPage() {
     }
   };
 
+  const overview = overviewQuery.data;
+
+  const accountsPagination = usePagination(overview?.connectedAccounts ?? [], 10);
+  const signalsPagination = usePagination(overview?.recentSignals ?? [], 5);
+  const logsPagination = usePagination(overview?.recentExecutionLogs ?? [], 5);
+  const tradesPagination = usePagination(overview?.recentTrades ?? [], 5);
+
   if (overviewQuery.isLoading) {
     return <DashboardSkeleton />;
   }
 
-  if (overviewQuery.isError || !overviewQuery.data) {
+  if (overviewQuery.isError || !overview) {
     return (
       <Card
         title="Dashboard unavailable"
@@ -186,7 +195,6 @@ export function DashboardPage() {
     );
   }
 
-  const overview = overviewQuery.data;
   const onlineAccounts = overview.connectedAccounts.filter((account) => account.online);
   const lastTelegram = overview.lastTelegramMessage;
 
@@ -276,60 +284,67 @@ export function DashboardPage() {
                 No accounts connected yet
               </p>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-500">
-                Authenticate at least one MT4 or MT5 EA with your API key to start routing.
+                Authenticate at least one MT4/MT5/cTrader EA with your API key to start routing.
               </p>
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-semibold">Account</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 font-semibold">Latency</th>
-                    <th className="px-5 py-3 font-semibold">Balance</th>
-                    <th className="px-5 py-3 font-semibold">Equity</th>
-                    <th className="px-5 py-3 font-semibold">Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.connectedAccounts.map((account) => (
-                    <tr
-                      key={account.id}
-                      className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
-                    >
-                      <td className="px-5 py-4">
-                        <div>
-                          <p className="font-medium text-slate-950 dark:text-slate-100">
-                            {account.name}
-                          </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-500">
-                            {account.externalAccountId ?? 'Manual entry'}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <Badge tone={account.online ? 'positive' : 'neutral'} dot>
-                          {account.online ? 'Online' : 'Offline'}
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                        {formatLatency(account.latencyMs)}
-                      </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                        {formatCurrency(account.latestStatus?.balance)}
-                      </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                        {formatCurrency(account.latestStatus?.equity)}
-                      </td>
-                      <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
-                        {account.lastSeenAt ? formatTimestamp(account.lastSeenAt) : '--'}
-                      </td>
+            <>
+              <div className="-mx-5 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                    <tr>
+                      <th className="px-5 py-3 font-semibold">Account</th>
+                      <th className="px-5 py-3 font-semibold">Status</th>
+                      <th className="px-5 py-3 font-semibold">Latency</th>
+                      <th className="px-5 py-3 font-semibold">Balance</th>
+                      <th className="px-5 py-3 font-semibold">Equity</th>
+                      <th className="px-5 py-3 font-semibold">Last seen</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {accountsPagination.pageItems.map((account) => (
+                      <tr
+                        key={account.id}
+                        className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                      >
+                        <td className="px-5 py-4">
+                          <div>
+                            <p className="font-medium text-slate-950 dark:text-slate-100">
+                              {account.name}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-500">
+                              {account.externalAccountId ?? 'Manual entry'}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <Badge tone={account.online ? 'positive' : 'neutral'} dot>
+                            {account.online ? 'Online' : 'Offline'}
+                          </Badge>
+                        </td>
+                        <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                          {formatLatency(account.latencyMs)}
+                        </td>
+                        <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                          {formatCurrency(account.latestStatus?.balance)}
+                        </td>
+                        <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                          {formatCurrency(account.latestStatus?.equity)}
+                        </td>
+                        <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
+                          {account.lastSeenAt ? formatTimestamp(account.lastSeenAt) : '--'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                className="px-1 pt-4"
+                {...accountsPagination}
+                onPageChange={accountsPagination.setPage}
+              />
+            </>
           )}
         </Card>
 
@@ -420,7 +435,7 @@ export function DashboardPage() {
                 No signals processed yet.
               </p>
             ) : (
-              overview.recentSignals.map((signal) => (
+              signalsPagination.pageItems.map((signal) => (
                 <div
                   key={signal.id}
                   className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/60"
@@ -463,6 +478,7 @@ export function DashboardPage() {
               ))
             )}
           </div>
+          <Pagination {...signalsPagination} onPageChange={signalsPagination.setPage} />
         </Card>
 
         <Card title="Execution Logs" eyebrow="Dispatch + Mapping">
@@ -472,7 +488,7 @@ export function DashboardPage() {
                 No execution logs yet.
               </p>
             ) : (
-              overview.recentExecutionLogs.map((log) => (
+              logsPagination.pageItems.map((log) => (
                 <div
                   key={log.id}
                   className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/60"
@@ -503,6 +519,7 @@ export function DashboardPage() {
               ))
             )}
           </div>
+          <Pagination {...logsPagination} onPageChange={logsPagination.setPage} />
         </Card>
 
         <Card title="Recent Trades" eyebrow="Lifecycle Feedback">
@@ -512,7 +529,7 @@ export function DashboardPage() {
                 No trade lifecycle events yet.
               </p>
             ) : (
-              overview.recentTrades.map((trade) => (
+              tradesPagination.pageItems.map((trade) => (
                 <div
                   key={trade.id}
                   className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/60"
@@ -534,6 +551,7 @@ export function DashboardPage() {
               ))
             )}
           </div>
+          <Pagination {...tradesPagination} onPageChange={tradesPagination.setPage} />
         </Card>
       </div>
 
