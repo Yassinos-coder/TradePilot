@@ -8,7 +8,6 @@ import {
   LogOut,
   Menu,
   Moon,
-  Send,
   Settings2,
   Sun,
   Wallet,
@@ -20,19 +19,17 @@ import { useAuthStore } from '../../store/auth-store';
 import { useThemeStore } from '../../store/theme-store';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/settings', label: 'Settings', icon: Settings2 },
-  { to: '/telegram', label: 'Telegram', icon: Send },
-  { to: '/accounts', label: 'Accounts', icon: Wallet },
+  { to: '/app', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/settings', label: 'Settings', icon: Settings2 },
+  { to: '/app/accounts', label: 'Accounts', icon: Wallet },
 ] as const;
 
 const PAGE_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
-  '/analytics': 'Analytics',
-  '/settings': 'Settings',
-  '/telegram': 'Telegram',
-  '/accounts': 'Accounts',
+  '/app': 'Dashboard',
+  '/app/analytics': 'Analytics',
+  '/app/settings': 'Settings',
+  '/app/accounts': 'Accounts',
 };
 
 interface SidebarProps {
@@ -66,7 +63,7 @@ function SidebarContent({ onNavigate }: SidebarProps) {
           <NavLink
             key={to}
             to={to}
-            end={to === '/'}
+            end={to === '/app'}
             onClick={onNavigate}
             className={({ isActive }) =>
               [

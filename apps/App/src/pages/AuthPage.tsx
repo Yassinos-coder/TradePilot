@@ -36,7 +36,7 @@ export function AuthPage() {
   }, [mode, clearError, clearMagicLinkSent]);
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/app" replace />;
   }
 
   const handleSubmit = async (event: FormEvent) => {

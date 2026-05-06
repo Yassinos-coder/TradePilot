@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-06
+
+### Added
+
+- Master execution toggle (`auto_copy_enabled`) with dashboard sticky control and server-side execution guard
+- Trade lifecycle direction model persisted on executions: `opening_order_type`, `position_direction`, and `close_reason`
+- Signal classification system (`SIGNAL`, `MANAGEMENT`, `NOISE`) with history filtering and soft-delete (`deleted_at`)
+- Consolidated settings experience with tabs: Profile, Security, Telegram, Notifications, Trading, Billing
+- Profile/security APIs for updating name/phone/email, email verification, password change, session listing, and logout-all-devices
+- Notification subsystem with provider abstraction (`NotificationProvider`) and providers for Email, Telegram, and WhatsApp (future-ready stub)
+- SMTP-ready email architecture using environment configuration (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) and template-based emails
+- Public launch surface and legal pages: `/`, `/pricing`, `/terms`, `/privacy`, `/refund`
+- Trading engine observability card with auto-copy status, Telegram connectivity, connected account count, risk status, and last signal/trade timestamps
+- Configurable risk controls: max daily loss %, max simultaneous trades, max trades/day, low-margin threshold
+- Failsafe execution pauses for EA disconnected, Telegram disconnected, low margin, and unresolved symbol scenarios
+
+### Changed
+
+- Analytics calculations now classify directional performance by lifecycle position direction (LONG/SHORT) instead of close-side transaction action
+- Signal pipeline now keeps ingesting and parsing when auto-copy is disabled while blocking only execution dispatch
+- Symbol control model refactored to exclusion-first behavior (all symbols enabled by default; execution skips only excluded symbols)
+- Dashboard signal table now defaults to actionable flow (Signals + Management), with explicit filter options for All/Signals/Management/Noise
+- Status taxonomy expanded for signal and execution lifecycle visibility (`AUTO_COPY_DISABLED`, `BLOCKED`, `IGNORED`, `SYMBOL_UNRESOLVED`, `RISK_LIMIT_HIT`, `FAILSAFE_TRIGGERED`)
+- Routing refactored to separate public pages from authenticated app routes (`/app/*`)
+
+### Fixed
+
+- Corrected long/short analytics misclassification where profitable BUY trades could be counted as SHORT on close
+- Stabilized advanced analytics metrics (Sharpe, Sortino, CAGR, Calmar, Sterling, annualized volatility) with data sufficiency gating and defensive clamping
+- Prevented annualization explosions and divide-by-near-zero artifacts in risk-adjusted metrics for small sample sizes
+- Improved execution safety by hard-blocking dispatch when master toggle is disabled while preserving telemetry and analytics continuity
+
 ## [0.3.0] - 2026-04-30
 
 ### Added

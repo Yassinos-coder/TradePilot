@@ -12,6 +12,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { EaModule } from './ea/ea.module';
 import { ExecutionModule } from './execution/execution.module';
 import { HealthController } from './health.controller';
+import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
 import { SettingsModule } from './settings/settings.module';
 import { SignalsModule } from './signals/signals.module';
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module';
     RedisModule,
     DatabaseModule,
     UsersModule,
+    NotificationsModule,
     AuthModule,
     AccountsModule,
     SettingsModule,

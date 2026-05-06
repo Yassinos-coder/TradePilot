@@ -23,6 +23,8 @@ export interface ExecutionGuardInput {
 export interface ExecutionGuardResult {
   allowed: boolean;
   reason?: string;
+  signalStatus?: 'BLOCKED' | 'IGNORED' | 'EXECUTION_REJECTED';
+  logStatus?: 'BLOCKED' | 'IGNORED' | 'RISK_LIMIT_HIT' | 'FAILSAFE_TRIGGERED';
 }
 
 export interface DispatchAccountCommand {

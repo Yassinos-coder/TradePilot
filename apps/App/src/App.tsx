@@ -11,8 +11,12 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { LandingPage } from './pages/LandingPage';
+import { PricingPage } from './pages/PricingPage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { RefundPage } from './pages/RefundPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { TelegramPage } from './pages/TelegramPage';
+import { TermsPage } from './pages/TermsPage';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -87,14 +91,18 @@ export default function App() {
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/refund" element={<RefundPage />} />
         <Route element={<ProtectedLayout />}>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/telegram" element={<TelegramPage />} />
-          <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/app" element={<DashboardPage />} />
+          <Route path="/app/analytics" element={<AnalyticsPage />} />
+          <Route path="/app/settings" element={<SettingsPage />} />
+          <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </BrowserRouter>
   );

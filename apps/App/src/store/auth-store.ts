@@ -125,7 +125,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         supabaseEnv.VITE_MAGIC_LINK_REDIRECT_PATH,
         window.location.origin,
       );
-      callbackUrl.searchParams.set('next', '/');
+      callbackUrl.searchParams.set('next', '/app');
 
       const { error } = await supabase.auth.signInWithOtp({
         email,
@@ -167,7 +167,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
     try {
       const callbackUrl = new URL('/auth/callback', window.location.origin);
-      callbackUrl.searchParams.set('next', '/');
+      callbackUrl.searchParams.set('next', '/app');
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,

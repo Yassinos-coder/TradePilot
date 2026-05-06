@@ -7,11 +7,21 @@ export const signalActionSchema = z.enum([
   'MOVE_SL',
 ]);
 export const signalSideSchema = z.enum(['BUY', 'SELL']);
+export const positionDirectionSchema = z.enum(['LONG', 'SHORT']);
+export const tradeCloseReasonSchema = z.enum([
+  'TP',
+  'SL',
+  'MANUAL',
+  'PARTIAL',
+  'BREAKEVEN',
+  'UNKNOWN',
+]);
 export const executionModeSchema = z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']);
 export const signalEntrySchema = z.enum(['MARKET', 'LIMIT']);
 export const parserProviderSchema = z.enum(['REGEX', 'OPENAI']);
 export const tradeLifecycleStatusSchema = z.enum(['OPEN', 'CLOSED', 'REJECTED']);
 export const accountSourceSchema = z.enum(['MANUAL', 'EA']);
+export const signalClassificationSchema = z.enum(['SIGNAL', 'MANAGEMENT', 'NOISE']);
 export const signalIngestionSourceSchema = z.enum([
   'MANUAL',
   'TELEGRAM_REALTIME',
@@ -37,7 +47,37 @@ export const signalDtoSchema = z.object({
 export const userDtoSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),
+  fullName: z.string().nullable().default(null),
+  phoneNumber: z.string().nullable().default(null),
+  pendingEmail: z.string().email().nullable().default(null),
   apiKey: z.string().min(16),
+  createdAt: z.string(),
+});
+
+export const updateProfileSchema = z.object({
+  fullName: z.string().min(1).max(120).nullable(),
+  phoneNumber: z.string().min(4).max(40).nullable(),
+});
+
+export const requestEmailChangeSchema = z.object({
+  newEmail: z.string().email(),
+});
+
+export const verifyEmailChangeSchema = z.object({
+  token: z.string().min(20),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(8),
+  newPassword: z.string().min(8),
+});
+
+export const sessionDtoSchema = z.object({
+  id: z.string().min(1),
+  authSessionId: z.string().min(1),
+  userAgent: z.string().nullable(),
+  ipAddress: z.string().nullable(),
+  lastSeenAt: z.string(),
   createdAt: z.string(),
 });
 
@@ -49,9 +89,49 @@ export const sessionSettingsSchema = z.object({
 export const settingsDtoSchema = z.object({
   riskPercent: z.number().min(0.1).max(10),
   maxTrades: z.number().int().min(1).max(20),
+  maxSimultaneousTrades: z.number().int().min(1).max(50),
+  maxDailyLossPercent: z.number().min(0.1).max(100),
+  maxTradesPerDay: z.number().int().min(1).max(200),
+  lowMarginThresholdPercent: z.number().min(1).max(100),
+  autoCopyEnabled: z.boolean().default(true),
+  executionPaused: z.boolean().default(false),
+  executionPauseReason: z.string().nullable().default(null),
+  executionPausedAt: z.string().nullable().default(null),
   excludedSymbols: z.array(z.string().min(2)).default([]),
   sessions: sessionSettingsSchema,
   mode: executionModeSchema,
+  notificationChannels: z
+    .object({
+      email: z.boolean().default(true),
+      telegram: z.boolean().default(true),
+      whatsapp: z.boolean().default(false),
+    })
+    .default({
+      email: true,
+      telegram: true,
+      whatsapp: false,
+    }),
+  notificationEvents: z
+    .object({
+      newTradeOpened: z.boolean().default(true),
+      tpHit: z.boolean().default(true),
+      slHit: z.boolean().default(true),
+      lowMargin: z.boolean().default(true),
+      eaDisconnected: z.boolean().default(true),
+      telegramDisconnected: z.boolean().default(true),
+      executionFailed: z.boolean().default(true),
+      dailySummary: z.boolean().default(false),
+    })
+    .default({
+      newTradeOpened: true,
+      tpHit: true,
+      slHit: true,
+      lowMargin: true,
+      eaDisconnected: true,
+      telegramDisconnected: true,
+      executionFailed: true,
+      dailySummary: false,
+    }),
 });
 
 export const accountStatusDtoSchema = z.object({
@@ -64,6 +144,28 @@ export const accountStatusDtoSchema = z.object({
   drawdownPercent: z.number().min(0),
   openPositions: z.number().int().nonnegative(),
   reportedAt: z.string(),
+});
+
+export const notificationChannelPreferencesSchema = z.object({
+  email: z.boolean(),
+  telegram: z.boolean(),
+  whatsapp: z.boolean(),
+});
+
+export const notificationEventPreferencesSchema = z.object({
+  newTradeOpened: z.boolean(),
+  tpHit: z.boolean(),
+  slHit: z.boolean(),
+  lowMargin: z.boolean(),
+  eaDisconnected: z.boolean(),
+  telegramDisconnected: z.boolean(),
+  executionFailed: z.boolean(),
+  dailySummary: z.boolean(),
+});
+
+export const notificationPreferencesSchema = z.object({
+  channels: notificationChannelPreferencesSchema,
+  events: notificationEventPreferencesSchema,
 });
 
 export const accountDtoSchema = z.object({
@@ -101,6 +203,9 @@ export const tradeExecutionDtoSchema = z.object({
   takeProfit: z.number().nullable(),
   profit: z.number(),
   status: tradeLifecycleStatusSchema,
+  openingOrderType: signalSideSchema.nullable().optional(),
+  positionDirection: positionDirectionSchema.nullable().optional(),
+  closeReason: tradeCloseReasonSchema.nullable().optional(),
   comment: z.string().nullable(),
   openedAt: z.string(),
   closedAt: z.string().nullable(),
@@ -263,6 +368,12 @@ export const analyticsSummarySchema = z.object({
   trackingError: z.number().nullable(),
 
   assumptions: z.array(z.string()),
+  dataSufficiency: z.object({
+    sufficient: z.boolean(),
+    reason: z.string().nullable(),
+    minimumTradeCount: z.number().int().positive(),
+    observedTradeCount: z.number().int().nonnegative(),
+  }),
 });
 
 export const telegramConnectionStatusSchema = z.enum([
@@ -330,13 +441,19 @@ export const telegramChannelSyncResultSchema = z.object({
 
 export const signalStatusSchema = z.enum([
   'PENDING',
+  'PARSED',
   'VALIDATED',
   'DISPATCHED',
+  'EXECUTED',
   'PARSE_FAILED',
   'VALIDATION_FAILED',
   'EA_OFFLINE',
   'DISPATCH_TIMEOUT',
   'EXECUTION_REJECTED',
+  'IGNORED',
+  'BLOCKED',
+  'AUTO_COPY_DISABLED',
+  'SYMBOL_UNRESOLVED',
 ]);
 
 export const signalRecordSchema = z.object({
@@ -348,6 +465,8 @@ export const signalRecordSchema = z.object({
   telegramChannelId: z.string().nullable().optional(),
   messageTimestamp: z.string().nullable().optional(),
   ingestionSource: signalIngestionSourceSchema.optional(),
+  classification: signalClassificationSchema.default('SIGNAL'),
+  deletedAt: z.string().nullable().optional(),
   parsedData: signalDtoSchema.nullable().catch(null),
   status: signalStatusSchema,
   confidence: z.number().min(0).max(1).nullable().optional(),
@@ -368,6 +487,11 @@ export const executionStatusSchema = z.enum([
   'EA_OFFLINE',
   'DISPATCH_TIMEOUT',
   'EXECUTION_REJECTED',
+  'AUTO_COPY_DISABLED',
+  'IGNORED',
+  'BLOCKED',
+  'RISK_LIMIT_HIT',
+  'FAILSAFE_TRIGGERED',
   'ACCOUNT_STATUS_RECEIVED',
   'TRADE_OPENED',
   'TRADE_CLOSED',
@@ -401,6 +525,16 @@ export const dashboardOverviewSchema = z.object({
   recentExecutionLogs: z.array(executionLogSchema),
   recentTrades: z.array(tradeExecutionDtoSchema),
   analytics: analyticsSummarySchema,
+  tradingEngine: z.object({
+    autoCopyEnabled: z.boolean(),
+    executionPaused: z.boolean(),
+    executionPauseReason: z.string().nullable(),
+    telegramConnected: z.boolean(),
+    riskStatus: z.enum(['OK', 'LIMIT_HIT', 'PAUSED']),
+    connectedAccounts: z.number().int().nonnegative(),
+    lastSignalAt: z.string().nullable(),
+    lastTradeAt: z.string().nullable(),
+  }),
 });
 
 export const eaAuthMessageSchema = z.object({
@@ -446,6 +580,9 @@ export const eaTradeEventPayloadSchema = z.object({
   signal_id: z.string().optional().nullable(),
   symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
   type: signalSideSchema,
+  opening_order_type: signalSideSchema.nullable().optional(),
+  position_direction: positionDirectionSchema.nullable().optional(),
+  close_reason: tradeCloseReasonSchema.nullable().optional(),
   volume: z.number().positive(),
   entry_price: z.number(),
   exit_price: z.number().nullable(),
@@ -563,11 +700,19 @@ export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
 export type SignalAction = z.infer<typeof signalActionSchema>;
 export type SignalDTO = z.infer<typeof signalDtoSchema>;
 export type UserDTO = z.infer<typeof userDtoSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type RequestEmailChangeInput = z.infer<typeof requestEmailChangeSchema>;
+export type VerifyEmailChangeInput = z.infer<typeof verifyEmailChangeSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type UserSessionDTO = z.infer<typeof sessionDtoSchema>;
 export type SettingsDTO = z.infer<typeof settingsDtoSchema>;
 export type ExecutionMode = z.infer<typeof executionModeSchema>;
+export type PositionDirection = z.infer<typeof positionDirectionSchema>;
+export type TradeCloseReason = z.infer<typeof tradeCloseReasonSchema>;
 export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
+export type NotificationPreferencesDTO = z.infer<typeof notificationPreferencesSchema>;
 export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
 export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
 export type SymbolBreakdownDTO = z.infer<typeof symbolBreakdownSchema>;
@@ -587,6 +732,7 @@ export type TelegramCodeDelivery = z.infer<typeof telegramCodeDeliverySchema>;
 export type TelegramConnectStartResult = z.infer<typeof telegramConnectStartResultSchema>;
 export type TelegramChannelSyncResult = z.infer<typeof telegramChannelSyncResultSchema>;
 export type SignalStatus = z.infer<typeof signalStatusSchema>;
+export type SignalClassification = z.infer<typeof signalClassificationSchema>;
 export type SignalRecordDTO = z.infer<typeof signalRecordSchema>;
 export type SignalIngestionSource = z.infer<typeof signalIngestionSourceSchema>;
 export type ExecutionStatus = z.infer<typeof executionStatusSchema>;
@@ -603,4 +749,18 @@ export const manualDispatchSchema = z.object({
   accountId: z.string().uuid(),
 });
 
+export const signalHistoryFilterSchema = z.enum([
+  'ALL',
+  'SIGNALS',
+  'MANAGEMENT',
+  'NOISE',
+]);
+
+export const softDeleteSignalsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).optional(),
+  clearAll: z.boolean().optional(),
+});
+
 export type ManualDispatchInput = z.infer<typeof manualDispatchSchema>;
+export type SignalHistoryFilter = z.infer<typeof signalHistoryFilterSchema>;
+export type SoftDeleteSignalsInput = z.infer<typeof softDeleteSignalsSchema>;

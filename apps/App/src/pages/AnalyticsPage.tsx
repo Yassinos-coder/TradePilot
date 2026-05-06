@@ -399,6 +399,13 @@ export function AnalyticsPage() {
       </Card>
     );
   }
+  const insufficientData = !a.dataSufficiency.sufficient;
+  const advancedMetricLabel = 'Insufficient data';
+  const formatAdvancedNumber = (value: number | null | undefined, digits = 2) =>
+    insufficientData ? advancedMetricLabel : formatNumber(value, digits);
+  const formatAdvancedPercent = (value: number | null | undefined, digits = 2) =>
+    insufficientData ? advancedMetricLabel : formatPercent(value, digits);
+
   const accountOptions = [
     { label: 'All accounts', value: 'all' },
     ...(accountsQuery.data ?? [])
@@ -440,8 +447,8 @@ export function AnalyticsPage() {
     },
     {
       label: 'Sharpe Ratio',
-      value: formatNumber(a.sharpeRatio, 3),
-      sub: `Sortino ${formatNumber(a.sortinoRatio, 3)}`,
+      value: formatAdvancedNumber(a.sharpeRatio, 3),
+      sub: `Sortino ${formatAdvancedNumber(a.sortinoRatio, 3)}`,
       tone: (typeof a.sharpeRatio === 'number' && a.sharpeRatio > 1 ? 'positive' : 'info') as Tone,
       icon: BarChart3,
     },
@@ -462,8 +469,8 @@ export function AnalyticsPage() {
     { label: 'Gross Loss', value: formatCurrency(-a.grossLoss) },
     { label: 'Return on Account (ROA)', value: formatPercent(a.returnOnAccount) },
     { label: 'Return on Investment (ROI)', value: formatPercent(a.roi) },
-    { label: 'Annualized Return', value: formatPercent(a.annualizedReturn) },
-    { label: 'CAGR', value: formatPercent(a.cagr) },
+    { label: 'Annualized Return', value: formatAdvancedPercent(a.annualizedReturn) },
+    { label: 'CAGR', value: formatAdvancedPercent(a.cagr) },
   ];
 
   const winLossItems = [
@@ -490,16 +497,16 @@ export function AnalyticsPage() {
   ];
 
   const riskAdjustedItems = [
-    { label: 'Sharpe Ratio', value: formatNumber(a.sharpeRatio, 3) },
-    { label: 'Sortino Ratio', value: formatNumber(a.sortinoRatio, 3) },
-    { label: 'Calmar Ratio', value: formatNumber(a.calmarRatio, 3) },
-    { label: 'Sterling Ratio', value: formatNumber(a.sterlingRatio, 3) },
+    { label: 'Sharpe Ratio', value: formatAdvancedNumber(a.sharpeRatio, 3) },
+    { label: 'Sortino Ratio', value: formatAdvancedNumber(a.sortinoRatio, 3) },
+    { label: 'Calmar Ratio', value: formatAdvancedNumber(a.calmarRatio, 3) },
+    { label: 'Sterling Ratio', value: formatAdvancedNumber(a.sterlingRatio, 3) },
     { label: 'Omega Ratio', value: formatNumber(a.omegaRatio, 3) },
     { label: 'Information Ratio', value: formatNumber(a.informationRatio, 3) },
     { label: 'Treynor Ratio', value: formatNumber(a.treynorRatio, 3) },
     { label: "Jensen's Alpha", value: formatNumber(a.jensensAlpha, 3) },
-    { label: 'Standard Deviation of Returns', value: formatPercent(a.standardDeviationReturns) },
-    { label: 'Volatility (annualized)', value: formatPercent(a.volatilityAnnualized) },
+    { label: 'Standard Deviation of Returns', value: formatAdvancedPercent(a.standardDeviationReturns) },
+    { label: 'Volatility (annualized)', value: formatAdvancedPercent(a.volatilityAnnualized) },
   ];
 
   const drawdownItems = [
@@ -569,6 +576,18 @@ export function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      {insufficientData ? (
+        <Card
+          title="Advanced Metrics Paused"
+          eyebrow="Data Sufficiency"
+          description="Sharpe, Sortino, CAGR, and Calmar require a minimum trade count and time-series span."
+        >
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            {a.dataSufficiency.reason ?? 'Insufficient data for advanced risk-adjusted metrics.'}
+          </div>
+        </Card>
+      ) : null}
+
       <Card
         title="Account Selector"
         eyebrow="Analytics Scope"

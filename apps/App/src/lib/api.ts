@@ -5,11 +5,16 @@ import {
   AccountDTO,
   AccountStatusDTO,
   AnalyticsSummaryDTO,
+  ChangePasswordInput,
   CreateAccountInput,
   DashboardOverviewDTO,
   ExecutionLogDTO,
+  NotificationPreferencesDTO,
+  RequestEmailChangeInput,
   SettingsDTO,
+  SignalHistoryFilter,
   SignalRecordDTO,
+  SoftDeleteSignalsInput,
   TelegramChannelDTO,
   TelegramChannelSyncResult,
   TelegramConnectCodeInput,
@@ -18,7 +23,10 @@ import {
   TelegramConnectStartResult,
   TelegramConnectionDTO,
   TradeExecutionDTO,
+  UpdateProfileInput,
   UserDTO,
+  UserSessionDTO,
+  VerifyEmailChangeInput,
 } from '@tradepilot/shared';
 
 import { supabase } from './supabase';
@@ -132,8 +140,61 @@ export const apiClient = {
   async deleteAccount(id: string) {
     await api.delete(`/accounts/${id}`);
   },
-  async signals() {
-    const { data } = await api.get<SignalRecordDTO[]>('/signals');
+  async signals(options?: {
+    limit?: number;
+    filter?: SignalHistoryFilter;
+    includeNoise?: boolean;
+  }) {
+    const { data } = await api.get<SignalRecordDTO[]>('/signals', {
+      params: {
+        limit: options?.limit,
+        filter: options?.filter,
+        includeNoise: options?.includeNoise ? 'true' : undefined,
+      },
+    });
+    return data;
+  },
+  async softDeleteSignals(payload: SoftDeleteSignalsInput) {
+    const { data } = await api.post<{ deletedCount: number }>('/signals/history/delete', payload);
+    return data;
+  },
+  async updateAutoCopy(enabled: boolean) {
+    const { data } = await api.put<SettingsDTO>('/settings/auto-copy', { enabled });
+    return data;
+  },
+  async updateProfile(payload: UpdateProfileInput) {
+    const { data } = await api.put<UserDTO>('/users/me', payload);
+    return data;
+  },
+  async requestEmailChange(payload: RequestEmailChangeInput) {
+    const { data } = await api.post<UserDTO>('/users/email-change/request', payload);
+    return data;
+  },
+  async verifyEmailChange(payload: VerifyEmailChangeInput) {
+    const { data } = await api.post<UserDTO>('/users/email-change/verify', payload);
+    return data;
+  },
+  async changePassword(payload: ChangePasswordInput) {
+    const { data } = await api.post<{ success: boolean }>('/users/password/change', payload);
+    return data;
+  },
+  async sessions() {
+    const { data } = await api.get<UserSessionDTO[]>('/users/sessions');
+    return data;
+  },
+  async logoutAllSessions() {
+    const { data } = await api.post<{ success: boolean }>('/users/sessions/logout-all');
+    return data;
+  },
+  async notificationPreferences() {
+    const { data } = await api.get<NotificationPreferencesDTO>('/notifications/preferences');
+    return data;
+  },
+  async updateNotificationPreferences(payload: NotificationPreferencesDTO) {
+    const { data } = await api.put<NotificationPreferencesDTO>(
+      '/notifications/preferences',
+      payload,
+    );
     return data;
   },
   async executionLogs(accountId?: string) {

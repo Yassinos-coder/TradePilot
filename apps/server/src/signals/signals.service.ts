@@ -7,12 +7,17 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { z } from 'zod';
 
 import { SIGNAL_INGESTION_QUEUE } from '@tradepilot/config';
 import {
+  SignalClassification,
+  SignalHistoryFilter,
   SignalIngestionSource,
   SignalRecordDTO,
+  softDeleteSignalsSchema,
   signalDtoSchema,
+  signalHistoryFilterSchema,
   signalRecordSchema,
 } from '@tradepilot/shared';
 
@@ -21,6 +26,7 @@ import { DatabaseService } from '../database/database.service';
 import { SignalRecord } from '../database/database.types';
 import { ExecutionService } from '../execution/execution.service';
 
+import { classifySignalMessage } from './signal-classifier';
 import { SignalIngestionJob } from './signal.types';
 
 interface IngestSignalInput {
@@ -81,14 +87,33 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     return this.toSignalRecordDto(record);
   }
 
-  async listRecentSignals(userId: string, limit = 10): Promise<SignalRecordDTO[]> {
-    const { data: signals, error } = await this.databaseService
+  async listRecentSignals(
+    userId: string,
+    limit = 10,
+    filter: SignalHistoryFilter = 'ALL',
+    includeNoise = false,
+  ): Promise<SignalRecordDTO[]> {
+    const normalizedFilter = signalHistoryFilterSchema.parse(filter);
+    let query = this.databaseService
       .getClient()
       .from('signals')
       .select('*')
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(limit);
+
+    if (normalizedFilter === 'ALL' && !includeNoise) {
+      query = query.in('classification', ['SIGNAL', 'MANAGEMENT']);
+    } else if (normalizedFilter === 'SIGNALS') {
+      query = query.eq('classification', 'SIGNAL');
+    } else if (normalizedFilter === 'MANAGEMENT') {
+      query = query.eq('classification', 'MANAGEMENT');
+    } else if (normalizedFilter === 'NOISE') {
+      query = query.eq('classification', 'NOISE');
+    }
+
+    const { data: signals, error } = await query;
 
     if (error) {
       throw new InternalServerErrorException(error.message);
@@ -97,12 +122,55 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     return (signals ?? []).map((signal) => this.toSignalRecordDto(signal as SignalRecord));
   }
 
+  async softDeleteSignals(
+    userId: string,
+    payload: z.infer<typeof softDeleteSignalsSchema>,
+  ): Promise<{ deletedCount: number }> {
+    const parsed = softDeleteSignalsSchema.parse(payload);
+    const client = this.databaseService.getClient();
+
+    if (parsed.clearAll) {
+      const { data, error } = await client
+        .from('signals')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .select('id');
+
+      if (error) {
+        throw new InternalServerErrorException(error.message);
+      }
+
+      return { deletedCount: data?.length ?? 0 };
+    }
+
+    if (!parsed.ids || parsed.ids.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    const { data, error } = await client
+      .from('signals')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .in('id', parsed.ids)
+      .is('deleted_at', null)
+      .select('id');
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return { deletedCount: data?.length ?? 0 };
+  }
+
   async getLatestTelegramMessage(userId: string): Promise<SignalRecordDTO | null> {
     const { data, error } = await this.databaseService
       .getClient()
       .from('signals')
       .select('*')
       .eq('user_id', userId)
+      .is('deleted_at', null)
+      .in('classification', ['SIGNAL', 'MANAGEMENT'])
       .not('telegram_message_id', 'is', null)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -116,11 +184,15 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async countSignals(userId: string): Promise<number> {
-    const { count, error } = await this.databaseService
+    const query = this.databaseService
       .getClient()
       .from('signals')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .in('classification', ['SIGNAL', 'MANAGEMENT']);
+
+    const { count, error } = await query;
 
     if (error) {
       throw new InternalServerErrorException(error.message);
@@ -140,6 +212,7 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    const classification = this.classificationForMessage(input.rawMessage);
     const { data: signal, error } = await this.databaseService
       .getClient()
       .from('signals')
@@ -152,6 +225,7 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
         telegram_channel_id: input.telegramChannelId ?? null,
         message_timestamp: input.messageTimestamp ?? null,
         ingestion_source: input.ingestionSource ?? 'MANUAL',
+        classification,
         status: 'PENDING',
       })
       .select('*')
@@ -196,6 +270,7 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
         telegramChannelId: signal.telegram_channel_id,
         messageTimestamp: signal.message_timestamp,
         ingestionSource: signal.ingestion_source,
+        classification: signal.classification,
       },
       {
         jobId: signal.id,
@@ -261,6 +336,7 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
       .from('signals')
       .select('*')
       .eq('status', 'PENDING')
+      .is('deleted_at', null)
       .lte('created_at', staleBefore)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -298,6 +374,8 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
       telegramChannelId: signal.telegram_channel_id,
       messageTimestamp: signal.message_timestamp,
       ingestionSource: signal.ingestion_source,
+      classification: signal.classification ?? 'SIGNAL',
+      deletedAt: signal.deleted_at ?? null,
       parsedData,
       status: signal.status,
       confidence:
@@ -306,5 +384,9 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
           : parsedData?.confidence ?? null,
       createdAt: signal.created_at,
     });
+  }
+
+  private classificationForMessage(rawMessage: string): SignalClassification {
+    return classifySignalMessage(rawMessage);
   }
 }

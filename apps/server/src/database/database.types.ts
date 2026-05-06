@@ -1,12 +1,18 @@
 export type SignalStatus =
   | 'PENDING'
+  | 'PARSED'
   | 'VALIDATED'
   | 'DISPATCHED'
+  | 'EXECUTED'
   | 'PARSE_FAILED'
   | 'VALIDATION_FAILED'
   | 'EA_OFFLINE'
   | 'DISPATCH_TIMEOUT'
-  | 'EXECUTION_REJECTED';
+  | 'EXECUTION_REJECTED'
+  | 'IGNORED'
+  | 'BLOCKED'
+  | 'AUTO_COPY_DISABLED'
+  | 'SYMBOL_UNRESOLVED';
 
 export type ExecutionStatus =
   | 'RECEIVED'
@@ -22,6 +28,11 @@ export type ExecutionStatus =
   | 'EA_OFFLINE'
   | 'DISPATCH_TIMEOUT'
   | 'EXECUTION_REJECTED'
+  | 'AUTO_COPY_DISABLED'
+  | 'IGNORED'
+  | 'BLOCKED'
+  | 'RISK_LIMIT_HIT'
+  | 'FAILSAFE_TRIGGERED'
   | 'ACCOUNT_STATUS_RECEIVED'
   | 'TRADE_OPENED'
   | 'TRADE_CLOSED'
@@ -31,6 +42,9 @@ export type ExecutionStatus =
 
 export type TradeLifecycleStatus = 'OPEN' | 'CLOSED' | 'REJECTED';
 export type AccountSource = 'MANUAL' | 'EA';
+export type SignalClassification = 'SIGNAL' | 'MANAGEMENT' | 'NOISE';
+export type PositionDirection = 'LONG' | 'SHORT';
+export type CloseReason = 'TP' | 'SL' | 'MANUAL' | 'PARTIAL' | 'BREAKEVEN' | 'UNKNOWN';
 
 export interface UserRecord {
   id: string;
@@ -38,6 +52,11 @@ export interface UserRecord {
   email: string;
   password: string | null;
   api_key: string;
+  full_name: string | null;
+  phone_number: string | null;
+  pending_email: string | null;
+  pending_email_token: string | null;
+  pending_email_requested_at: string | null;
   created_at: string;
 }
 
@@ -58,6 +77,14 @@ export interface SettingsRecord {
   user_id: string;
   risk_percent: number;
   max_trades: number;
+  max_simultaneous_trades: number;
+  max_daily_loss_percent: number;
+  max_trades_per_day: number;
+  low_margin_threshold_percent: number;
+  auto_copy_enabled: boolean;
+  execution_paused: boolean;
+  execution_pause_reason: string | null;
+  execution_paused_at: string | null;
   allowed_symbols: string[];
   excluded_symbols: string[];
   sessions: {
@@ -65,6 +92,21 @@ export interface SettingsRecord {
     newYork: boolean;
   };
   mode: 'AUTO' | 'SEMI_AUTO' | 'MANUAL';
+  notification_channels: {
+    email?: boolean;
+    telegram?: boolean;
+    whatsapp?: boolean;
+  };
+  notification_events: {
+    newTradeOpened?: boolean;
+    tpHit?: boolean;
+    slHit?: boolean;
+    lowMargin?: boolean;
+    eaDisconnected?: boolean;
+    telegramDisconnected?: boolean;
+    executionFailed?: boolean;
+    dailySummary?: boolean;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -79,6 +121,8 @@ export interface SignalRecord {
   telegram_channel_id: string | null;
   message_timestamp: string | null;
   ingestion_source: 'MANUAL' | 'TELEGRAM_REALTIME' | 'TELEGRAM_BACKFILL';
+  classification: SignalClassification;
+  deleted_at: string | null;
   parsed_data: Record<string, unknown> | null;
   confidence: number | null;
   status: SignalStatus;
@@ -166,6 +210,9 @@ export interface TradeExecutionRecord {
   take_profit: number | null;
   profit: number;
   status: TradeLifecycleStatus;
+  opening_order_type: 'BUY' | 'SELL' | null;
+  position_direction: PositionDirection | null;
+  close_reason: CloseReason | null;
   comment: string | null;
   opened_at: string;
   closed_at: string | null;
@@ -179,6 +226,35 @@ export interface UserSymbolRecord {
   account_id: string;
   symbol: string;
   base_symbol: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationPreferencesRecord {
+  id: string;
+  user_id: string;
+  email_enabled: boolean;
+  telegram_enabled: boolean;
+  whatsapp_enabled: boolean;
+  notify_new_trade_opened: boolean;
+  notify_tp_hit: boolean;
+  notify_sl_hit: boolean;
+  notify_low_margin: boolean;
+  notify_ea_disconnected: boolean;
+  notify_telegram_disconnected: boolean;
+  notify_execution_failed: boolean;
+  notify_daily_summary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserSessionRecord {
+  id: string;
+  user_id: string;
+  auth_session_id: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  last_seen_at: string;
   created_at: string;
   updated_at: string;
 }

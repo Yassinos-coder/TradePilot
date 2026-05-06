@@ -27,7 +27,7 @@ export function AuthCallbackPage() {
 
   const redirectTo = useMemo(() => {
     const next = searchParams.get('next');
-    return next?.startsWith('/') ? next : '/';
+    return next?.startsWith('/') ? next : '/app';
   }, [searchParams]);
 
   const error = callbackError ?? asyncError;

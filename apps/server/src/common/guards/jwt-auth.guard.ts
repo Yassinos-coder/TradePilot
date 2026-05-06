@@ -14,7 +14,9 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
-      headers: { authorization?: string };
+      headers: { authorization?: string; 'user-agent'?: string };
+      ip?: string;
+      socket?: { remoteAddress?: string };
       user?: RequestUser;
     }>();
     const authHeader = request.headers.authorization;
@@ -23,8 +25,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing Supabase bearer token');
     }
 
+    const accessToken = authHeader.slice('Bearer '.length);
     request.user = await this.authService.authenticateAccessToken(
-      authHeader.slice('Bearer '.length),
+      accessToken,
+      {
+        ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
+        userAgent: request.headers['user-agent'] ?? null,
+      },
     );
 
     return true;

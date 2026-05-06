@@ -3,7 +3,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
 import { SIGNAL_INGESTION_QUEUE } from '@tradepilot/config';
-import { SignalDTO } from '@tradepilot/shared';
+import { SignalClassification, SignalDTO } from '@tradepilot/shared';
 import { regexParseSignal, validateSignalBusinessRules } from '@tradepilot/trading';
 
 import { DatabaseService } from '../database/database.service';
@@ -23,7 +23,33 @@ export class SignalsProcessor extends WorkerHost {
   }
 
   async process(job: Job<SignalIngestionJob>): Promise<void> {
-    const { signalId, rawMessage, rawMessageHash, sourceChannel, userId } = job.data;
+    const {
+      signalId,
+      rawMessage,
+      rawMessageHash,
+      sourceChannel,
+      userId,
+      classification,
+    } = job.data;
+
+    if ((classification as SignalClassification | undefined) === 'NOISE') {
+      await this.updateSignal(signalId, {
+        status: 'IGNORED',
+      });
+      await this.executionService.recordLog(
+        userId,
+        signalId,
+        'IGNORED',
+        'Message classified as noise and excluded from execution flow',
+        {
+          attempt: 0,
+          details: {
+            classification: 'NOISE',
+          },
+        },
+      );
+      return;
+    }
 
     let parsedSignal: SignalDTO;
 
@@ -58,6 +84,13 @@ export class SignalsProcessor extends WorkerHost {
       });
       return;
     }
+
+    await this.updateSignal(signalId, {
+      parsed_data: parsedSignal,
+      confidence: parsedSignal.confidence,
+      classification: parsedSignal.action === 'OPEN' ? 'SIGNAL' : 'MANAGEMENT',
+      status: 'PARSED',
+    });
 
     try {
       parsedSignal = validateSignalBusinessRules(parsedSignal);

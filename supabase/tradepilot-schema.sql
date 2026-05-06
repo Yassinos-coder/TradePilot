@@ -1213,3 +1213,444 @@ using (
     where auth_user_id = auth.uid()
   )
 );
+
+alter table tradepilot.users
+  add column if not exists full_name text;
+
+alter table tradepilot.users
+  add column if not exists phone_number text;
+
+alter table tradepilot.users
+  add column if not exists pending_email text;
+
+alter table tradepilot.users
+  add column if not exists pending_email_token text;
+
+alter table tradepilot.users
+  add column if not exists pending_email_requested_at timestamptz;
+
+alter table tradepilot.settings
+  add column if not exists auto_copy_enabled boolean not null default true;
+
+alter table tradepilot.settings
+  add column if not exists max_daily_loss_percent numeric(5,2) not null default 5;
+
+alter table tradepilot.settings
+  add column if not exists max_simultaneous_trades integer not null default 3;
+
+alter table tradepilot.settings
+  add column if not exists max_trades_per_day integer not null default 20;
+
+alter table tradepilot.settings
+  add column if not exists low_margin_threshold_percent numeric(5,2) not null default 50;
+
+alter table tradepilot.settings
+  add column if not exists execution_paused boolean not null default false;
+
+alter table tradepilot.settings
+  add column if not exists execution_pause_reason text;
+
+alter table tradepilot.settings
+  add column if not exists execution_paused_at timestamptz;
+
+update tradepilot.settings
+set max_simultaneous_trades = max_trades
+where max_simultaneous_trades is null;
+
+update tradepilot.settings
+set max_trades_per_day = 20
+where max_trades_per_day is null;
+
+update tradepilot.settings
+set max_daily_loss_percent = 5
+where max_daily_loss_percent is null;
+
+update tradepilot.settings
+set low_margin_threshold_percent = 50
+where low_margin_threshold_percent is null;
+
+alter table tradepilot.settings
+  add column if not exists notification_channels jsonb not null default '{"email": true, "telegram": true, "whatsapp": false}'::jsonb;
+
+alter table tradepilot.settings
+  add column if not exists notification_events jsonb not null default '{"newTradeOpened": true, "tpHit": true, "slHit": true, "lowMargin": true, "eaDisconnected": true, "telegramDisconnected": true, "executionFailed": true, "dailySummary": false}'::jsonb;
+
+alter table tradepilot.signals
+  add column if not exists classification text not null default 'SIGNAL';
+
+alter table tradepilot.signals
+  add column if not exists deleted_at timestamptz;
+
+update tradepilot.signals
+set classification = 'SIGNAL'
+where classification is null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'signals_classification_check'
+      and conrelid = 'tradepilot.signals'::regclass
+  ) then
+    alter table tradepilot.signals drop constraint signals_classification_check;
+  end if;
+
+  alter table tradepilot.signals
+    add constraint signals_classification_check check (
+      classification in ('SIGNAL', 'MANAGEMENT', 'NOISE')
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+create index if not exists idx_signals_user_classification_created_at
+  on tradepilot.signals(user_id, classification, created_at desc)
+  where deleted_at is null;
+
+create index if not exists idx_signals_user_deleted_at
+  on tradepilot.signals(user_id, deleted_at);
+
+alter table tradepilot.trade_executions
+  add column if not exists opening_order_type text;
+
+alter table tradepilot.trade_executions
+  add column if not exists position_direction text;
+
+alter table tradepilot.trade_executions
+  add column if not exists close_reason text;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'trade_executions_opening_order_type_check'
+      and conrelid = 'tradepilot.trade_executions'::regclass
+  ) then
+    alter table tradepilot.trade_executions
+      drop constraint trade_executions_opening_order_type_check;
+  end if;
+
+  alter table tradepilot.trade_executions
+    add constraint trade_executions_opening_order_type_check check (
+      opening_order_type in ('BUY', 'SELL')
+      or opening_order_type is null
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'trade_executions_position_direction_check'
+      and conrelid = 'tradepilot.trade_executions'::regclass
+  ) then
+    alter table tradepilot.trade_executions
+      drop constraint trade_executions_position_direction_check;
+  end if;
+
+  alter table tradepilot.trade_executions
+    add constraint trade_executions_position_direction_check check (
+      position_direction in ('LONG', 'SHORT')
+      or position_direction is null
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'trade_executions_close_reason_check'
+      and conrelid = 'tradepilot.trade_executions'::regclass
+  ) then
+    alter table tradepilot.trade_executions
+      drop constraint trade_executions_close_reason_check;
+  end if;
+
+  alter table tradepilot.trade_executions
+    add constraint trade_executions_close_reason_check check (
+      close_reason in ('TP', 'SL', 'MANUAL', 'PARTIAL', 'BREAKEVEN', 'UNKNOWN')
+      or close_reason is null
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+create table if not exists tradepilot.notification_preferences (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null unique references tradepilot.users(id) on delete cascade,
+  email_enabled boolean not null default true,
+  telegram_enabled boolean not null default true,
+  whatsapp_enabled boolean not null default false,
+  notify_new_trade_opened boolean not null default true,
+  notify_tp_hit boolean not null default true,
+  notify_sl_hit boolean not null default true,
+  notify_low_margin boolean not null default true,
+  notify_ea_disconnected boolean not null default true,
+  notify_telegram_disconnected boolean not null default true,
+  notify_execution_failed boolean not null default true,
+  notify_daily_summary boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists trg_notification_preferences_updated_at on tradepilot.notification_preferences;
+create trigger trg_notification_preferences_updated_at
+before update on tradepilot.notification_preferences
+for each row execute function tradepilot.set_updated_at();
+
+grant all on tradepilot.notification_preferences to postgres, service_role;
+grant select, insert, update, delete on tradepilot.notification_preferences to authenticated;
+
+alter table tradepilot.notification_preferences enable row level security;
+
+drop policy if exists service_role_notification_preferences on tradepilot.notification_preferences;
+create policy service_role_notification_preferences
+on tradepilot.notification_preferences
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists notification_preferences_select_own on tradepilot.notification_preferences;
+create policy notification_preferences_select_own
+on tradepilot.notification_preferences
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists notification_preferences_insert_own on tradepilot.notification_preferences;
+create policy notification_preferences_insert_own
+on tradepilot.notification_preferences
+for insert
+to authenticated
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists notification_preferences_update_own on tradepilot.notification_preferences;
+create policy notification_preferences_update_own
+on tradepilot.notification_preferences
+for update
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+)
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists notification_preferences_delete_own on tradepilot.notification_preferences;
+create policy notification_preferences_delete_own
+on tradepilot.notification_preferences
+for delete
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+insert into tradepilot.notification_preferences (
+  user_id
+)
+select id
+from tradepilot.users
+on conflict (user_id) do nothing;
+
+create table if not exists tradepilot.user_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references tradepilot.users(id) on delete cascade,
+  auth_session_id uuid not null,
+  user_agent text,
+  ip_address text,
+  last_seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, auth_session_id)
+);
+
+drop trigger if exists trg_user_sessions_updated_at on tradepilot.user_sessions;
+create trigger trg_user_sessions_updated_at
+before update on tradepilot.user_sessions
+for each row execute function tradepilot.set_updated_at();
+
+create index if not exists idx_user_sessions_user_last_seen
+  on tradepilot.user_sessions(user_id, last_seen_at desc);
+
+grant all on tradepilot.user_sessions to postgres, service_role;
+grant select, insert, update, delete on tradepilot.user_sessions to authenticated;
+
+alter table tradepilot.user_sessions enable row level security;
+
+drop policy if exists service_role_user_sessions on tradepilot.user_sessions;
+create policy service_role_user_sessions
+on tradepilot.user_sessions
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists user_sessions_select_own on tradepilot.user_sessions;
+create policy user_sessions_select_own
+on tradepilot.user_sessions
+for select
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists user_sessions_insert_own on tradepilot.user_sessions;
+create policy user_sessions_insert_own
+on tradepilot.user_sessions
+for insert
+to authenticated
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists user_sessions_update_own on tradepilot.user_sessions;
+create policy user_sessions_update_own
+on tradepilot.user_sessions
+for update
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+)
+with check (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+drop policy if exists user_sessions_delete_own on tradepilot.user_sessions;
+create policy user_sessions_delete_own
+on tradepilot.user_sessions
+for delete
+to authenticated
+using (
+  user_id in (
+    select id
+    from tradepilot.users
+    where auth_user_id = auth.uid()
+  )
+);
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'signals_status_check'
+      and conrelid = 'tradepilot.signals'::regclass
+  ) then
+    alter table tradepilot.signals drop constraint signals_status_check;
+  end if;
+
+  alter table tradepilot.signals
+    add constraint signals_status_check check (
+      status in (
+        'PENDING',
+        'PARSED',
+        'VALIDATED',
+        'DISPATCHED',
+        'EXECUTED',
+        'PARSE_FAILED',
+        'VALIDATION_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED',
+        'IGNORED',
+        'BLOCKED',
+        'AUTO_COPY_DISABLED',
+        'SYMBOL_UNRESOLVED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'execution_logs_status_check'
+      and conrelid = 'tradepilot.execution_logs'::regclass
+  ) then
+    alter table tradepilot.execution_logs drop constraint execution_logs_status_check;
+  end if;
+
+  alter table tradepilot.execution_logs
+    add constraint execution_logs_status_check check (
+      status in (
+        'RECEIVED',
+        'RETRYING',
+        'DISPATCHED',
+        'PARSE_FAILED',
+        'PARSING_COMPLETED',
+        'VALIDATION_FAILED',
+        'VALIDATION_COMPLETED',
+        'TELEGRAM_MESSAGE_RECEIVED',
+        'SYMBOL_MAPPED',
+        'SYMBOL_MAPPING_FAILED',
+        'EA_OFFLINE',
+        'DISPATCH_TIMEOUT',
+        'EXECUTION_REJECTED',
+        'AUTO_COPY_DISABLED',
+        'IGNORED',
+        'BLOCKED',
+        'RISK_LIMIT_HIT',
+        'FAILSAFE_TRIGGERED',
+        'ACCOUNT_STATUS_RECEIVED',
+        'TRADE_OPENED',
+        'TRADE_CLOSED',
+        'TRADE_REJECTED',
+        'COMMAND_SUCCEEDED',
+        'COMMAND_FAILED'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;

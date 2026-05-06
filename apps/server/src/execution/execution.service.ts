@@ -108,6 +108,48 @@ export class ExecutionService {
       return;
     }
 
+    if (!settings.autoCopyEnabled) {
+      await this.updateSignalStatus(input.signalId, 'AUTO_COPY_DISABLED');
+      await this.recordLog(
+        input.userId,
+        input.signalId,
+        'AUTO_COPY_DISABLED',
+        'Execution skipped: auto copy disabled',
+        {
+          executionKey,
+          attempt: 0,
+          details: {
+            autoCopyEnabled: settings.autoCopyEnabled,
+          },
+        },
+      );
+      return;
+    }
+
+    const telegramConnected = await this.isTelegramConnected(input.userId);
+    if (!telegramConnected) {
+      await this.updateSignalStatus(input.signalId, 'BLOCKED');
+      await this.recordLog(
+        input.userId,
+        input.signalId,
+        'FAILSAFE_TRIGGERED',
+        'Execution blocked: Telegram is disconnected',
+        {
+          executionKey,
+          attempt: 0,
+          details: {
+            reason: 'TELEGRAM_DISCONNECTED',
+          },
+        },
+      );
+      await this.settingsService.setExecutionPause(
+        input.userId,
+        true,
+        'TELEGRAM_DISCONNECTED',
+      );
+      return;
+    }
+
     const guardResult = await this.guardService.evaluate({
       userId: input.userId,
       signalId: input.signalId,
@@ -117,11 +159,22 @@ export class ExecutionService {
     });
 
     if (!guardResult.allowed) {
-      await this.updateSignalStatus(input.signalId, 'EXECUTION_REJECTED');
+      if (guardResult.logStatus === 'FAILSAFE_TRIGGERED') {
+        await this.settingsService.setExecutionPause(
+          input.userId,
+          true,
+          guardResult.reason ?? 'FAILSAFE_TRIGGERED',
+        );
+      }
+
+      await this.updateSignalStatus(
+        input.signalId,
+        guardResult.signalStatus ?? 'EXECUTION_REJECTED',
+      );
       await this.recordLog(
         input.userId,
         input.signalId,
-        'EXECUTION_REJECTED',
+        guardResult.logStatus ?? 'EXECUTION_REJECTED',
         guardResult.reason ?? 'Execution guard rejected the signal',
         {
           executionKey,
@@ -168,6 +221,7 @@ export class ExecutionService {
             attempt,
           },
         );
+        await this.settingsService.setExecutionPause(input.userId, true, 'EA_DISCONNECTED');
         return;
       }
 
@@ -184,7 +238,7 @@ export class ExecutionService {
       );
 
       if (commands.length === 0) {
-        await this.updateSignalStatus(input.signalId, 'EXECUTION_REJECTED');
+        await this.updateSignalStatus(input.signalId, 'SYMBOL_UNRESOLVED');
         await this.recordLog(
           input.userId,
           input.signalId,
@@ -199,6 +253,7 @@ export class ExecutionService {
             },
           },
         );
+        await this.settingsService.setExecutionPause(input.userId, true, 'SYMBOL_UNRESOLVED');
         return;
       }
 
@@ -281,7 +336,14 @@ export class ExecutionService {
     }
 
     const signal = signalData as SignalRecord;
-    const DISPATCHABLE_STATUSES: SignalStatus[] = ['VALIDATED', 'EA_OFFLINE', 'DISPATCH_TIMEOUT'];
+    const DISPATCHABLE_STATUSES: SignalStatus[] = [
+      'VALIDATED',
+      'EA_OFFLINE',
+      'DISPATCH_TIMEOUT',
+      'AUTO_COPY_DISABLED',
+      'BLOCKED',
+      'SYMBOL_UNRESOLVED',
+    ];
 
     if (!DISPATCHABLE_STATUSES.includes(signal.status)) {
       throw new BadRequestException(
@@ -580,6 +642,18 @@ export class ExecutionService {
     const round = (value: number, digits = 2) => Number(value.toFixed(digits));
     const roundNullable = (value: number | null, digits = 2) =>
       value === null || Number.isNaN(value) ? null : round(value, digits);
+    const clampNullable = (
+      value: number | null,
+      min: number,
+      max: number,
+    ): number | null => {
+      if (value === null || Number.isNaN(value)) {
+        return null;
+      }
+      return Math.min(max, Math.max(min, value));
+    };
+    const safeDivide = (numerator: number, denominator: number) =>
+      Math.abs(denominator) < 1e-9 ? null : numerator / denominator;
     const safeMean = (values: number[]) =>
       values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
     const sampleStdDev = (values: number[]) => {
@@ -826,7 +900,19 @@ export class ExecutionService {
         symbolStats.grossLoss += Math.abs(profit);
       }
 
-      const directionStats = trade.type === 'BUY' ? longStats : shortStats;
+      const positionDirection =
+        trade.position_direction ??
+        (trade.opening_order_type === 'BUY'
+          ? 'LONG'
+          : trade.opening_order_type === 'SELL'
+            ? 'SHORT'
+            : trade.type === 'BUY'
+              ? 'LONG'
+              : 'SHORT');
+      const openingOrderType =
+        trade.opening_order_type ?? (positionDirection === 'LONG' ? 'BUY' : 'SELL');
+
+      const directionStats = positionDirection === 'LONG' ? longStats : shortStats;
       directionStats.trades += 1;
       if (isWin) {
         directionStats.wins += 1;
@@ -859,7 +945,7 @@ export class ExecutionService {
 
       if (trade.stop_loss !== null) {
         const riskDistance =
-          trade.type === 'BUY'
+          openingOrderType === 'BUY'
             ? trade.entry_price - trade.stop_loss
             : trade.stop_loss - trade.entry_price;
         if (riskDistance > 0) {
@@ -874,7 +960,7 @@ export class ExecutionService {
 
           if (trade.take_profit !== null) {
             const rewardDistance =
-              trade.type === 'BUY'
+              openingOrderType === 'BUY'
                 ? trade.take_profit - trade.entry_price
                 : trade.entry_price - trade.take_profit;
             if (rewardDistance > 0) {
@@ -1186,6 +1272,34 @@ export class ExecutionService {
       }
     }
 
+    const minimumTradeCount =
+      this.configService.get<number>('RISK_MIN_TRADES_FOR_ADVANCED_METRICS') ?? 30;
+    const hasMinimumTrades = totalTrades >= minimumTradeCount;
+    const hasTimeSeries =
+      analysisDays !== null && analysisDays >= 21 && returns.length >= minimumTradeCount;
+    const hasSufficientData = hasMinimumTrades && hasTimeSeries;
+
+    const insufficiencyReason = !hasMinimumTrades
+      ? `At least ${minimumTradeCount} closed trades are required for stable annualized metrics.`
+      : !hasTimeSeries
+        ? 'The time-series window is too short for stable annualized metrics.'
+        : null;
+
+    const stableAnnualizedReturn = hasSufficientData
+      ? clampNullable(annualizedReturn, -100, 300)
+      : null;
+    const stableCagr = hasSufficientData ? clampNullable(cagr, -100, 300) : null;
+    const stableSharpe = hasSufficientData ? clampNullable(sharpeRatio, -10, 10) : null;
+    const stableSortino = hasSufficientData ? clampNullable(sortinoRatio, -10, 10) : null;
+    const stableCalmar = hasSufficientData ? clampNullable(calmarRatio, -20, 20) : null;
+    const stableSterling = hasSufficientData ? clampNullable(sterlingRatio, -20, 20) : null;
+    const stableStandardDeviationReturns = hasSufficientData
+      ? clampNullable(standardDeviationReturns, 0, 500)
+      : null;
+    const stableVolatilityAnnualized = hasSufficientData
+      ? clampNullable(volatilityAnnualized, 0, 500)
+      : null;
+
     const assumptions: string[] = [];
     if (startingBalance === null) {
       assumptions.push(
@@ -1201,14 +1315,19 @@ export class ExecutionService {
     assumptions.push(
       'Trade-type breakdown is derived from linked signal entry metadata when available; missing links are classified as UNKNOWN.',
     );
+    if (!hasSufficientData && insufficiencyReason) {
+      assumptions.push(
+        `Insufficient data: ${insufficiencyReason} Sharpe, Sortino, CAGR, Calmar, Sterling, and annualized volatility are hidden until data is sufficient.`,
+      );
+    }
 
     return analyticsSummarySchema.parse({
       startingBalance: roundNullable(startingBalance),
       endingBalance: roundNullable(endingBalance),
       returnOnAccount: roundNullable(roi),
       roi: roundNullable(roi),
-      annualizedReturn: roundNullable(annualizedReturn),
-      cagr: roundNullable(cagr),
+      annualizedReturn: roundNullable(stableAnnualizedReturn),
+      cagr: roundNullable(stableCagr),
 
       totalTrades,
       winningTrades,
@@ -1231,10 +1350,10 @@ export class ExecutionService {
       largestLoss: round(largestLoss),
       averageTrade: round(averageTrade),
 
-      sharpeRatio: roundNullable(sharpeRatio, 4),
-      sortinoRatio: roundNullable(sortinoRatio, 4),
-      calmarRatio: roundNullable(calmarRatio, 4),
-      sterlingRatio: roundNullable(sterlingRatio, 4),
+      sharpeRatio: roundNullable(stableSharpe, 4),
+      sortinoRatio: roundNullable(stableSortino, 4),
+      calmarRatio: roundNullable(stableCalmar, 4),
+      sterlingRatio: roundNullable(stableSterling, 4),
       omegaRatio: roundNullable(omegaRatio, 4),
       informationRatio: null,
       treynorRatio: null,
@@ -1270,8 +1389,8 @@ export class ExecutionService {
       conditionalVar95: roundNullable(conditionalVar95),
       kellyCriterion: roundNullable(kellyCriterion),
       averageR: roundNullable(averageR),
-      standardDeviationReturns: roundNullable(standardDeviationReturns),
-      volatilityAnnualized: roundNullable(volatilityAnnualized),
+      standardDeviationReturns: roundNullable(stableStandardDeviationReturns),
+      volatilityAnnualized: roundNullable(stableVolatilityAnnualized),
 
       averagePositionSize: roundNullable(averagePositionSize),
       averageLeverage: roundNullable(averageLeverage, 4),
@@ -1312,6 +1431,12 @@ export class ExecutionService {
       trackingError: null,
 
       assumptions,
+      dataSufficiency: {
+        sufficient: hasSufficientData,
+        reason: insufficiencyReason,
+        minimumTradeCount,
+        observedTradeCount: totalTrades,
+      },
     });
   }
 
@@ -1528,6 +1653,21 @@ export class ExecutionService {
     return Boolean(data);
   }
 
+  private async isTelegramConnected(userId: string): Promise<boolean> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('telegram_connections')
+      .select('status')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return data?.status === 'CONNECTED';
+  }
+
   private async updateSignalStatus(signalId: string, status: SignalStatus): Promise<void> {
     const { error } = await this.databaseService
       .getClient()
@@ -1571,6 +1711,9 @@ export class ExecutionService {
       takeProfit: trade.take_profit,
       profit: trade.profit,
       status: trade.status,
+      openingOrderType: trade.opening_order_type,
+      positionDirection: trade.position_direction,
+      closeReason: trade.close_reason,
       comment: trade.comment,
       openedAt: trade.opened_at,
       closedAt: trade.closed_at,

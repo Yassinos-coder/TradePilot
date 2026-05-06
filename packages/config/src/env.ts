@@ -12,11 +12,18 @@ const rawServerEnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_SCHEMA: z.string().min(1).default('tradepilot'),
+  PUBLIC_APP_URL: z.string().url().default('http://localhost:8080'),
   TELEGRAM_API_ID: z.coerce.number().int().positive().optional(),
   TELEGRAM_API_HASH: z.string().min(20).optional(),
   TELEGRAM_SESSION_STRING: z.string().min(20).optional(),
   TELEGRAM_SESSION_SECRET: z.string().min(32).optional(),
+  TELEGRAM_BOT_TOKEN: z.string().min(20).optional(),
   REDIS_URL: z.string().min(1),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  SMTP_FROM: z.string().email().optional(),
   DISPATCH_RETRY_COUNT: z.coerce.number().int().min(1).max(10).default(3),
   DISPATCH_RETRY_DELAY_MS: z.coerce.number().int().min(100).default(750),
   EA_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(12000),
@@ -27,6 +34,7 @@ const rawServerEnvSchema = z.object({
   GUARD_SYMBOL_COOLDOWN_MS: z.coerce.number().int().min(0).default(3000),
   GUARD_DUPLICATE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(0).default(60000),
   GUARD_ACTIVE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
+  RISK_MIN_TRADES_FOR_ADVANCED_METRICS: z.coerce.number().int().min(5).default(30),
 });
 
 export const serverEnvSchema = rawServerEnvSchema.transform((environment) => ({

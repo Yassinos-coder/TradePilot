@@ -32,6 +32,7 @@ import { DatabaseService } from '../database/database.service';
 import {
   AccountStatusSnapshotRecord,
   ExecutionStatus,
+  SignalStatus,
   TradeExecutionRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
@@ -734,26 +735,6 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string | null,
     payload: EaTradeEventPayload,
   ) {
-    const record = {
-      user_id: userId,
-      signal_id: payload.signal_id ?? null,
-      account_id: accountId,
-      account_name: accountName,
-      ticket: payload.ticket,
-      symbol: payload.symbol,
-      type: payload.type,
-      volume: payload.volume,
-      entry_price: payload.entry_price,
-      exit_price: payload.exit_price,
-      stop_loss: payload.stop_loss,
-      take_profit: payload.take_profit,
-      profit: payload.profit,
-      status: payload.status,
-      comment: payload.comment ?? null,
-      opened_at: payload.opened_at,
-      closed_at: payload.closed_at,
-    };
-
     const { data: existing, error: existingError } = await this.databaseService
       .getClient()
       .from('trade_executions')
@@ -767,8 +748,39 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       throw new Error(existingError.message);
     }
 
+    const existingRecord = (existing as TradeExecutionRecord | null) ?? null;
+    const openingOrderType = this.resolveOpeningOrderType(existingRecord, payload);
+    const positionDirection = this.resolvePositionDirection(existingRecord, payload);
+    const closeReason =
+      payload.status === 'CLOSED'
+        ? this.resolveCloseReason(existingRecord, payload)
+        : existingRecord?.close_reason ?? null;
+
+    const record = {
+      user_id: userId,
+      signal_id: payload.signal_id ?? null,
+      account_id: accountId,
+      account_name: accountName,
+      ticket: payload.ticket,
+      symbol: payload.symbol,
+      type: openingOrderType,
+      opening_order_type: openingOrderType,
+      position_direction: positionDirection,
+      close_reason: closeReason,
+      volume: payload.volume,
+      entry_price: payload.entry_price,
+      exit_price: payload.exit_price,
+      stop_loss: payload.stop_loss,
+      take_profit: payload.take_profit,
+      profit: payload.profit,
+      status: payload.status,
+      comment: payload.comment ?? null,
+      opened_at: payload.opened_at,
+      closed_at: payload.closed_at,
+    };
+
     if (
-      existing &&
+      existingRecord &&
       this.isTradeExecutionUnchanged(existing as TradeExecutionRecord, record)
     ) {
       return;
@@ -789,7 +801,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     const status = this.tradeEventToExecutionStatus(payload.status);
-    const message = this.tradeEventMessage(payload, accountId);
+    const message = this.tradeEventMessage(payload, accountId, positionDirection);
 
     await this.insertExecutionEvent(
       userId,
@@ -801,15 +813,22 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         accountName,
         ticket: payload.ticket,
         symbol: payload.symbol,
+        openingOrderType,
+        positionDirection,
         volume: payload.volume,
         profit: payload.profit,
         status: payload.status,
+        closeReason,
         openedAt: payload.opened_at,
         closedAt: payload.closed_at,
       },
       accountId,
       accountName,
     );
+
+    if (payload.signal_id && payload.status === 'OPEN') {
+      await this.updateSignalStatus(payload.signal_id, 'EXECUTED').catch(() => undefined);
+    }
   }
 
   private async storeCommandResult(
@@ -876,6 +895,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       ticket: string;
       symbol: string;
       type: 'BUY' | 'SELL';
+      opening_order_type: 'BUY' | 'SELL';
+      position_direction: 'LONG' | 'SHORT';
+      close_reason: TradeExecutionRecord['close_reason'];
       volume: number;
       entry_price: number;
       exit_price: number | null;
@@ -895,6 +917,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       existing.ticket === candidate.ticket &&
       existing.symbol === candidate.symbol &&
       existing.type === candidate.type &&
+      existing.opening_order_type === candidate.opening_order_type &&
+      existing.position_direction === candidate.position_direction &&
+      existing.close_reason === candidate.close_reason &&
       existing.volume === candidate.volume &&
       existing.entry_price === candidate.entry_price &&
       existing.exit_price === candidate.exit_price &&
@@ -943,14 +968,104 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
-  private tradeEventMessage(payload: EaTradeEventPayload, accountId: string) {
+  private tradeEventMessage(
+    payload: EaTradeEventPayload,
+    accountId: string,
+    positionDirection: 'LONG' | 'SHORT',
+  ) {
     switch (payload.status) {
       case 'OPEN':
-        return `EA ${accountId} opened ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} opened ${payload.symbol} ${positionDirection} ticket ${payload.ticket}`;
       case 'CLOSED':
-        return `EA ${accountId} closed ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} closed ${payload.symbol} ${positionDirection} ticket ${payload.ticket}`;
       default:
-        return `EA ${accountId} rejected ${payload.symbol} ${payload.type} ticket ${payload.ticket}`;
+        return `EA ${accountId} rejected ${payload.symbol} ${positionDirection} ticket ${payload.ticket}`;
+    }
+  }
+
+  private resolveOpeningOrderType(
+    existing: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ): 'BUY' | 'SELL' {
+    if (existing?.opening_order_type) {
+      return existing.opening_order_type;
+    }
+
+    if (payload.opening_order_type === 'BUY' || payload.opening_order_type === 'SELL') {
+      return payload.opening_order_type;
+    }
+
+    return payload.type;
+  }
+
+  private resolvePositionDirection(
+    existing: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ): 'LONG' | 'SHORT' {
+    if (existing?.position_direction) {
+      return existing.position_direction;
+    }
+
+    if (payload.position_direction === 'LONG' || payload.position_direction === 'SHORT') {
+      return payload.position_direction;
+    }
+
+    const openingOrderType = this.resolveOpeningOrderType(existing, payload);
+    return openingOrderType === 'BUY' ? 'LONG' : 'SHORT';
+  }
+
+  private resolveCloseReason(
+    existing: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ): TradeExecutionRecord['close_reason'] {
+    if (payload.close_reason) {
+      return payload.close_reason;
+    }
+
+    const comment = (payload.comment ?? existing?.comment ?? '').toUpperCase();
+
+    if (comment.includes('BREAKEVEN') || comment.includes('BREAK EVEN') || comment.includes(' BE ')) {
+      return 'BREAKEVEN';
+    }
+    if (comment.includes('PARTIAL')) {
+      return 'PARTIAL';
+    }
+    if (comment.includes('TP') || comment.includes('TAKE PROFIT')) {
+      return 'TP';
+    }
+    if (comment.includes('SL') || comment.includes('STOP LOSS')) {
+      return 'SL';
+    }
+    if (comment.includes('MANUAL')) {
+      return 'MANUAL';
+    }
+
+    if (payload.take_profit !== null && payload.exit_price !== null) {
+      const distanceTp = Math.abs(payload.exit_price - payload.take_profit);
+      if (distanceTp < 1e-4) {
+        return 'TP';
+      }
+    }
+
+    if (payload.stop_loss !== null && payload.exit_price !== null) {
+      const distanceSl = Math.abs(payload.exit_price - payload.stop_loss);
+      if (distanceSl < 1e-4) {
+        return 'SL';
+      }
+    }
+
+    return 'UNKNOWN';
+  }
+
+  private async updateSignalStatus(signalId: string, status: SignalStatus) {
+    const { error } = await this.databaseService
+      .getClient()
+      .from('signals')
+      .update({ status })
+      .eq('id', signalId);
+
+    if (error) {
+      throw new Error(error.message);
     }
   }
 

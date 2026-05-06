@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
+import { signalHistoryFilterSchema, softDeleteSignalsSchema } from '@tradepilot/shared';
 
 import { RequestUser } from '../auth/types/request-user.type';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -21,8 +22,22 @@ export class SignalsController {
   constructor(private readonly signalsService: SignalsService) {}
 
   @Get()
-  listSignals(@CurrentUser() user: RequestUser, @Query('limit') limit?: string) {
-    return this.signalsService.listRecentSignals(user.userId, Number(limit ?? 10));
+  listSignals(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: string,
+    @Query('filter') filter?: string,
+    @Query('includeNoise') includeNoise?: string,
+  ) {
+    const normalizedFilter = signalHistoryFilterSchema.safeParse(
+      typeof filter === 'string' ? filter.toUpperCase() : 'ALL',
+    );
+
+    return this.signalsService.listRecentSignals(
+      user.userId,
+      Number(limit ?? 10),
+      normalizedFilter.success ? normalizedFilter.data : 'ALL',
+      includeNoise === 'true',
+    );
   }
 
   @Post('ingest')
@@ -35,5 +50,14 @@ export class SignalsController {
       body.rawMessage,
       body.sourceChannel,
     );
+  }
+
+  @Post('history/delete')
+  deleteSignalHistory(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(softDeleteSignalsSchema))
+    body: z.infer<typeof softDeleteSignalsSchema>,
+  ) {
+    return this.signalsService.softDeleteSignals(user.userId, body);
   }
 }
