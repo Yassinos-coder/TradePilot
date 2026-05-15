@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.00"
+#property version   "3.10"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -1105,7 +1105,7 @@ void Connect() {
 int OnInit() {
    EventSetMillisecondTimer(100);
    MathSrand((int)TimeLocal());
-   Log("EA initialised, connecting");
+   Log("EA v3.10 initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }
