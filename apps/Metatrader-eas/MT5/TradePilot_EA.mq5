@@ -487,9 +487,6 @@ datetime FindOpenedAt(long positionId, datetime fallback) {
    if (positionId <= 0)
       return fallback;
 
-   if (!HistorySelect(0, TimeCurrent()))
-      return fallback;
-
    datetime openedAt = fallback;
    int total = HistoryDealsTotal();
    for (int i = 0; i < total; i++) {
@@ -505,11 +502,41 @@ datetime FindOpenedAt(long positionId, datetime fallback) {
          continue;
 
       datetime candidate = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
-      if (candidate < openedAt)
+      if (openedAt == fallback || candidate < openedAt)
          openedAt = candidate;
    }
 
    return openedAt;
+}
+
+double FindEntryPrice(long positionId, double fallback) {
+   if (positionId <= 0)
+      return fallback;
+
+   int total = HistoryDealsTotal();
+   double entryPrice = fallback;
+   datetime earliest = 0;
+
+   for (int i = 0; i < total; i++) {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if (dealTicket == 0)
+         continue;
+
+      if ((long)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID) != positionId)
+         continue;
+
+      long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      if (earliest == 0 || dealTime < earliest) {
+         earliest = dealTime;
+         entryPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+      }
+   }
+
+   return entryPrice;
 }
 
 bool SendTradeEventFromDeal(ulong dealTicket) {
@@ -532,10 +559,14 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
    datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
    long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
 
+   // Use positionId as the stable ticket so OPEN and CLOSED events for the
+   // same position share the same key and the backend upsert merges them.
+   ulong ticket = positionId > 0 ? (ulong)positionId : dealTicket;
+
    if (entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT) {
       SendTradeEvent(
          "OPEN",
-         dealTicket,
+         ticket,
          symbol,
          side,
          volume,
@@ -558,14 +589,15 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
 
    if (entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) {
       datetime openedAt = FindOpenedAt(positionId, dealTime);
+      double entryPrice = FindEntryPrice(positionId, price);
       SendTradeEvent(
          "CLOSED",
-         dealTicket,
+         ticket,
          symbol,
          side,
          volume,
          true,
-         price,
+         entryPrice,
          true,
          price,
          stopLoss > 0.0,
