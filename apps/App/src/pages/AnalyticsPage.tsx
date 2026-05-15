@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from '../components/ui/Pagination';
 import {
   AlertTriangle,
   BarChart3,
   Gauge,
+  RefreshCw,
   Target,
   TrendingDown,
   TrendingUp,
@@ -54,6 +56,25 @@ function formatRatio(value: number | null | undefined, digits = 2) {
 
   return `${value.toFixed(digits)}x`;
 }
+
+function formatRelativeTime(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 18 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
+};
+
+const staggerContainer = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07 } },
+};
 
 function StatCard({
   label,
@@ -360,14 +381,16 @@ function AnalyticsSkeleton() {
 }
 
 export function AnalyticsPage() {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+
+  const accountId = selectedAccountId === 'all' ? undefined : selectedAccountId;
+
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
     refetchInterval: 15_000,
   });
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
-
-  const accountId = selectedAccountId === 'all' ? undefined : selectedAccountId;
 
   const analyticsQuery = useQuery({
     queryKey: ['execution', 'analytics', accountId ?? 'all'],
@@ -379,6 +402,21 @@ export function AnalyticsPage() {
     queryFn: () => apiClient.executionTrades(accountId, 500),
     refetchInterval: 15_000,
   });
+
+  const isRefreshing =
+    analyticsQuery.isFetching || tradesQuery.isFetching || accountsQuery.isFetching;
+
+  useEffect(() => {
+    if (analyticsQuery.dataUpdatedAt) {
+      setLastRefreshedAt(new Date(analyticsQuery.dataUpdatedAt));
+    }
+  }, [analyticsQuery.dataUpdatedAt]);
+
+  const handleRefresh = useCallback(() => {
+    analyticsQuery.refetch();
+    tradesQuery.refetch();
+    accountsQuery.refetch();
+  }, [analyticsQuery, tradesQuery, accountsQuery]);
 
   const a = analyticsQuery.data;
   const trades = tradesQuery.data ?? [];
@@ -576,6 +614,48 @@ export function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+            Performance
+          </p>
+          <h1 className="mt-0.5 text-xl font-semibold text-slate-950 dark:text-slate-100">
+            Analytics
+          </h1>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRefreshedAt && !isRefreshing && (
+            <p className="hidden text-xs text-slate-400 dark:text-slate-500 sm:block">
+              Updated {formatRelativeTime(lastRefreshedAt)}
+            </p>
+          )}
+          {isRefreshing && (
+            <p className="hidden text-xs text-sky-500 dark:text-sky-400 sm:block">
+              Syncing…
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            <motion.span
+              animate={{ rotate: isRefreshing ? 360 : 0 }}
+              transition={
+                isRefreshing
+                  ? { repeat: Infinity, duration: 0.85, ease: 'linear' }
+                  : { duration: 0 }
+              }
+              style={{ display: 'flex' }}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </motion.span>
+            Refresh
+          </button>
+        </div>
+      </div>
+
       {insufficientData ? (
         <Card
           title="Advanced Metrics Paused"
@@ -617,11 +697,18 @@ export function AnalyticsPage() {
 
       <div>
         <SectionLabel>High Signal Metrics</SectionLabel>
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <motion.div
+          className="grid gap-4 sm:grid-cols-2 md:grid-cols-3"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+        >
           {overviewStats.map((stat) => (
-            <StatCard key={stat.label} {...stat} />
+            <motion.div key={stat.label} variants={cardVariants}>
+              <StatCard {...stat} />
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
 
       <MetricMatrixCard
