@@ -620,7 +620,14 @@ int SyncTradeHistory() {
    if (g_state != ST_CONNECTED)
       return 0;
 
-   if (!HistorySelect(0, TimeCurrent()))
+   bool selected = HistorySelect(0, TimeCurrent());
+   Log(StringFormat("SyncTradeHistory: HistorySelect=%s deals=%d reported=%d",
+      selected ? "true" : "false",
+      HistoryDealsTotal(),
+      ArraySize(g_reportedDealTickets)
+   ));
+
+   if (!selected)
       return 0;
 
    int syncedTrades = 0;
