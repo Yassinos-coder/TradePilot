@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.10"
+#property version   "3.11"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -540,8 +540,10 @@ double FindEntryPrice(long positionId, double fallback) {
 }
 
 bool SendTradeEventFromDeal(ulong dealTicket) {
-   if (!HistoryDealSelect(dealTicket))
+   if (!HistoryDealSelect(dealTicket)) {
+      Log(StringFormat("Deal %I64u: HistoryDealSelect failed err=%d", dealTicket, GetLastError()));
       return false;
+   }
 
    long dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
    if (dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
@@ -613,6 +615,7 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
       return true;
    }
 
+   Log(StringFormat("Deal %I64u: skipped entry=%d type=%d sym=%s", dealTicket, entry, dealType, symbol));
    return false;
 }
 
@@ -1105,7 +1108,7 @@ void Connect() {
 int OnInit() {
    EventSetMillisecondTimer(100);
    MathSrand((int)TimeLocal());
-   Log("EA v3.10 initialised, connecting");
+   Log("EA v3.11 initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }
