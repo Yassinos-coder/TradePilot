@@ -251,6 +251,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     const parsedMessage = eaInboundMessageSchema.safeParse(parsedJson);
 
     if (!parsedMessage.success) {
+      this.logger.warn(`EA message validation failed: ${parsedMessage.error.message}`);
       this.sendMessage(client, {
         type: 'error',
         message: 'Unsupported WebSocket message',

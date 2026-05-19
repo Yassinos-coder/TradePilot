@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.11"
+#property version   "3.15"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -546,8 +546,10 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
    }
 
    long dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
-   if (dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+   if (dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL) {
+      Log(StringFormat("Deal %I64u: non-trade type=%d sym=%s", dealTicket, dealType, HistoryDealGetString(dealTicket, DEAL_SYMBOL)));
       return false;
+   }
 
    string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
    string side = (dealType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
@@ -623,9 +625,12 @@ int SyncTradeHistory() {
    if (g_state != ST_CONNECTED)
       return 0;
 
-   bool selected = HistorySelect(0, TimeCurrent());
-   Log(StringFormat("SyncTradeHistory: HistorySelect=%s deals=%d reported=%d",
+   datetime historyFrom = (datetime)(TimeCurrent() - 365 * 24 * 3600);
+   bool selected = HistorySelect(historyFrom, TimeCurrent());
+   int ordersTotal = HistoryOrdersTotal();
+   Log(StringFormat("SyncTradeHistory: HistorySelect=%s orders=%d deals=%d reported=%d",
       selected ? "true" : "false",
+      ordersTotal,
       HistoryDealsTotal(),
       ArraySize(g_reportedDealTickets)
    ));
@@ -633,20 +638,59 @@ int SyncTradeHistory() {
    if (!selected)
       return 0;
 
-   int syncedTrades = 0;
-   int total = HistoryDealsTotal();
-
-   for (int i = 0; i < total; i++) {
-      ulong dealTicket = HistoryDealGetTicket(i);
-      if (dealTicket == 0 || ContainsReportedDeal(dealTicket))
-         continue;
-
-      if (SendTradeEventFromDeal(dealTicket)) {
-         AddReportedDeal(dealTicket);
-         syncedTrades++;
+   // Collect unique position IDs from historical orders.
+   // HistorySelectByPosition avoids broker-specific HistoryDealGetTicket(i)=0 issues.
+   ulong positionIds[];
+   int posCount = 0;
+   for (int i = 0; i < ordersTotal; i++) {
+      ulong orderTicket = HistoryOrderGetTicket(i);
+      if (orderTicket == 0) continue;
+      long posId = (long)HistoryOrderGetInteger(orderTicket, ORDER_POSITION_ID);
+      if (posId <= 0) continue;
+      bool found = false;
+      for (int k = 0; k < posCount; k++) {
+         if (positionIds[k] == (ulong)posId) { found = true; break; }
+      }
+      if (!found) {
+         ArrayResize(positionIds, posCount + 1);
+         positionIds[posCount++] = (ulong)posId;
       }
    }
 
+   int syncedTrades = 0;
+
+   if (posCount > 0) {
+      Log(StringFormat("SyncTradeHistory: %d unique positions", posCount));
+      for (int p = 0; p < posCount; p++) {
+         if (!HistorySelectByPosition(positionIds[p])) continue;
+         int dealsInPos = HistoryDealsTotal();
+         for (int j = 0; j < dealsInPos; j++) {
+            ulong dealTicket = HistoryDealGetTicket(j);
+            if (dealTicket == 0) continue;
+            if (ContainsReportedDeal(dealTicket)) continue;
+            if (SendTradeEventFromDeal(dealTicket)) {
+               AddReportedDeal(dealTicket);
+               syncedTrades++;
+            }
+         }
+      }
+   } else {
+      // Fallback: iterate deals directly when no historical orders exist
+      int total = HistoryDealsTotal();
+      int zeroTickets = 0;
+      for (int i = 0; i < total; i++) {
+         ulong dealTicket = HistoryDealGetTicket(i);
+         if (dealTicket == 0) { zeroTickets++; continue; }
+         if (ContainsReportedDeal(dealTicket)) continue;
+         if (SendTradeEventFromDeal(dealTicket)) {
+            AddReportedDeal(dealTicket);
+            syncedTrades++;
+         }
+      }
+      Log(StringFormat("SyncTradeHistory: fallback zeroTickets=%d total=%d", zeroTickets, total));
+   }
+
+   Log(StringFormat("SyncTradeHistory: done synced=%d positions=%d", syncedTrades, posCount));
    g_lastTradeHistorySyncAt = TimeCurrent();
    return syncedTrades;
 }
@@ -1108,7 +1152,7 @@ void Connect() {
 int OnInit() {
    EventSetMillisecondTimer(100);
    MathSrand((int)TimeLocal());
-   Log("EA v3.11 initialised, connecting");
+   Log("EA v3.15 initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }
@@ -1148,6 +1192,12 @@ void OnTimer() {
 
    if (g_state == ST_CONNECTED && (TimeCurrent() - g_lastSymbolsSent >= 60))
       SendSymbols();
+
+   // Retry history sync if it stalled due to unloaded deal data (zeroTickets).
+   // g_lastTradeHistorySyncAt stays at 0/old when zero-ticket deals are detected,
+   // so this condition fires every ~5 s until all deals are loaded.
+   if (g_state == ST_CONNECTED && ArraySize(g_reportedDealTickets) == 0 && TimeCurrent() - g_lastTradeHistorySyncAt >= 5)
+      SyncTradeHistory();
 
    if (g_state == ST_CONNECTED && g_lastMessageTime > 0) {
       if (TimeCurrent() - g_lastMessageTime > 12) {
