@@ -35,6 +35,8 @@ const rawServerEnvSchema = z.object({
   GUARD_DUPLICATE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(0).default(60000),
   GUARD_ACTIVE_SIGNAL_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   RISK_MIN_TRADES_FOR_ADVANCED_METRICS: z.coerce.number().int().min(5).default(30),
+  TRADEPILOT_ANALYTICS_READ_TOKEN: z.string().min(20).optional(),
+  TRADEPILOT_ANALYTICS_USER_ID: z.string().uuid().optional(),
 });
 
 export const serverEnvSchema = rawServerEnvSchema.transform((environment) => ({

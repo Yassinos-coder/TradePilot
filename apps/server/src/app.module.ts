@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { parseServerEnv } from '@tradepilot/config';
 
 import { AccountsModule } from './accounts/accounts.module';
+import { AssistantAnalyticsModule } from './assistant-analytics/assistant-analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { redisConnectionFromUrl } from './common/utils/redis';
 import { DatabaseModule } from './database/database.module';
@@ -48,6 +49,7 @@ import { UsersModule } from './users/users.module';
     EaModule,
     ExecutionModule,
     DashboardModule,
+    AssistantAnalyticsModule,
   ],
 })
 export class AppModule {}
