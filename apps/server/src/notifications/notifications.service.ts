@@ -9,7 +9,11 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { NotificationPreferencesRecord, UserRecord } from '../database/database.types';
 
-import { buildAlertTemplate, buildEmailChangeVerificationTemplate, buildPasswordResetTemplate } from './email-templates';
+import {
+  buildAlertTemplate,
+  buildEmailChangeVerificationTemplate,
+  buildPasswordResetTemplate,
+} from './email-templates';
 import {
   NotificationDispatchInput,
   NotificationEventKey,
@@ -210,7 +214,20 @@ export class NotificationsService {
     const { data: created, error: createError } = await this.databaseService
       .getClient()
       .from('notification_preferences')
-      .insert({ user_id: userId })
+      .insert({
+        user_id: userId,
+        email_enabled: DEFAULT_PREFERENCES.channels.email,
+        telegram_enabled: DEFAULT_PREFERENCES.channels.telegram,
+        whatsapp_enabled: DEFAULT_PREFERENCES.channels.whatsapp,
+        notify_new_trade_opened: DEFAULT_PREFERENCES.events.newTradeOpened,
+        notify_tp_hit: DEFAULT_PREFERENCES.events.tpHit,
+        notify_sl_hit: DEFAULT_PREFERENCES.events.slHit,
+        notify_low_margin: DEFAULT_PREFERENCES.events.lowMargin,
+        notify_ea_disconnected: DEFAULT_PREFERENCES.events.eaDisconnected,
+        notify_telegram_disconnected: DEFAULT_PREFERENCES.events.telegramDisconnected,
+        notify_execution_failed: DEFAULT_PREFERENCES.events.executionFailed,
+        notify_daily_summary: DEFAULT_PREFERENCES.events.dailySummary,
+      })
       .select('*')
       .single();
 

@@ -12,10 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Read-only assistant analytics API at `GET /api/assistant/analytics/tradepilot`, protected by `x-tradepilot-analytics-token`, for stable AI-readable TradePilot performance analysis.
 - Optional `accountId` query filter for scoped analytics exports while preserving read-only behavior.
 - Stable response schema `tradepilot.analytics.read.v1` including generated timestamp, analytics summary, recent trades, and latest account status for Hermes skill consumption.
+- Event-driven notification pipeline for execution and account lifecycle alerts, with delivery gated by per-user channel and event preferences.
+- Rich HTML email templates for account security flows and trading alerts, ready for MailerSend SMTP relay configuration.
 
 ### Fixed
 
 - Signal parsing now tolerates decorative wrappers around trade labels like `( SL )` and `( TP )`, allowing pending-index entries such as `US30 Buy Limit` to validate and dispatch correctly
+- Settings page redesigned into a structured workspace with sticky navigation, in-page section jumps, and clearer alert/trading summaries for long-scroll flows.
+- Execution, EA, and connectivity alerts can now emit notification events for email delivery when users enable those events in settings.
 
 ## [0.4.0] - 2026-05-15
 

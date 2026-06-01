@@ -37,6 +37,8 @@ import {
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
+import { buildAlertTemplate } from '../notifications/email-templates';
+import { NotificationEventBusService } from '../notifications/notification-event-bus.service';
 
 import {
   DispatchAckMessage,
@@ -89,6 +91,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
     private readonly databaseService: DatabaseService,
+    private readonly notificationEventBus: NotificationEventBusService,
   ) {}
 
   async onModuleInit() {
@@ -600,18 +603,45 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
 
     if (metadata.userId && metadata.accountId) {
       const connections = this.socketsByUser.get(metadata.userId);
+      let userIsNowOffline = false;
 
       if (connections) {
         connections.delete(metadata.accountId);
 
         if (connections.size === 0) {
           this.socketsByUser.delete(metadata.userId);
+          userIsNowOffline = true;
         }
       }
 
       await this.redisService.delete(
         this.getPresenceKey(metadata.userId, metadata.accountId),
       );
+
+      if (userIsNowOffline) {
+        this.notificationEventBus.emit({
+          userId: metadata.userId,
+          event: 'eaDisconnected',
+          title: 'All EA connections are offline',
+          body: `The last connected account (${metadata.accountName ?? metadata.accountId}) just disconnected.`,
+          html: buildAlertTemplate(
+            'All EA connections are offline',
+            `The last connected account (${metadata.accountName ?? metadata.accountId}) just disconnected.`,
+            {
+              tone: 'danger',
+              eyebrow: 'Connectivity Alert',
+              details: [
+                { label: 'Account', value: metadata.accountName ?? metadata.accountId },
+                { label: 'Status', value: 'No authenticated EA connections remain online' },
+              ],
+            },
+          ),
+          metadata: {
+            accountId: metadata.accountId,
+            accountName: metadata.accountName ?? metadata.accountId,
+          },
+        });
+      }
     }
 
     this.socketMetadata.delete(client);
@@ -830,6 +860,114 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     if (payload.signal_id && payload.status === 'OPEN') {
       await this.updateSignalStatus(payload.signal_id, 'EXECUTED').catch(() => undefined);
     }
+
+    if (payload.status === 'OPEN') {
+      this.notificationEventBus.emit({
+        userId,
+        event: 'newTradeOpened',
+        title: `${payload.symbol} ${openingOrderType} opened`,
+        body: `TradePilot opened ${payload.symbol} ${openingOrderType} on account ${accountId}.`,
+        html: buildAlertTemplate(
+          `${payload.symbol} ${openingOrderType} opened`,
+          `TradePilot opened ${payload.symbol} ${openingOrderType} on account ${accountId}.`,
+          {
+            tone: 'success',
+            eyebrow: 'Trade Opened',
+            details: [
+              { label: 'Account', value: accountName ?? accountId },
+              { label: 'Direction', value: `${openingOrderType} (${positionDirection})` },
+              { label: 'Volume', value: payload.volume.toFixed(2) },
+              { label: 'Entry', value: payload.entry_price.toFixed(5) },
+              {
+                label: 'Take profit',
+                value:
+                  payload.take_profit !== null ? payload.take_profit.toFixed(5) : 'Not set',
+              },
+              {
+                label: 'Stop loss',
+                value: payload.stop_loss !== null ? payload.stop_loss.toFixed(5) : 'Not set',
+              },
+            ],
+          },
+        ),
+        metadata: {
+          accountId,
+          accountName,
+          ticket: payload.ticket,
+          symbol: payload.symbol,
+          openingOrderType,
+          positionDirection,
+        },
+      });
+    }
+
+    if (payload.status === 'CLOSED' && closeReason === 'TP') {
+      this.notificationEventBus.emit({
+        userId,
+        event: 'tpHit',
+        title: `${payload.symbol} take profit hit`,
+        body: `${payload.symbol} ${openingOrderType} closed at take profit on account ${accountId}.`,
+        html: buildAlertTemplate(
+          `${payload.symbol} take profit hit`,
+          `${payload.symbol} ${openingOrderType} closed at take profit on account ${accountId}.`,
+          {
+            tone: 'success',
+            eyebrow: 'Take Profit',
+            details: [
+              { label: 'Account', value: accountName ?? accountId },
+              { label: 'Direction', value: `${openingOrderType} (${positionDirection})` },
+              {
+                label: 'Exit',
+                value: payload.exit_price !== null ? payload.exit_price.toFixed(5) : 'Not set',
+              },
+              { label: 'Net PnL', value: payload.profit.toFixed(2) },
+            ],
+          },
+        ),
+        metadata: {
+          accountId,
+          accountName,
+          ticket: payload.ticket,
+          symbol: payload.symbol,
+          profit: payload.profit,
+          closeReason,
+        },
+      });
+    }
+
+    if (payload.status === 'CLOSED' && closeReason === 'SL') {
+      this.notificationEventBus.emit({
+        userId,
+        event: 'slHit',
+        title: `${payload.symbol} stop loss hit`,
+        body: `${payload.symbol} ${openingOrderType} closed at stop loss on account ${accountId}.`,
+        html: buildAlertTemplate(
+          `${payload.symbol} stop loss hit`,
+          `${payload.symbol} ${openingOrderType} closed at stop loss on account ${accountId}.`,
+          {
+            tone: 'danger',
+            eyebrow: 'Stop Loss',
+            details: [
+              { label: 'Account', value: accountName ?? accountId },
+              { label: 'Direction', value: `${openingOrderType} (${positionDirection})` },
+              {
+                label: 'Exit',
+                value: payload.exit_price !== null ? payload.exit_price.toFixed(5) : 'Not set',
+              },
+              { label: 'Net PnL', value: payload.profit.toFixed(2) },
+            ],
+          },
+        ),
+        metadata: {
+          accountId,
+          accountName,
+          ticket: payload.ticket,
+          symbol: payload.symbol,
+          profit: payload.profit,
+          closeReason,
+        },
+      });
+    }
   }
 
   private async storeCommandResult(
@@ -838,6 +976,32 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string | null,
     payload: Extract<WebSocketInboundMessage, { type: 'command_result' }>,
   ) {
+    if (payload.status === 'ERROR') {
+      this.notificationEventBus.emit({
+        userId,
+        event: 'executionFailed',
+        title: `Execution failed on account ${accountId}`,
+        body: payload.message,
+        html: buildAlertTemplate(`Execution failed on account ${accountId}`, payload.message, {
+          tone: 'danger',
+          eyebrow: 'Execution Failure',
+          details: [
+            { label: 'Action', value: payload.action },
+            { label: 'Symbol', value: payload.symbol },
+            { label: 'Account', value: accountName ?? accountId },
+          ],
+        }),
+        metadata: {
+          accountId,
+          accountName,
+          action: payload.action,
+          symbol: payload.symbol,
+          executionKey: payload.execution_key,
+          details: payload.details ?? null,
+        },
+      });
+    }
+
     await this.insertExecutionEvent(
       userId,
       payload.signal_id ?? null,

@@ -41,6 +41,8 @@ import {
   UserSymbolRecord,
 } from '../database/database.types';
 import { EaGatewayService } from '../ea/ea-gateway.service';
+import { buildAlertTemplate } from '../notifications/email-templates';
+import { NotificationEventBusService } from '../notifications/notification-event-bus.service';
 import { RedisService } from '../redis/redis.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -61,6 +63,7 @@ export class ExecutionService {
     private readonly settingsService: SettingsService,
     private readonly guardService: ExecutionGuardService,
     private readonly redisService: RedisService,
+    private readonly notificationEventBus: NotificationEventBusService,
   ) {}
 
   async dispatchSignal(input: DispatchSignalInput): Promise<void> {
@@ -128,6 +131,29 @@ export class ExecutionService {
 
     const telegramConnected = await this.isTelegramConnected(input.userId);
     if (!telegramConnected) {
+      this.emitNotification({
+        userId: input.userId,
+        event: 'telegramDisconnected',
+        title: 'Telegram disconnected',
+        body: 'TradePilot blocked execution because Telegram is currently disconnected.',
+        html: buildAlertTemplate(
+          'Telegram disconnected',
+          'TradePilot blocked execution because Telegram is currently disconnected.',
+          {
+            tone: 'danger',
+            eyebrow: 'Connectivity Alert',
+            details: [
+              { label: 'Signal', value: `${input.signal.action} ${input.signal.symbol}` },
+              { label: 'Failsafe', value: 'Execution blocked until Telegram reconnects' },
+            ],
+          },
+        ),
+        metadata: {
+          action: input.signal.action,
+          symbol: input.signal.symbol,
+          reason: 'TELEGRAM_DISCONNECTED',
+        },
+      });
       await this.updateSignalStatus(input.signalId, 'BLOCKED');
       await this.recordLog(
         input.userId,
@@ -159,6 +185,35 @@ export class ExecutionService {
     });
 
     if (!guardResult.allowed) {
+      if (guardResult.reason?.startsWith('Low margin failsafe active')) {
+        this.emitNotification({
+          userId: input.userId,
+          event: 'lowMargin',
+          title: 'Low margin protection activated',
+          body: guardResult.reason,
+          html: buildAlertTemplate(
+            'Low margin protection activated',
+            guardResult.reason,
+            {
+              tone: 'warning',
+              eyebrow: 'Risk Guardrail',
+              details: [
+                { label: 'Signal', value: `${input.signal.action} ${input.signal.symbol}` },
+                {
+                  label: 'Threshold',
+                  value: `${settings.lowMarginThresholdPercent}% minimum free margin`,
+                },
+              ],
+            },
+          ),
+          metadata: {
+            action: input.signal.action,
+            symbol: input.signal.symbol,
+            threshold: settings.lowMarginThresholdPercent,
+          },
+        });
+      }
+
       if (guardResult.logStatus === 'FAILSAFE_TRIGGERED') {
         await this.settingsService.setExecutionPause(
           input.userId,
@@ -210,6 +265,28 @@ export class ExecutionService {
           continue;
         }
 
+        this.emitNotification({
+          userId: input.userId,
+          event: 'eaDisconnected',
+          title: 'EA disconnected',
+          body: 'TradePilot could not find any authenticated EA connection after all retries.',
+          html: buildAlertTemplate(
+            'EA disconnected',
+            'TradePilot could not find any authenticated EA connection after all retries.',
+            {
+              tone: 'danger',
+              eyebrow: 'Connectivity Alert',
+              details: [
+                { label: 'Signal', value: `${input.signal.action} ${input.signal.symbol}` },
+                { label: 'Impact', value: 'Execution paused until at least one account reconnects' },
+              ],
+            },
+          ),
+          metadata: {
+            action: input.signal.action,
+            symbol: input.signal.symbol,
+          },
+        });
         await this.updateSignalStatus(input.signalId, 'EA_OFFLINE');
         await this.recordLog(
           input.userId,
@@ -238,6 +315,29 @@ export class ExecutionService {
       );
 
       if (commands.length === 0) {
+        this.emitNotification({
+          userId: input.userId,
+          event: 'executionFailed',
+          title: 'Execution failed: symbol mapping',
+          body: `TradePilot could not map ${input.signal.symbol} to any connected broker symbol.`,
+          html: buildAlertTemplate(
+            'Execution failed: symbol mapping',
+            `TradePilot could not map ${input.signal.symbol} to any connected broker symbol.`,
+            {
+              tone: 'danger',
+              eyebrow: 'Execution Failure',
+              details: [
+                { label: 'Signal', value: `${input.signal.action} ${input.signal.symbol}` },
+                { label: 'Reason', value: 'No connected account exposed a compatible broker symbol' },
+              ],
+            },
+          ),
+          metadata: {
+            action: input.signal.action,
+            symbol: input.signal.symbol,
+            reason: 'SYMBOL_UNRESOLVED',
+          },
+        });
         await this.updateSignalStatus(input.signalId, 'SYMBOL_UNRESOLVED');
         await this.recordLog(
           input.userId,
@@ -304,6 +404,36 @@ export class ExecutionService {
       input.signalId,
       sawPresence ? 'DISPATCH_TIMEOUT' : 'EA_OFFLINE',
     );
+    this.emitNotification({
+      userId: input.userId,
+      event: 'executionFailed',
+      title: sawPresence ? 'Execution dispatch timed out' : 'EA disconnected',
+      body: sawPresence
+        ? 'TradePilot could not confirm dispatch acknowledgement before the timeout expired.'
+        : 'TradePilot could not reach any connected EA account.',
+      html: buildAlertTemplate(
+        sawPresence ? 'Execution dispatch timed out' : 'EA disconnected',
+        sawPresence
+          ? 'TradePilot could not confirm dispatch acknowledgement before the timeout expired.'
+          : 'TradePilot could not reach any connected EA account.',
+        {
+          tone: 'danger',
+          eyebrow: 'Execution Failure',
+          details: [
+            { label: 'Signal', value: `${input.signal.action} ${input.signal.symbol}` },
+            {
+              label: 'Status',
+              value: sawPresence ? 'Dispatch timeout after retries' : 'No EA connection available',
+            },
+          ],
+        },
+      ),
+      metadata: {
+        action: input.signal.action,
+        symbol: input.signal.symbol,
+        status: sawPresence ? 'DISPATCH_TIMEOUT' : 'EA_OFFLINE',
+      },
+    });
     await this.recordLog(
       input.userId,
       input.signalId,
@@ -1651,6 +1781,28 @@ export class ExecutionService {
     }
 
     return Boolean(data);
+  }
+
+  private emitNotification(input: {
+    userId: string;
+    event:
+      | 'lowMargin'
+      | 'eaDisconnected'
+      | 'telegramDisconnected'
+      | 'executionFailed';
+    title: string;
+    body: string;
+    html: string;
+    metadata: Record<string, unknown>;
+  }) {
+    this.notificationEventBus.emit({
+      userId: input.userId,
+      event: input.event,
+      title: input.title,
+      body: input.body,
+      html: input.html,
+      metadata: input.metadata,
+    });
   }
 
   private async isTelegramConnected(userId: string): Promise<boolean> {
