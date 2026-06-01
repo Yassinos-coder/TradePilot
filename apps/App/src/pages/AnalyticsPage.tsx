@@ -66,6 +66,22 @@ function formatRelativeTime(date: Date): string {
   return `${hours}h ago`;
 }
 
+function displayTradeSide(trade: {
+  type: 'BUY' | 'SELL';
+  openingOrderType?: 'BUY' | 'SELL' | null;
+  positionDirection?: 'LONG' | 'SHORT' | null;
+}) {
+  if (trade.openingOrderType) {
+    return trade.openingOrderType;
+  }
+
+  if (trade.positionDirection) {
+    return trade.positionDirection === 'LONG' ? 'BUY' : 'SELL';
+  }
+
+  return trade.type;
+}
+
 const cardVariants = {
   hidden: { opacity: 0, y: 18 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
@@ -966,7 +982,7 @@ export function AnalyticsPage() {
                         </div>
                       </td>
                       <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                        {trade.symbol} {trade.type}
+                        {trade.symbol} {displayTradeSide(trade)}
                       </td>
                       <td className="px-5 py-4">
                         <Badge

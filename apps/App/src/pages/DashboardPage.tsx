@@ -160,6 +160,22 @@ function signalStatusLabel(status: string) {
   }
 }
 
+function displayTradeSide(trade: {
+  type: 'BUY' | 'SELL';
+  openingOrderType?: 'BUY' | 'SELL' | null;
+  positionDirection?: 'LONG' | 'SHORT' | null;
+}) {
+  if (trade.openingOrderType) {
+    return trade.openingOrderType;
+  }
+
+  if (trade.positionDirection) {
+    return trade.positionDirection === 'LONG' ? 'BUY' : 'SELL';
+  }
+
+  return trade.type;
+}
+
 export function DashboardPage() {
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
@@ -904,7 +920,7 @@ export function DashboardPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-slate-950 dark:text-slate-100">
-                        {trade.symbol} {trade.type} • {trade.accountId}
+                        {trade.symbol} {displayTradeSide(trade)} • {trade.accountId}
                       </p>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
                         Ticket {trade.ticket} • {formatTimestamp(trade.updatedAt)}

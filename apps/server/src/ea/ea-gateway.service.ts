@@ -988,12 +988,12 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     existing: TradeExecutionRecord | null,
     payload: EaTradeEventPayload,
   ): 'BUY' | 'SELL' {
-    if (existing?.opening_order_type) {
-      return existing.opening_order_type;
-    }
-
     if (payload.opening_order_type === 'BUY' || payload.opening_order_type === 'SELL') {
       return payload.opening_order_type;
+    }
+
+    if (existing?.opening_order_type) {
+      return existing.opening_order_type;
     }
 
     return payload.type;
@@ -1003,12 +1003,12 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     existing: TradeExecutionRecord | null,
     payload: EaTradeEventPayload,
   ): 'LONG' | 'SHORT' {
-    if (existing?.position_direction) {
-      return existing.position_direction;
-    }
-
     if (payload.position_direction === 'LONG' || payload.position_direction === 'SHORT') {
       return payload.position_direction;
+    }
+
+    if (existing?.position_direction) {
+      return existing.position_direction;
     }
 
     const openingOrderType = this.resolveOpeningOrderType(existing, payload);

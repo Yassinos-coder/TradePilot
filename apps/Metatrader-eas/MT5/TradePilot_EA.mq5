@@ -427,6 +427,8 @@ void SendTradeEvent(
    ulong ticket,
    string symbol,
    string side,
+   string openingOrderType,
+   string positionDirection,
    double volume,
    bool hasEntryPrice,
    double entryPrice,
@@ -446,11 +448,13 @@ void SendTradeEvent(
       return;
 
    string payload = StringFormat(
-      "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%I64u\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%s,\"entry_price\":%s,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%s,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
+      "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%I64u\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"opening_order_type\":\"%s\",\"position_direction\":\"%s\",\"volume\":%s,\"entry_price\":%s,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%s,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
       AccountId(),
       ticket,
       symbol,
       side,
+      openingOrderType,
+      positionDirection,
       DoubleToString(volume, 2),
       JsonNullableNumber(hasEntryPrice, entryPrice, 5),
       JsonNullableNumber(hasExitPrice, exitPrice, 5),
@@ -465,6 +469,47 @@ void SendTradeEvent(
 
    if (WsSend(payload))
       Log("-> trade_event " + status + " ticket " + (string)ticket);
+}
+
+string OpeningOrderTypeFromDealType(long dealType) {
+   return dealType == DEAL_TYPE_BUY ? "BUY" : "SELL";
+}
+
+string PositionDirectionFromOrderType(string openingOrderType) {
+   return openingOrderType == "BUY" ? "LONG" : "SHORT";
+}
+
+string FindOpeningOrderType(long positionId, long fallbackDealType) {
+   string openingOrderType = OpeningOrderTypeFromDealType(fallbackDealType);
+
+   if (positionId <= 0)
+      return openingOrderType;
+
+   int total = HistoryDealsTotal();
+   datetime earliest = 0;
+
+   for (int i = 0; i < total; i++) {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if (dealTicket == 0)
+         continue;
+
+      if ((long)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID) != positionId)
+         continue;
+
+      long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      if (earliest == 0 || dealTime < earliest) {
+         earliest = dealTime;
+         openingOrderType = OpeningOrderTypeFromDealType(
+            HistoryDealGetInteger(dealTicket, DEAL_TYPE)
+         );
+      }
+   }
+
+   return openingOrderType;
 }
 
 void SendStateSyncComplete(string requestId, int syncedTrades) {
@@ -558,10 +603,15 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
    double price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
    double stopLoss = HistoryDealGetDouble(dealTicket, DEAL_SL);
    double takeProfit = HistoryDealGetDouble(dealTicket, DEAL_TP);
-   double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+   double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT) +
+      HistoryDealGetDouble(dealTicket, DEAL_COMMISSION) +
+      HistoryDealGetDouble(dealTicket, DEAL_SWAP) +
+      HistoryDealGetDouble(dealTicket, DEAL_FEE);
    string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
    datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
    long positionId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+   string openingOrderType = FindOpeningOrderType(positionId, dealType);
+   string positionDirection = PositionDirectionFromOrderType(openingOrderType);
 
    // Use positionId as the stable ticket so OPEN and CLOSED events for the
    // same position share the same key and the backend upsert merges them.
@@ -573,6 +623,8 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
          ticket,
          symbol,
          side,
+         openingOrderType,
+         positionDirection,
          volume,
          true,
          price,
@@ -599,6 +651,8 @@ bool SendTradeEventFromDeal(ulong dealTicket) {
          ticket,
          symbol,
          side,
+         openingOrderType,
+         positionDirection,
          volume,
          true,
          entryPrice,
@@ -715,6 +769,8 @@ void SendRejectedTradeEvent(
       pseudoTicket,
       symbol,
       side,
+      side,
+      side == "BUY" ? "LONG" : "SHORT",
       volume,
       entryKind == "LIMIT",
       entryPrice,

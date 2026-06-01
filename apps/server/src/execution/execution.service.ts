@@ -1696,6 +1696,18 @@ export class ExecutionService {
   }
 
   private toTradeExecutionDto(trade: TradeExecutionRecord): TradeExecutionDTO {
+    const positionDirection =
+      trade.position_direction ??
+      (trade.opening_order_type === 'BUY'
+        ? 'LONG'
+        : trade.opening_order_type === 'SELL'
+          ? 'SHORT'
+          : trade.type === 'BUY'
+            ? 'LONG'
+            : 'SHORT');
+    const displayType =
+      trade.opening_order_type ?? (positionDirection === 'LONG' ? 'BUY' : 'SELL');
+
     return tradeExecutionDtoSchema.parse({
       id: trade.id,
       signalId: trade.signal_id,
@@ -1703,7 +1715,7 @@ export class ExecutionService {
       accountName: trade.account_name,
       ticket: trade.ticket,
       symbol: trade.symbol,
-      type: trade.type,
+      type: displayType,
       volume: trade.volume,
       entryPrice: trade.entry_price,
       exitPrice: trade.exit_price,
@@ -1712,7 +1724,7 @@ export class ExecutionService {
       profit: trade.profit,
       status: trade.status,
       openingOrderType: trade.opening_order_type,
-      positionDirection: trade.position_direction,
+      positionDirection,
       closeReason: trade.close_reason,
       comment: trade.comment,
       openedAt: trade.opened_at,
