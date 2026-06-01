@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
+import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { useAuthStore } from '../../store/auth-store';
 import { useThemeStore } from '../../store/theme-store';
 
@@ -34,9 +35,11 @@ const PAGE_TITLES: Record<string, string> = {
 
 interface SidebarProps {
   onNavigate?: () => void;
+  versionLabel: string;
+  builtAtLabel: string;
 }
 
-function SidebarContent({ onNavigate }: SidebarProps) {
+function SidebarContent({ onNavigate, versionLabel, builtAtLabel }: SidebarProps) {
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
   const { theme, toggleTheme } = useThemeStore();
@@ -122,6 +125,18 @@ function SidebarContent({ onNavigate }: SidebarProps) {
             <LogOut className="h-4 w-4" />
           </button>
         </div>
+
+        <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+            Version
+          </p>
+          <p className="mt-1 text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            {versionLabel}
+          </p>
+          <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+            Built {builtAtLabel}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -130,12 +145,16 @@ function SidebarContent({ onNavigate }: SidebarProps) {
 export function AppShell() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { currentManifest, availableManifest, hasUpdate, isRefreshing, dismiss, refreshToLatest } =
+    useAppUpdate();
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'TradePilot';
+  const versionLabel = `TradePilot v${currentManifest.version}`;
+  const builtAtLabel = new Date(currentManifest.builtAt).toLocaleString();
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.1),_transparent_30%),linear-gradient(180deg,#f8fbff_0%,#f8fafc_100%)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.12),_transparent_26%),linear-gradient(180deg,#020617_0%,#071224_42%,#020617_100%)]">
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-72 lg:border-r lg:border-slate-200/80 lg:backdrop-blur dark:lg:border-slate-800">
-        <SidebarContent />
+        <SidebarContent versionLabel={versionLabel} builtAtLabel={builtAtLabel} />
       </div>
 
       <AnimatePresence>
@@ -166,7 +185,11 @@ export function AppShell() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <SidebarContent onNavigate={() => setMobileNavOpen(false)} />
+              <SidebarContent
+                onNavigate={() => setMobileNavOpen(false)}
+                versionLabel={versionLabel}
+                builtAtLabel={builtAtLabel}
+              />
             </motion.aside>
           </>
         ) : null}
@@ -212,6 +235,57 @@ export function AppShell() {
           </AnimatePresence>
         </main>
       </div>
+
+      <AnimatePresence>
+        {hasUpdate && availableManifest ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed bottom-4 right-4 z-[70] w-[min(92vw,390px)]"
+          >
+            <div className="overflow-hidden rounded-[24px] border border-sky-200/80 bg-white/96 shadow-[0_24px_80px_-30px_rgba(2,132,199,0.55)] backdrop-blur dark:border-sky-500/20 dark:bg-slate-950/96">
+              <div className="border-b border-sky-100 bg-[linear-gradient(135deg,rgba(224,242,254,0.95),rgba(255,255,255,0.92))] px-5 py-4 dark:border-sky-500/15 dark:bg-[linear-gradient(135deg,rgba(8,47,73,0.92),rgba(15,23,42,0.96))]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700 dark:text-sky-300">
+                  Update available
+                </p>
+                <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+                  A fresher TradePilot build is ready
+                </h2>
+              </div>
+              <div className="space-y-4 px-5 py-4">
+                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  Refresh to load the latest web update and clear cached assets so the new UI and
+                  logic show immediately.
+                </p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
+                  New version: v{availableManifest.version}
+                  <br />
+                  Built: {new Date(availableManifest.builtAt).toLocaleString()}
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={dismiss}
+                    className="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                  >
+                    Later
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void refreshToLatest()}
+                    disabled={isRefreshing}
+                    className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRefreshing ? 'Refreshing...' : 'Refresh now'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from '../components/ui/Pagination';
 import {
@@ -82,12 +82,12 @@ function displayTradeSide(trade: {
   return trade.type;
 }
 
-const cardVariants = {
+const cardVariants: Variants = {
   hidden: { opacity: 0, y: 18 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
 };
 
-const staggerContainer = {
+const staggerContainer: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.07 } },
 };

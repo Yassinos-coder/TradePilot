@@ -136,7 +136,21 @@ const MODE_OPTIONS = [
   },
 ];
 
-const NOTIFICATION_CHANNEL_OPTIONS = [
+type NotificationChannelOption = {
+  key: keyof NotificationPreferencesDTO['channels'];
+  label: string;
+  description: string;
+  disabled?: boolean;
+};
+
+type NotificationEventOption = {
+  key: keyof NotificationPreferencesDTO['events'];
+  label: string;
+  description: string;
+  disabled?: boolean;
+};
+
+const NOTIFICATION_CHANNEL_OPTIONS: NotificationChannelOption[] = [
   {
     key: 'email',
     label: 'Email',
@@ -155,7 +169,7 @@ const NOTIFICATION_CHANNEL_OPTIONS = [
   },
 ] as const;
 
-const NOTIFICATION_EVENT_OPTIONS = [
+const NOTIFICATION_EVENT_OPTIONS: NotificationEventOption[] = [
   {
     key: 'newTradeOpened',
     label: 'New trade opened',
@@ -248,7 +262,7 @@ export function SettingsPage() {
   const authUser = useAuthStore((state) => state.user);
   const updateAuthUser = useAuthStore((state) => state.updateUser);
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
-  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_MAP.profile[0].id);
+  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_MAP.profile[0]!.id);
 
   const settingsQuery = useQuery({
     queryKey: ['settings'],
@@ -593,7 +607,7 @@ export function SettingsPage() {
   }, [notificationDraft, notificationsQuery.data]);
 
   const activeSections = SECTION_MAP[activeTab];
-  const currentTab = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
+  const currentTab = TABS.find((tab) => tab.key === activeTab) ?? TABS[0]!;
   const enabledChannelCount = notificationDraft
     ? Object.values(notificationDraft.channels).filter(Boolean).length
     : 0;
