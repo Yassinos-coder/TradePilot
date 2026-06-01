@@ -222,32 +222,6 @@ function SettingsSkeleton() {
   );
 }
 
-function WorkspaceStat({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: typeof MailCheck;
-}) {
-  return (
-    <div className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur dark:border-slate-800/70 dark:bg-slate-950/70">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-          {label}
-        </p>
-        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-          <Icon className="h-4 w-4" />
-        </span>
-      </div>
-      <p className="mt-3 text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-100">
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function normalizeSymbol(symbol: string) {
   return symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
@@ -662,103 +636,107 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))] shadow-sm dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(15,23,42,0.92))]">
-        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1.2fr)_340px] lg:px-8 lg:py-8">
-          <div className="space-y-4">
-            <Badge tone="info">Workspace control center</Badge>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-                Settings that feel operational, not overwhelming
-              </h1>
-              <p className="max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                Manage profile, delivery channels, execution guardrails, and connection health from
-                one structured workspace with section navigation.
-              </p>
+      <section className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_36%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-sm dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(15,23,42,0.94))]">
+        <div className="space-y-6 px-6 py-6 lg:px-8 lg:py-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="space-y-3">
+              <Badge tone="info">Workspace settings</Badge>
+              <div className="space-y-2">
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+                  Smooth controls for profile, alerts, and execution
+                </h1>
+                <p className="max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  Move through settings quickly, keep context while you scroll, and make changes
+                  without bouncing between disconnected cards.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Badge tone="neutral">{currentTab.label}</Badge>
+                <Badge tone={settingsDraft.executionPaused ? 'warning' : 'positive'} dot>
+                  {settingsDraft.executionPaused ? 'Execution paused' : 'Execution active'}
+                </Badge>
+                {authUser?.pendingEmail ? <Badge tone="warning">Pending email change</Badge> : null}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge tone="neutral">{currentTab.label}</Badge>
-              <Badge tone={settingsDraft.executionPaused ? 'warning' : 'positive'} dot>
-                {settingsDraft.executionPaused ? 'Execution paused' : 'Execution active'}
-              </Badge>
-              {authUser?.pendingEmail ? <Badge tone="warning">Pending email change</Badge> : null}
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[430px]">
+              {workspaceStats.map((stat) => {
+                const Icon = stat.icon;
+                return (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/75"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                        {stat.label}
+                      </p>
+                      <Icon className="h-4 w-4 text-sky-600 dark:text-sky-300" />
+                    </div>
+                    <p className="mt-2 text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-100">
+                      {stat.value}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            {workspaceStats.map((stat) => (
-              <WorkspaceStat
-                key={stat.label}
-                label={stat.label}
-                value={stat.value}
-                icon={stat.icon}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-          <Card
-            title="Workspace Navigation"
-            eyebrow="Sections"
-            description="Switch between areas and jump directly to the part you need."
-            className="rounded-[24px]"
-          >
-            <div className="space-y-2">
+          <div className="overflow-x-auto">
+            <div className="inline-flex min-w-full gap-2 rounded-[22px] border border-slate-200/80 bg-white/75 p-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/70">
               {TABS.map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
                   onClick={() => selectTab(tab.key)}
                   className={cn(
-                    'flex w-full items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all',
+                    'min-w-[170px] flex-1 rounded-2xl px-4 py-3 text-left transition-all',
                     activeTab === tab.key
-                      ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-50'
-                      : 'border-slate-200/80 bg-white/80 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-900',
+                      ? 'bg-slate-950 text-white shadow-sm dark:bg-slate-100 dark:text-slate-950'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100',
                   )}
                 >
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">{tab.label}</p>
-                    <p
-                      className={cn(
-                        'text-xs leading-5',
-                        activeTab === tab.key
-                          ? 'text-sky-700 dark:text-sky-200'
-                          : 'text-slate-500 dark:text-slate-400',
-                      )}
-                    >
-                      {tab.description}
-                    </p>
-                  </div>
-                  <ChevronRight
+                  <p className="text-sm font-semibold">{tab.label}</p>
+                  <p
                     className={cn(
-                      'mt-0.5 h-4 w-4 shrink-0 transition-transform',
-                      activeTab === tab.key && 'translate-x-0.5',
+                      'mt-1 text-xs leading-5',
+                      activeTab === tab.key
+                        ? 'text-white/80 dark:text-slate-600'
+                        : 'text-slate-500 dark:text-slate-400',
                     )}
-                  />
+                  >
+                    {tab.description}
+                  </p>
                 </button>
               ))}
             </div>
-          </Card>
+          </div>
+        </div>
+      </section>
 
-          <Card
-            title="On This Page"
-            eyebrow="Quick Jump"
-            description={currentTab.description}
-            className="rounded-[24px]"
-          >
-            <div className="space-y-2">
+      <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="xl:sticky xl:top-24 xl:self-start">
+          <div className="rounded-[26px] border border-slate-200/80 bg-white/88 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/78">
+            <div className="pb-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                Page guide
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                {currentTab.description}
+              </p>
+            </div>
+
+            <div className="space-y-2 border-t border-slate-200/80 pt-4 dark:border-slate-800">
               {activeSections.map((section) => (
                 <button
                   key={section.id}
                   type="button"
                   onClick={() => jumpToSection(section.id)}
                   className={cn(
-                    'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
+                    'w-full rounded-2xl px-3 py-3 text-left transition-colors',
                     activeSectionId === section.id
-                      ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-200 dark:bg-slate-100 dark:text-slate-950'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:border-slate-700',
+                      ? 'bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900',
                   )}
                 >
                   <p className="text-sm font-semibold">{section.label}</p>
@@ -772,36 +750,34 @@ export function SettingsPage() {
                   >
                     {section.description}
                   </p>
+                  <ChevronRight className="mt-2 h-3.5 w-3.5 opacity-60" />
                 </button>
               ))}
             </div>
-          </Card>
 
-          <Card
-            title="Watchlist"
-            eyebrow="Status"
-            description="Important account states worth acting on quickly."
-            className="rounded-[24px]"
-          >
-            <div className="space-y-3 text-sm">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
-                <p className="font-medium text-slate-900 dark:text-slate-100">Execution state</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            <div className="mt-4 space-y-3 border-t border-slate-200/80 pt-4 dark:border-slate-800">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Execution
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-300">
                   {settingsDraft.executionPaused
                     ? `Paused by failsafe: ${settingsDraft.executionPauseReason ?? 'UNKNOWN'}`
-                    : 'Healthy. Signals can dispatch when guardrails pass.'}
+                    : 'Healthy and ready for validated signals.'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
-                <p className="font-medium text-slate-900 dark:text-slate-100">Email status</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Email
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-300">
                   {profileDraft.pendingEmail
                     ? `Waiting for verification on ${profileDraft.pendingEmail}.`
                     : 'Primary email is verified and ready for notifications.'}
                 </p>
               </div>
             </div>
-          </Card>
+          </div>
         </aside>
 
         <main className="space-y-5">

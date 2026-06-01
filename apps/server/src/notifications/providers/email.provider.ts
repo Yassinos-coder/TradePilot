@@ -10,6 +10,7 @@ export class EmailProvider implements NotificationProvider {
   private readonly logger = new Logger(EmailProvider.name);
   private transporter: Transporter | null = null;
   private fromAddress: string | null = null;
+  private fromName: string | null = null;
 
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('SMTP_HOST');
@@ -17,6 +18,7 @@ export class EmailProvider implements NotificationProvider {
     const user = this.configService.get<string>('SMTP_USER');
     const pass = this.configService.get<string>('SMTP_PASSWORD');
     const from = this.configService.get<string>('SMTP_FROM');
+    const fromName = this.configService.get<string>('SMTP_FROM_NAME');
 
     if (!host || !port || !user || !pass || !from) {
       this.logger.warn(
@@ -26,6 +28,7 @@ export class EmailProvider implements NotificationProvider {
     }
 
     this.fromAddress = from;
+    this.fromName = fromName?.trim() || null;
     this.transporter = nodemailer.createTransport({
       host,
       port,
@@ -57,7 +60,12 @@ export class EmailProvider implements NotificationProvider {
     }
 
     await this.transporter.sendMail({
-      from: this.fromAddress,
+      from: this.fromName
+        ? {
+            name: this.fromName,
+            address: this.fromAddress,
+          }
+        : this.fromAddress,
       to: payload.email,
       subject: payload.title,
       text: payload.body,

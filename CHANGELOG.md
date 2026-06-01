@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings page redesigned into a structured workspace with sticky navigation, in-page section jumps, and clearer alert/trading summaries for long-scroll flows.
 - Execution, EA, and connectivity alerts can now emit notification events for email delivery when users enable those events in settings.
 - App sidebar now shows the running TradePilot version and build time for quicker release visibility.
+- Email sender identity now supports a branded display name, and the Settings page layout has been smoothed further with a lighter guide rail and less stacked-card friction.
 
 ## [0.4.0] - 2026-05-15
 
