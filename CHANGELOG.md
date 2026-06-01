@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `accountId` query filter for scoped analytics exports while preserving read-only behavior.
 - Stable response schema `tradepilot.analytics.read.v1` including generated timestamp, analytics summary, recent trades, and latest account status for Hermes skill consumption.
 
+### Fixed
+
+- Signal parsing now tolerates decorative wrappers around trade labels like `( SL )` and `( TP )`, allowing pending-index entries such as `US30 Buy Limit` to validate and dispatch correctly
+
 ## [0.4.0] - 2026-05-15
 
 ### Added

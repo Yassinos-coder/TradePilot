@@ -42,6 +42,9 @@ function normalizeMessage(rawMessage: string) {
   return rawMessage
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+    // Strip decorative wrappers so labels like `( SL ) :` still parse as `SL:`.
+    .replace(/[(){}\[\]_]/g, ' ')
+    .replace(/[—–]/g, ' ')
     .replace(/[|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
