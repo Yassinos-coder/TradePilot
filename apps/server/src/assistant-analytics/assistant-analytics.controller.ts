@@ -33,7 +33,7 @@ export class AssistantAnalyticsController {
       throw new UnauthorizedException('Invalid TradePilot analytics token');
     }
 
-    const normalizedAccountId = accountId?.trim() || undefined;
+    const normalizedAccountId = this.normalizeAccountSelector(accountId);
     const [analytics, recentTrades, latestAccountStatus] = await Promise.all([
       this.executionService.getAnalytics(userId, normalizedAccountId),
       this.executionService.listRecentTrades(userId, 25, normalizedAccountId),
@@ -49,5 +49,25 @@ export class AssistantAnalyticsController {
       recentTrades,
       latestAccountStatus,
     };
+  }
+
+  private normalizeAccountSelector(accountId?: string): string | undefined {
+    const trimmed = accountId?.trim();
+
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const normalized = trimmed.toLowerCase();
+    if (normalized === 'all' || normalized === 'all accounts') {
+      return undefined;
+    }
+
+    const labelMatch = trimmed.match(/\(([^()]+)\)\s*$/);
+    if (labelMatch?.[1]?.trim()) {
+      return labelMatch[1].trim();
+    }
+
+    return trimmed;
   }
 }

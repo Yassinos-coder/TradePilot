@@ -1,15 +1,34 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { RequestUser } from '../auth/types/request-user.type';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 import { ExecutionService } from './execution.service';
+import {
+  TradeHistoryImportService,
+  UploadedTradeHistoryFile,
+} from './trade-history-import.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('execution')
 export class ExecutionController {
-  constructor(private readonly executionService: ExecutionService) {}
+  constructor(
+    private readonly executionService: ExecutionService,
+    private readonly tradeHistoryImportService: TradeHistoryImportService,
+  ) {}
 
   @Post(':signalId/dispatch-manual')
   dispatchManual(
@@ -18,6 +37,28 @@ export class ExecutionController {
     @Body() body: { accountId: string },
   ) {
     return this.executionService.dispatchManual(user.userId, signalId, body.accountId);
+  }
+
+  @Get('history-files')
+  listHistoryFiles(@CurrentUser() user: RequestUser) {
+    return this.tradeHistoryImportService.listFiles(user.userId);
+  }
+
+  @Post('history-files')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadHistoryFile(
+    @CurrentUser() user: RequestUser,
+    @UploadedFile() file: UploadedTradeHistoryFile,
+  ) {
+    return this.tradeHistoryImportService.uploadFile(user.userId, file);
+  }
+
+  @Delete('history-files/:fileId')
+  deleteHistoryFile(
+    @CurrentUser() user: RequestUser,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.tradeHistoryImportService.deleteFile(user.userId, fileId);
   }
 
   @Get('analytics')

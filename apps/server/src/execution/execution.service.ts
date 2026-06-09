@@ -593,7 +593,9 @@ export class ExecutionService {
     limit = 10,
     accountId?: string,
   ): Promise<TradeExecutionDTO[]> {
-    await this.syncLiveExecutionData(userId, accountId);
+    if (!accountId?.startsWith('upload:')) {
+      await this.syncLiveExecutionData(userId, accountId);
+    }
 
     let query = this.databaseService
       .getClient()
@@ -674,7 +676,9 @@ export class ExecutionService {
   }
 
   async getAnalytics(userId: string, accountId?: string): Promise<AnalyticsSummaryDTO> {
-    await this.syncLiveExecutionData(userId, accountId);
+    if (!accountId?.startsWith('upload:')) {
+      await this.syncLiveExecutionData(userId, accountId);
+    }
 
     let query = this.databaseService
       .getClient()

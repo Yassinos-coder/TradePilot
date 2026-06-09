@@ -23,6 +23,7 @@ import {
   TelegramConnectStartResult,
   TelegramConnectionDTO,
   TradeExecutionDTO,
+  TradeHistoryFileDTO,
   UpdateProfileInput,
   UserDTO,
   UserSessionDTO,
@@ -214,6 +215,21 @@ export const apiClient = {
       params: accountId ? { accountId } : undefined,
     });
     return data;
+  },
+  async tradeHistoryFiles() {
+    const { data } = await api.get<TradeHistoryFileDTO[]>('/execution/history-files');
+    return data;
+  },
+  async uploadTradeHistoryFile(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post<TradeHistoryFileDTO>('/execution/history-files', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+  async deleteTradeHistoryFile(fileId: string) {
+    await api.delete(`/execution/history-files/${fileId}`);
   },
   async dispatchManual(signalId: string, accountId: string) {
     await api.post(`/execution/${signalId}/dispatch-manual`, { accountId });

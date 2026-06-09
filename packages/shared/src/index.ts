@@ -188,6 +188,26 @@ export const createAccountSchema = z.object({
 
 export const accountStatusHistorySchema = z.array(accountStatusDtoSchema);
 
+export const tradeHistoryFileStatusSchema = z.enum(['UPLOADED', 'PARSED', 'FAILED']);
+export const tradeHistoryPlatformSchema = z.enum(['MT4', 'MT5', 'GENERIC']);
+
+export const tradeHistoryFileDtoSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  originalFilename: z.string().min(1),
+  storageBucket: z.string().min(1),
+  storagePath: z.string().min(1),
+  contentType: z.string().nullable().optional(),
+  fileSize: z.number().int().nonnegative(),
+  platform: tradeHistoryPlatformSchema,
+  parsedTradeCount: z.number().int().nonnegative(),
+  skippedRowCount: z.number().int().nonnegative(),
+  status: tradeHistoryFileStatusSchema,
+  accountId: z.string().min(1),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const tradeExecutionDtoSchema = z.object({
   id: z.string().min(1),
   signalId: z.string().nullable(),
@@ -713,6 +733,7 @@ export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
 export type NotificationPreferencesDTO = z.infer<typeof notificationPreferencesSchema>;
+export type TradeHistoryFileDTO = z.infer<typeof tradeHistoryFileDtoSchema>;
 export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
 export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
 export type SymbolBreakdownDTO = z.infer<typeof symbolBreakdownSchema>;

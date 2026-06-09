@@ -1,16 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useCallback, useRef, type ChangeEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, type Variants } from 'framer-motion';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from '../components/ui/Pagination';
 import {
   AlertTriangle,
   BarChart3,
+  FileText,
   Gauge,
   RefreshCw,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
+  UploadCloud,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -397,8 +400,11 @@ function AnalyticsSkeleton() {
 }
 
 export function AnalyticsPage() {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [historyUploadError, setHistoryUploadError] = useState<string | null>(null);
 
   const accountId = selectedAccountId === 'all' ? undefined : selectedAccountId;
 
@@ -406,6 +412,43 @@ export function AnalyticsPage() {
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
     refetchInterval: 15_000,
+  });
+
+  const historyFilesQuery = useQuery({
+    queryKey: ['execution', 'history-files'],
+    queryFn: apiClient.tradeHistoryFiles,
+  });
+
+  const uploadHistoryMutation = useMutation({
+    mutationFn: apiClient.uploadTradeHistoryFile,
+    onMutate: () => setHistoryUploadError(null),
+    onSuccess: async (file) => {
+      const sourceAccountId = `upload:${file.id}`;
+      setSelectedAccountId(sourceAccountId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['execution', 'history-files'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'analytics'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'trades'] }),
+      ]);
+    },
+    onError: (error) => {
+      setHistoryUploadError(error instanceof Error ? error.message : 'Failed to upload trade history.');
+    },
+  });
+
+  const deleteHistoryMutation = useMutation({
+    mutationFn: apiClient.deleteTradeHistoryFile,
+    onSuccess: async (_, fileId) => {
+      const sourceAccountId = `upload:${fileId}`;
+      if (selectedAccountId === sourceAccountId) {
+        setSelectedAccountId('all');
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['execution', 'history-files'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'analytics'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'trades'] }),
+      ]);
+    },
   });
 
   const analyticsQuery = useQuery({
@@ -420,7 +463,7 @@ export function AnalyticsPage() {
   });
 
   const isRefreshing =
-    analyticsQuery.isFetching || tradesQuery.isFetching || accountsQuery.isFetching;
+    analyticsQuery.isFetching || tradesQuery.isFetching || accountsQuery.isFetching || historyFilesQuery.isFetching;
 
   useEffect(() => {
     if (analyticsQuery.dataUpdatedAt) {
@@ -432,7 +475,27 @@ export function AnalyticsPage() {
     analyticsQuery.refetch();
     tradesQuery.refetch();
     accountsQuery.refetch();
-  }, [analyticsQuery, tradesQuery, accountsQuery]);
+    historyFilesQuery.refetch();
+  }, [analyticsQuery, tradesQuery, accountsQuery, historyFilesQuery]);
+
+  const handleHistoryFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) {
+        return;
+      }
+      uploadHistoryMutation.mutate(file);
+    },
+    [uploadHistoryMutation],
+  );
+
+  const handleDeleteHistoryFile = useCallback(
+    (fileId: string) => {
+      deleteHistoryMutation.mutate(fileId);
+    },
+    [deleteHistoryMutation],
+  );
 
   const a = analyticsQuery.data;
   const trades = tradesQuery.data ?? [];
@@ -440,7 +503,7 @@ export function AnalyticsPage() {
   const symbolsPagination = usePagination(a?.bySymbol ?? [], 15);
   const tradesPagination = usePagination(trades, 25);
 
-  if (accountsQuery.isLoading || analyticsQuery.isLoading || tradesQuery.isLoading) {
+  if (accountsQuery.isLoading || historyFilesQuery.isLoading || analyticsQuery.isLoading || tradesQuery.isLoading) {
     return <AnalyticsSkeleton />;
   }
 
@@ -460,6 +523,11 @@ export function AnalyticsPage() {
   const formatAdvancedPercent = (value: number | null | undefined, digits = 2) =>
     insufficientData ? advancedMetricLabel : formatPercent(value, digits);
 
+  const historyFiles = historyFilesQuery.data ?? [];
+  const selectedHistoryFile = accountId?.startsWith('upload:')
+    ? historyFiles.find((file) => `upload:${file.id}` === accountId)
+    : undefined;
+
   const accountOptions = [
     { label: 'All accounts', value: 'all' },
     ...(accountsQuery.data ?? [])
@@ -468,6 +536,10 @@ export function AnalyticsPage() {
         label: `${acc.name} (${acc.externalAccountId})`,
         value: acc.externalAccountId!,
       })),
+    ...historyFiles.map((file) => ({
+      label: `Imported: ${file.displayName}`,
+      value: `upload:${file.id}`,
+    })),
   ];
 
   const overviewStats = [
@@ -687,27 +759,100 @@ export function AnalyticsPage() {
       <Card
         title="Account Selector"
         eyebrow="Analytics Scope"
-        description="Switch between all accounts and a single MetaTrader account."
+        description="Switch between live MetaTrader accounts or upload an exported CSV/TXT/HTML history file for offline analytics."
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <label
-            htmlFor="analytics-account"
-            className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400"
-          >
-            Account
-          </label>
-          <select
-            id="analytics-account"
-            value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition-colors focus:border-sky-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
-          >
-            {accountOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label
+                htmlFor="analytics-account"
+                className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400"
+              >
+                Account
+              </label>
+              <select
+                id="analytics-account"
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition-colors focus:border-sky-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+              >
+                {accountOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.txt,.html,.htm,text/csv,text/plain,text/html"
+                onChange={handleHistoryFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadHistoryMutation.isPending}
+                className="flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-medium text-sky-700 transition-all hover:bg-sky-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+              >
+                <UploadCloud className="h-4 w-4" />
+                {uploadHistoryMutation.isPending ? 'Importing…' : 'Upload history'}
+              </button>
+            </div>
+          </div>
+
+          {historyUploadError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+              {historyUploadError}
+            </div>
+          ) : null}
+
+          {selectedHistoryFile ? (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
+              Showing imported {selectedHistoryFile.platform} history: {selectedHistoryFile.parsedTradeCount} parsed trades from {selectedHistoryFile.originalFilename}.
+            </div>
+          ) : null}
+
+          {historyFiles.length > 0 ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              {historyFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="group flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountId(`upload:${file.id}`)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                      <FileText className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                        {file.displayName}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500 dark:text-slate-500">
+                        {file.platform} · {file.parsedTradeCount} trades · {file.skippedRowCount} skipped
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${file.displayName}`}
+                    onClick={() => handleDeleteHistoryFile(file.id)}
+                    disabled={deleteHistoryMutation.isPending}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 opacity-0 transition-all hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -938,7 +1083,10 @@ export function AnalyticsPage() {
       <Card
         title="Trade History"
         eyebrow="Lifecycle"
-        description="Trade history mirrored from the connected EA's live MetaTrader account, including manual and automated activity."
+        description={selectedHistoryFile
+          ? `Closed trades parsed from ${selectedHistoryFile.originalFilename}.`
+          : "Trade history mirrored from the connected EA's live MetaTrader account, including manual and automated activity."
+        }
       >
         {trades.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">

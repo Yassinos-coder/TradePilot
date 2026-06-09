@@ -42,6 +42,8 @@ export type ExecutionStatus =
 
 export type TradeLifecycleStatus = 'OPEN' | 'CLOSED' | 'REJECTED';
 export type AccountSource = 'MANUAL' | 'EA';
+export type TradeHistoryFileStatus = 'UPLOADED' | 'PARSED' | 'FAILED';
+export type TradeHistoryPlatform = 'MT4' | 'MT5' | 'GENERIC';
 export type SignalClassification = 'SIGNAL' | 'MANAGEMENT' | 'NOISE';
 export type PositionDirection = 'LONG' | 'SHORT';
 export type CloseReason = 'TP' | 'SL' | 'MANUAL' | 'PARTIAL' | 'BREAKEVEN' | 'UNKNOWN';
@@ -192,6 +194,23 @@ export interface AccountStatusSnapshotRecord {
   drawdown_percent: number;
   open_positions: number;
   created_at: string;
+}
+
+export interface TradeHistoryFileRecord {
+  id: string;
+  user_id: string;
+  display_name: string;
+  original_filename: string;
+  storage_bucket: string;
+  storage_path: string;
+  content_type: string | null;
+  file_size: number;
+  platform: TradeHistoryPlatform;
+  parsed_trade_count: number;
+  skipped_row_count: number;
+  status: TradeHistoryFileStatus;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TradeExecutionRecord {

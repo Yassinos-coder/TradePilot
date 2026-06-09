@@ -63,6 +63,29 @@ async function main() {
     { method: 'getLatestAccountStatus', userId: 'user-123', accountId: 'acct-1' },
   ]);
 
+  execution.calls.length = 0;
+  const allAccountsResponse = await controller.getReadOnlyAnalytics('secret-token', 'All accounts');
+
+  assert.equal(allAccountsResponse.accountId, null);
+  assert.deepEqual(execution.calls, [
+    { method: 'getAnalytics', userId: 'user-123', accountId: undefined },
+    { method: 'listRecentTrades', userId: 'user-123', accountId: undefined, limit: 25 },
+    { method: 'getLatestAccountStatus', userId: 'user-123', accountId: undefined },
+  ]);
+
+  execution.calls.length = 0;
+  const labelResponse = await controller.getReadOnlyAnalytics(
+    'secret-token',
+    'Yassine Castro (16005208)',
+  );
+
+  assert.equal(labelResponse.accountId, '16005208');
+  assert.deepEqual(execution.calls, [
+    { method: 'getAnalytics', userId: 'user-123', accountId: '16005208' },
+    { method: 'listRecentTrades', userId: 'user-123', accountId: '16005208', limit: 25 },
+    { method: 'getLatestAccountStatus', userId: 'user-123', accountId: '16005208' },
+  ]);
+
   await assert.rejects(
     () => controller.getReadOnlyAnalytics('bad-token'),
     UnauthorizedException,

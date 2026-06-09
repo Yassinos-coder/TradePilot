@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Event-driven notification pipeline for execution and account lifecycle alerts, with delivery gated by per-user channel and event preferences.
 - Rich HTML email templates for account security flows and trading alerts, ready for MailerSend SMTP relay configuration.
 - Build-version manifest and in-app update prompt so deployed web clients can detect fresh releases and refresh into the latest assets.
+- Trade history imports on the Analytics page, supporting CSV/TXT/HTML exported histories with Supabase Storage persistence, parsed imported-file selector entries, and delete controls.
 
 ### Fixed
 
