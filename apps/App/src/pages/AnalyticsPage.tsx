@@ -43,7 +43,7 @@ const ICON_TONE: Record<Tone, string> = {
 
 function formatNumber(value: number | null | undefined, digits = 2) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '--';
+    return 'Not Available';
   }
 
   return new Intl.NumberFormat(undefined, {
@@ -54,7 +54,7 @@ function formatNumber(value: number | null | undefined, digits = 2) {
 
 function formatRatio(value: number | null | undefined, digits = 2) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '--';
+    return 'Not Available';
   }
 
   return `${value.toFixed(digits)}x`;
@@ -287,6 +287,11 @@ function PeriodBreakdownCard({
               <th className="px-5 py-3 font-semibold">Win Rate</th>
               <th className="px-5 py-3 font-semibold">W / L</th>
               <th className="px-5 py-3 font-semibold">Net Profit</th>
+              <th className="px-5 py-3 font-semibold">Avg Trade</th>
+              <th className="px-5 py-3 font-semibold">Avg Win</th>
+              <th className="px-5 py-3 font-semibold">Avg Loss</th>
+              <th className="px-5 py-3 font-semibold">Profit Factor</th>
+              <th className="px-5 py-3 font-semibold">Expectancy</th>
             </tr>
           </thead>
           <tbody>
@@ -318,6 +323,11 @@ function PeriodBreakdownCard({
                     {formatCurrency(row.netProfit)}
                   </span>
                 </td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageTrade)}</td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageWin)}</td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageLoss)}</td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatNumber(row.profitFactor, 2)}</td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.expectancy)}</td>
               </tr>
             ))}
           </tbody>
@@ -517,7 +527,7 @@ export function AnalyticsPage() {
     );
   }
   const insufficientData = !a.dataSufficiency.sufficient;
-  const advancedMetricLabel = 'Insufficient data';
+  const advancedMetricLabel = 'Not Available';
   const formatAdvancedNumber = (value: number | null | undefined, digits = 2) =>
     insufficientData ? advancedMetricLabel : formatNumber(value, digits);
   const formatAdvancedPercent = (value: number | null | undefined, digits = 2) =>
@@ -581,7 +591,7 @@ export function AnalyticsPage() {
     {
       label: 'Average R',
       value: formatNumber(a.averageR, 2),
-      sub: `Kelly ${formatPercent(a.kellyCriterion)}`,
+      sub: a.averageR === null ? 'Requires initial risk' : `Kelly ${formatPercent(a.kellyCriterion)}`,
       tone: (typeof a.averageR === 'number' && a.averageR >= 0 ? 'positive' : 'warning') as Tone,
       icon: Target,
     },
@@ -589,12 +599,19 @@ export function AnalyticsPage() {
 
   const corePnlItems = [
     { label: 'Starting Balance', value: formatCurrency(a.startingBalance) },
-    { label: 'Ending Balance', value: formatCurrency(a.endingBalance) },
+    { label: 'Current Balance', value: formatCurrency(a.currentBalance) },
+    { label: 'Current Equity', value: formatCurrency(a.currentEquity) },
+    { label: 'Total Closed Profit', value: formatCurrency(a.totalClosedProfit) },
+    { label: 'Floating P/L', value: formatCurrency(a.floatingPl) },
+    { label: 'Deposits', value: 'Not Available — broker ledger required' },
+    { label: 'Withdrawals', value: 'Not Available — broker ledger required' },
+    { label: 'Net Deposits', value: 'Not Available — broker ledger required' },
     { label: 'Net Profit / Loss', value: formatCurrency(a.netProfit) },
     { label: 'Gross Profit', value: formatCurrency(a.grossProfit) },
     { label: 'Gross Loss', value: formatCurrency(-a.grossLoss) },
     { label: 'Return on Account (ROA)', value: formatPercent(a.returnOnAccount) },
-    { label: 'Return on Investment (ROI)', value: formatPercent(a.roi) },
+    { label: 'Total Return %', value: formatPercent(a.totalReturnPercent) },
+    { label: 'Account Growth %', value: formatPercent(a.accountGrowthPercent) },
     { label: 'Annualized Return', value: formatAdvancedPercent(a.annualizedReturn) },
     { label: 'CAGR', value: formatAdvancedPercent(a.cagr) },
   ];
@@ -605,9 +622,19 @@ export function AnalyticsPage() {
     { label: 'Losing Trades', value: formatNumber(a.losingTrades, 0) },
     { label: 'Win Rate', value: formatPercent(a.winRate) },
     { label: 'Loss Rate', value: formatPercent(a.lossRate) },
+    { label: 'Break-even Trades', value: formatNumber(a.breakEvenTrades, 0) },
     { label: 'Break-even Rate', value: formatPercent(a.breakEvenRate) },
     { label: 'Max Consecutive Wins', value: formatNumber(a.maxConsecutiveWins, 0) },
     { label: 'Max Consecutive Losses', value: formatNumber(a.maxConsecutiveLosses, 0) },
+  ];
+
+  const streakItems = [
+    { label: 'Longest Winning Streak', value: formatNumber(a.maxConsecutiveWins, 0) },
+    { label: 'Longest Losing Streak', value: formatNumber(a.maxConsecutiveLosses, 0) },
+    { label: 'Current Winning Streak', value: formatNumber(a.currentWinningStreak, 0) },
+    { label: 'Current Losing Streak', value: formatNumber(a.currentLosingStreak, 0) },
+    { label: 'Largest Winning Streak $', value: formatCurrency(a.largestWinningStreakProfit) },
+    { label: 'Largest Losing Streak $', value: formatCurrency(a.largestLosingStreakLoss) },
   ];
 
   const tradeQualityItems = [
@@ -639,7 +666,9 @@ export function AnalyticsPage() {
     { label: 'Maximum Drawdown', value: formatCurrency(a.maxDrawdown) },
     { label: 'Maximum Drawdown %', value: formatPercent(a.maxDrawdownPercent) },
     { label: 'Average Drawdown', value: formatCurrency(a.averageDrawdown) },
+    { label: 'Median Drawdown', value: formatCurrency(a.medianDrawdown) },
     { label: 'Drawdown Duration', value: formatDuration(a.drawdownDurationHours) },
+    { label: 'Recovery Duration', value: formatDuration(a.recoveryDurationHours) },
     { label: 'Recovery Factor', value: formatNumber(a.recoveryFactor, 3) },
     { label: 'Ulcer Index', value: formatNumber(a.ulcerIndex, 3) },
     { label: 'Pain Index', value: formatNumber(a.painIndex, 3) },
@@ -649,6 +678,9 @@ export function AnalyticsPage() {
     { label: 'Average Hold Time', value: formatDuration(a.avgHoldTimeHours) },
     { label: 'Avg Win Hold Time', value: formatDuration(a.avgWinHoldTimeHours) },
     { label: 'Avg Loss Hold Time', value: formatDuration(a.avgLossHoldTimeHours) },
+    { label: 'Longest Trade', value: formatDuration(a.longestTradeHours) },
+    { label: 'Shortest Trade', value: formatDuration(a.shortestTradeHours) },
+    { label: 'Avg Time Between Trades', value: formatDuration(a.averageTimeBetweenTradesHours) },
     { label: 'Trades per Day', value: formatNumber(a.tradesPerDay, 2) },
     { label: 'Trades per Week', value: formatNumber(a.tradesPerWeek, 2) },
     { label: 'Trades per Month', value: formatNumber(a.tradesPerMonth, 2) },
@@ -662,6 +694,14 @@ export function AnalyticsPage() {
   const riskManagementItems = [
     { label: 'Risk/Reward Ratio', value: formatNumber(a.riskRewardRatio, 3) },
     { label: 'Risk per Trade %', value: formatPercent(a.riskPerTradePercent) },
+    { label: 'Maximum Daily Loss', value: formatCurrency(a.maximumDailyLoss) },
+    { label: 'Maximum Weekly Loss', value: formatCurrency(a.maximumWeeklyLoss) },
+    { label: 'Maximum Monthly Loss', value: formatCurrency(a.maximumMonthlyLoss) },
+    { label: 'Largest Winning Day', value: formatCurrency(a.largestWinningDay) },
+    { label: 'Largest Losing Day', value: formatCurrency(a.largestLosingDay) },
+    { label: 'Average Daily Return', value: formatPercent(a.averageDailyReturn) },
+    { label: 'Largest Winning Trade %', value: formatPercent(a.largestWinningTradePercent) },
+    { label: 'Largest Losing Trade %', value: formatPercent(a.largestLosingTradePercent) },
     { label: 'Value at Risk (95%)', value: formatPercent(a.valueAtRisk95) },
     { label: 'Conditional VaR (95%)', value: formatPercent(a.conditionalVar95) },
     { label: 'Kelly Criterion', value: formatPercent(a.kellyCriterion) },
@@ -674,22 +714,25 @@ export function AnalyticsPage() {
     { label: 'Max Leverage Used', value: formatRatio(a.maxLeverage, 3) },
     { label: 'Margin Utilization', value: formatPercent(a.marginUtilization) },
     { label: 'Exposure %', value: formatPercent(a.exposurePercent) },
-    { label: 'Concentration Risk', value: formatPercent(a.concentrationRisk) },
+    { label: 'Top Instrument Exposure', value: formatPercent(a.topInstrumentExposure) },
+    { label: 'Top Symbol Contribution', value: formatPercent(a.topSymbolContribution) },
+    { label: 'Top Session Contribution', value: formatPercent(a.topSessionContribution) },
+    { label: 'Top Direction Contribution', value: formatPercent(a.topDirectionContribution) },
   ];
 
   const costItems = [
-    { label: 'Total Commission Paid', value: formatCurrency(a.totalCommissionPaid) },
-    { label: 'Total Swap/Rollover Fees', value: formatCurrency(a.totalSwapRolloverFees) },
-    { label: 'Avg Spread Cost per Trade', value: formatCurrency(a.avgSpreadCostPerTrade) },
-    { label: 'Avg Slippage', value: formatNumber(a.avgSlippage, 4) },
+    { label: 'Total Commission Paid', value: a.totalCommissionPaid === null ? 'Not Available — commission data unavailable' : formatCurrency(a.totalCommissionPaid) },
+    { label: 'Total Swap/Rollover Fees', value: a.totalSwapRolloverFees === null ? 'Not Available — swap data unavailable' : formatCurrency(a.totalSwapRolloverFees) },
+    { label: 'Avg Spread Cost per Trade', value: a.avgSpreadCostPerTrade === null ? 'Not Available — spread data unavailable' : formatCurrency(a.avgSpreadCostPerTrade) },
+    { label: 'Avg Slippage', value: a.avgSlippage === null ? 'Not Available — slippage data unavailable' : formatNumber(a.avgSlippage, 4) },
     { label: 'Net Profit After Costs', value: formatCurrency(a.netProfitAfterCosts) },
   ];
 
   const benchmarkItems = [
-    { label: 'Alpha', value: formatNumber(a.alpha, 3) },
-    { label: 'Beta', value: formatNumber(a.beta, 3) },
-    { label: 'Correlation to Benchmark', value: formatNumber(a.correlationToBenchmark, 3) },
-    { label: 'Tracking Error', value: formatNumber(a.trackingError, 3) },
+    { label: 'Alpha', value: a.alpha === null ? 'Not Available — requires benchmark' : formatNumber(a.alpha, 3) },
+    { label: 'Beta', value: a.beta === null ? 'Not Available — requires benchmark' : formatNumber(a.beta, 3) },
+    { label: 'Correlation to Benchmark', value: a.correlationToBenchmark === null ? 'Not Available — requires benchmark' : formatNumber(a.correlationToBenchmark, 3) },
+    { label: 'Tracking Error', value: a.trackingError === null ? 'Not Available — requires benchmark' : formatNumber(a.trackingError, 3) },
   ];
 
   const equityCurveItems = [
@@ -884,6 +927,13 @@ export function AnalyticsPage() {
         eyebrow="Trade Outcomes"
         description="Counts, rates, and streak behavior."
         items={winLossItems}
+      />
+
+      <MetricMatrixCard
+        title="Streak Analytics"
+        eyebrow="Momentum"
+        description="Current and historical win/loss streaks by count and dollars."
+        items={streakItems}
       />
 
       <MetricMatrixCard

@@ -735,7 +735,7 @@ export class ExecutionService {
     let snapshotQuery = this.databaseService
       .getClient()
       .from('ea_account_status_snapshots')
-      .select('account_id,balance,equity,margin,created_at')
+      .select('account_id,balance,equity,margin,free_margin,open_positions,created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: true })
       .limit(10_000);
@@ -752,12 +752,14 @@ export class ExecutionService {
 
     type SnapshotPoint = Pick<
       AccountStatusSnapshotRecord,
-      'account_id' | 'balance' | 'equity' | 'margin' | 'created_at'
+      'account_id' | 'balance' | 'equity' | 'margin' | 'free_margin' | 'open_positions' | 'created_at'
     >;
     type Bucket = {
       trades: number;
       wins: number;
       losses: number;
+      grossProfit: number;
+      grossLoss: number;
       netProfit: number;
     };
 
@@ -808,6 +810,8 @@ export class ExecutionService {
       trades: 0,
       wins: 0,
       losses: 0,
+      grossProfit: 0,
+      grossLoss: 0,
       netProfit: 0,
     });
 
@@ -826,17 +830,43 @@ export class ExecutionService {
       const record = map.get(key)!;
       record.bucket.trades += 1;
       record.bucket.netProfit += profit;
-      if (isWin) record.bucket.wins += 1;
-      if (isLoss) record.bucket.losses += 1;
+      if (isWin) {
+        record.bucket.wins += 1;
+        record.bucket.grossProfit += profit;
+      }
+      if (isLoss) {
+        record.bucket.losses += 1;
+        record.bucket.grossLoss += Math.abs(profit);
+      }
     };
 
     const startingBalance =
       firstSnapshotByAccount.size > 0
         ? [...firstSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.balance, 0)
         : null;
-    const endingBalance =
+    const currentBalance =
       latestSnapshotByAccount.size > 0
         ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.balance, 0)
+        : null;
+    // Deprecated compatibility alias. UI displays Current Balance instead; never infer this from closed trades.
+    const endingBalance = currentBalance;
+    const currentEquity =
+      latestSnapshotByAccount.size > 0
+        ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.equity, 0)
+        : null;
+    const floatingPl =
+      currentBalance !== null && currentEquity !== null ? currentEquity - currentBalance : null;
+    const latestMargin =
+      latestSnapshotByAccount.size > 0
+        ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.margin, 0)
+        : null;
+    const latestFreeMargin =
+      latestSnapshotByAccount.size > 0
+        ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.free_margin, 0)
+        : null;
+    const latestOpenPositions =
+      latestSnapshotByAccount.size > 0
+        ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.open_positions, 0)
         : null;
 
     const marginUtilizationSamples = snapshots
@@ -848,9 +878,13 @@ export class ExecutionService {
     const exposureSamples = snapshots
       .filter((snapshot) => snapshot.equity > 0)
       .map((snapshot) => (snapshot.margin / snapshot.equity) * 100);
+    void latestMargin;
+    void latestFreeMargin;
+    void latestOpenPositions;
 
     let wins = 0;
     let losses = 0;
+    let breakEvenTrades = 0;
     let grossProfit = 0;
     let grossLoss = 0;
     let largestWin = 0;
@@ -858,6 +892,10 @@ export class ExecutionService {
     let totalHoldMs = 0;
     let totalWinHoldMs = 0;
     let totalLossHoldMs = 0;
+    let longestTradeMs = 0;
+    let shortestTradeMs: number | null = null;
+    let previousCloseMs: number | null = null;
+    const timeBetweenTradeMsValues: number[] = [];
     let holdCount = 0;
     let winHoldCount = 0;
     let lossHoldCount = 0;
@@ -871,6 +909,11 @@ export class ExecutionService {
     let maxDrawdownPercent = 0;
     let maxDrawdownDurationMs = 0;
     let currentDrawdownStartedAt: number | null = null;
+    let lastRecoveryDurationMs: number | null = null;
+    let currentStreakProfit = 0;
+    let currentStreakLoss = 0;
+    let largestWinningStreakProfit: number | null = null;
+    let largestLosingStreakLoss: number | null = null;
 
     const drawdownValues: number[] = [];
     const drawdownPercentValues: number[] = [];
@@ -927,10 +970,14 @@ export class ExecutionService {
     }
 
     const tradeTypeMap = new Map<string, { label: string; bucket: Bucket }>([
-      ['MARKET', { label: 'MARKET', bucket: createBucket() }],
-      ['LIMIT', { label: 'LIMIT', bucket: createBucket() }],
-      ['STOP', { label: 'STOP', bucket: createBucket() }],
-      ['UNKNOWN', { label: 'UNKNOWN', bucket: createBucket() }],
+      ['Market Buy', { label: 'Market Buy', bucket: createBucket() }],
+      ['Market Sell', { label: 'Market Sell', bucket: createBucket() }],
+      ['Buy Limit', { label: 'Buy Limit', bucket: createBucket() }],
+      ['Sell Limit', { label: 'Sell Limit', bucket: createBucket() }],
+      ['Buy Stop', { label: 'Buy Stop', bucket: createBucket() }],
+      ['Sell Stop', { label: 'Sell Stop', bucket: createBucket() }],
+      ['Buy Stop Limit', { label: 'Buy Stop Limit', bucket: createBucket() }],
+      ['Sell Stop Limit', { label: 'Sell Stop Limit', bucket: createBucket() }],
     ]);
 
     const dailyProfitMap = new Map<string, number>();
@@ -951,19 +998,33 @@ export class ExecutionService {
         largestWin = Math.max(largestWin, profit);
         currentWinStreak += 1;
         currentLossStreak = 0;
+        currentStreakProfit += profit;
+        currentStreakLoss = 0;
         maxConsecutiveWins = Math.max(maxConsecutiveWins, currentWinStreak);
+        largestWinningStreakProfit = Math.max(largestWinningStreakProfit ?? profit, currentStreakProfit);
       } else if (isLoss) {
         losses += 1;
         grossLoss += Math.abs(profit);
         largestLoss = Math.min(largestLoss, profit);
         currentLossStreak += 1;
         currentWinStreak = 0;
+        currentStreakLoss += profit;
+        currentStreakProfit = 0;
         maxConsecutiveLosses = Math.max(maxConsecutiveLosses, currentLossStreak);
+        largestLosingStreakLoss = Math.min(largestLosingStreakLoss ?? profit, currentStreakLoss);
+      } else {
+        breakEvenTrades += 1;
+        currentWinStreak = 0;
+        currentLossStreak = 0;
+        currentStreakProfit = 0;
+        currentStreakLoss = 0;
       }
 
       if (Number.isFinite(closeMs) && Number.isFinite(openMs) && closeMs > openMs) {
         const holdMs = closeMs - openMs;
         totalHoldMs += holdMs;
+        longestTradeMs = Math.max(longestTradeMs, holdMs);
+        shortestTradeMs = shortestTradeMs === null ? holdMs : Math.min(shortestTradeMs, holdMs);
         holdCount += 1;
 
         if (isWin) {
@@ -976,6 +1037,13 @@ export class ExecutionService {
         }
 
         tradeIntervals.push({ start: openMs, end: closeMs });
+      }
+
+      if (Number.isFinite(closeMs)) {
+        if (previousCloseMs !== null && closeMs > previousCloseMs) {
+          timeBetweenTradeMsValues.push(closeMs - previousCloseMs);
+        }
+        previousCloseMs = closeMs;
       }
 
       cumulativePnL += profit;
@@ -996,7 +1064,9 @@ export class ExecutionService {
         currentDrawdownStartedAt = closeMs;
       }
       if (drawdown === 0 && currentDrawdownStartedAt !== null && Number.isFinite(closeMs)) {
-        maxDrawdownDurationMs = Math.max(maxDrawdownDurationMs, closeMs - currentDrawdownStartedAt);
+        const recoveryMs = closeMs - currentDrawdownStartedAt;
+        maxDrawdownDurationMs = Math.max(maxDrawdownDurationMs, recoveryMs);
+        lastRecoveryDurationMs = recoveryMs;
         currentDrawdownStartedAt = null;
       }
 
@@ -1067,9 +1137,16 @@ export class ExecutionService {
       addToBucket(dayOfWeekMap, dayKey, dayOfWeekMap.get(dayKey)?.label ?? dayKey, profit, isWin, isLoss);
       addToBucket(hourOfDayMap, hourKey, hourOfDayMap.get(hourKey)?.label ?? hourKey, profit, isWin, isLoss);
 
-      const tradeType = trade.signal_id
-        ? signalEntryBySignalId.get(trade.signal_id) ?? 'UNKNOWN'
-        : 'UNKNOWN';
+      const entryKind = trade.signal_id ? signalEntryBySignalId.get(trade.signal_id) ?? 'MARKET' : 'MARKET';
+      const sideLabel = openingOrderType === 'BUY' ? 'Buy' : 'Sell';
+      const tradeType =
+        entryKind === 'LIMIT'
+          ? `${sideLabel} Limit`
+          : entryKind === 'STOP'
+            ? `${sideLabel} Stop`
+            : entryKind === 'STOP_LIMIT'
+              ? `${sideLabel} Stop Limit`
+              : `Market ${sideLabel}`;
       addToBucket(tradeTypeMap, tradeType, tradeType, profit, isWin, isLoss);
 
       const dayProfitKey = closeDate.toISOString().slice(0, 10);
@@ -1077,32 +1154,9 @@ export class ExecutionService {
       dailyProfitMap.set(dayProfitKey, (dailyProfitMap.get(dayProfitKey) ?? 0) + profit);
       monthlyProfitMap.set(monthProfitKey, (monthlyProfitMap.get(monthProfitKey) ?? 0) + profit);
 
-      if (trade.stop_loss !== null) {
-        const riskDistance =
-          openingOrderType === 'BUY'
-            ? trade.entry_price - trade.stop_loss
-            : trade.stop_loss - trade.entry_price;
-        if (riskDistance > 0) {
-          const riskValue = riskDistance * trade.volume;
-          riskValues.push(riskValue);
-
-          if (startingBalance && startingBalance > 0) {
-            riskPerTradePercentValues.push((riskValue / startingBalance) * 100);
-          }
-
-          rMultiples.push(profit / riskValue);
-
-          if (trade.take_profit !== null) {
-            const rewardDistance =
-              openingOrderType === 'BUY'
-                ? trade.take_profit - trade.entry_price
-                : trade.entry_price - trade.take_profit;
-            if (rewardDistance > 0) {
-              rewardValues.push(rewardDistance * trade.volume);
-            }
-          }
-        }
-      }
+      // R multiple / risk% require initial account-risk in money (tick value/contract size at entry).
+      // A raw price distance * lots is not mathematically valid across FX/CFD symbols, so leave unavailable.
+      void openingOrderType;
     }
 
     if (currentDrawdownStartedAt !== null && chronological.length > 0) {
@@ -1132,6 +1186,11 @@ export class ExecutionService {
         losses: value.bucket.losses,
         winRate: value.bucket.trades > 0 ? round((value.bucket.wins / value.bucket.trades) * 100) : 0,
         netProfit: round(value.bucket.netProfit),
+        averageTrade: value.bucket.trades > 0 ? round(value.bucket.netProfit / value.bucket.trades) : null,
+        averageWin: value.bucket.wins > 0 ? round(value.bucket.grossProfit / value.bucket.wins) : null,
+        averageLoss: value.bucket.losses > 0 ? round(value.bucket.grossLoss / value.bucket.losses) : null,
+        profitFactor: value.bucket.grossLoss > 0 ? round(value.bucket.grossProfit / value.bucket.grossLoss) : value.bucket.grossProfit > 0 ? null : null,
+        expectancy: value.bucket.trades > 0 ? round(value.bucket.netProfit / value.bucket.trades) : null,
       }));
 
     const toTradeTypeArray = (map: Map<string, { label: string; bucket: Bucket }>) =>
@@ -1142,6 +1201,11 @@ export class ExecutionService {
         losses: value.bucket.losses,
         winRate: value.bucket.trades > 0 ? round((value.bucket.wins / value.bucket.trades) * 100) : 0,
         netProfit: round(value.bucket.netProfit),
+        averageTrade: value.bucket.trades > 0 ? round(value.bucket.netProfit / value.bucket.trades) : null,
+        averageWin: value.bucket.wins > 0 ? round(value.bucket.grossProfit / value.bucket.wins) : null,
+        averageLoss: value.bucket.losses > 0 ? round(value.bucket.grossLoss / value.bucket.losses) : null,
+        profitFactor: value.bucket.grossLoss > 0 ? round(value.bucket.grossProfit / value.bucket.grossLoss) : value.bucket.grossProfit > 0 ? null : null,
+        expectancy: value.bucket.trades > 0 ? round(value.bucket.netProfit / value.bucket.trades) : null,
       }));
 
     const bySymbol = [...symbolMap.entries()]
@@ -1180,8 +1244,7 @@ export class ExecutionService {
     const avgWin = wins > 0 ? grossProfit / wins : 0;
     const avgLoss = losses > 0 ? grossLoss / losses : 0;
     const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : null;
-    const breakEvenRate =
-      avgWin > 0 && avgLoss > 0 ? (avgLoss / (avgWin + avgLoss)) * 100 : null;
+    const breakEvenRate = totalTrades > 0 ? (breakEvenTrades / totalTrades) * 100 : null;
     const winRateFraction = totalTrades > 0 ? wins / totalTrades : 0;
     const lossRateFraction = totalTrades > 0 ? losses / totalTrades : 0;
     const expectancy = winRateFraction * avgWin - lossRateFraction * avgLoss;
@@ -1192,6 +1255,9 @@ export class ExecutionService {
     const avgHoldTimeHours = holdCount > 0 ? totalHoldMs / holdCount / 3_600_000 : null;
     const avgWinHoldTimeHours = winHoldCount > 0 ? totalWinHoldMs / winHoldCount / 3_600_000 : null;
     const avgLossHoldTimeHours = lossHoldCount > 0 ? totalLossHoldMs / lossHoldCount / 3_600_000 : null;
+    const longestTradeHours = holdCount > 0 ? longestTradeMs / 3_600_000 : null;
+    const shortestTradeHours = shortestTradeMs !== null ? shortestTradeMs / 3_600_000 : null;
+    const averageTimeBetweenTradesHours = safeMean(timeBetweenTradeMsValues.map((value) => value / 3_600_000));
 
     const firstTrade = chronological[0];
     const lastTrade = chronological.length > 0 ? chronological[chronological.length - 1] : undefined;
@@ -1211,13 +1277,13 @@ export class ExecutionService {
     const roi =
       startingBalance !== null && startingBalance > 0 ? (netProfit / startingBalance) * 100 : null;
     const annualizedReturn =
-      roi !== null && analysisDays !== null ? roi * (365 / analysisDays) : null;
+      roi !== null && analysisDays !== null && analysisDays >= 365 ? roi * (365 / analysisDays) : null;
     const cagr =
       startingBalance !== null &&
       endingBalance !== null &&
       startingBalance > 0 &&
       endingBalance > 0 &&
-      analysisDays !== null
+      analysisDays !== null && analysisDays >= 365
         ? (Math.pow(endingBalance / startingBalance, 365 / analysisDays) - 1) * 100
         : null;
 
@@ -1285,6 +1351,7 @@ export class ExecutionService {
         : null;
 
     const averageDrawdown = safeMean(drawdownValues) ?? 0;
+    const medianDrawdown = percentile(drawdownValues, 0.5);
     const averageDrawdownPercent = safeMean(drawdownPercentValues);
     const recoveryFactor = maxDrawdown > 0 ? netProfit / maxDrawdown : null;
     const ulcerIndex =
@@ -1322,12 +1389,13 @@ export class ExecutionService {
 
     const averageRisk = safeMean(riskValues);
     const averageReward = safeMean(rewardValues);
-    const riskRewardRatio =
-      averageRisk !== null && averageReward !== null && averageReward > 0
-        ? averageRisk / averageReward
-        : null;
-    const riskPerTradePercent = safeMean(riskPerTradePercentValues);
-    const averageR = safeMean(rMultiples);
+    void averageRisk;
+    void averageReward;
+    void riskPerTradePercentValues;
+    void rMultiples;
+    const riskRewardRatio = null;
+    const riskPerTradePercent = null;
+    const averageR = null;
     const kellyCriterion =
       winLossRatio !== null && winLossRatio > 0
         ? (winRateFraction - lossRateFraction / winLossRatio) * 100
@@ -1346,6 +1414,22 @@ export class ExecutionService {
       totalTrades > 0 && bySymbol.length > 0
         ? (Math.max(...bySymbol.map((row) => row.trades)) / totalTrades) * 100
         : null;
+    const topInstrumentExposure = concentrationRisk;
+    const absoluteNetProfitBase = Math.max(Math.abs(netProfit), 1);
+    const topSymbolContribution = bySymbol.length > 0 ? Math.max(...bySymbol.map((row) => Math.abs(row.netProfit))) / absoluteNetProfitBase * 100 : null;
+    const sessionRowsForContribution = toPeriodArray(sessionMap);
+    const topSessionContribution = sessionRowsForContribution.length > 0 ? Math.max(...sessionRowsForContribution.map((row) => Math.abs(row.netProfit))) / absoluteNetProfitBase * 100 : null;
+    const directionNetProfits = [toDirectionDTO(longStats).netProfit, toDirectionDTO(shortStats).netProfit];
+    const topDirectionContribution = directionNetProfits.length > 0 ? Math.max(...directionNetProfits.map((value) => Math.abs(value))) / absoluteNetProfitBase * 100 : null;
+
+    const weeklyProfitMap = new Map<string, number>();
+    for (const [day, value] of dailyProfitMap.entries()) {
+      const d = new Date(`${day}T00:00:00.000Z`);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.floor((d.getTime() - yearStart.getTime()) / 604_800_000) + 1;
+      const weekKey = `${d.getUTCFullYear()}-W${`${week}`.padStart(2, '0')}`;
+      weeklyProfitMap.set(weekKey, (weeklyProfitMap.get(weekKey) ?? 0) + value);
+    }
 
     const dailyProfits = [...dailyProfitMap.entries()].map(([period, value]) => ({
       period,
@@ -1371,6 +1455,17 @@ export class ExecutionService {
       monthlyProfits.length > 0
         ? monthlyProfits.reduce((worst, row) => (row.netProfit < worst.netProfit ? row : worst))
         : null;
+    const weeklyProfits = [...weeklyProfitMap.values()];
+    const monthlyProfitValues = [...monthlyProfitMap.values()];
+    const dailyProfitValues = [...dailyProfitMap.values()];
+    const maximumDailyLoss = dailyProfitValues.length > 0 ? Math.min(...dailyProfitValues) : null;
+    const maximumWeeklyLoss = weeklyProfits.length > 0 ? Math.min(...weeklyProfits) : null;
+    const maximumMonthlyLoss = monthlyProfitValues.length > 0 ? Math.min(...monthlyProfitValues) : null;
+    const largestWinningDay = dailyProfitValues.length > 0 ? Math.max(...dailyProfitValues) : null;
+    const largestLosingDay = dailyProfitValues.length > 0 ? Math.min(...dailyProfitValues) : null;
+    const averageDailyReturn = startingBalance && startingBalance > 0 && dailyProfitValues.length > 0 ? (safeMean(dailyProfitValues)! / startingBalance) * 100 : null;
+    const largestWinningTradePercent = startingBalance && startingBalance > 0 ? (largestWin / startingBalance) * 100 : null;
+    const largestLosingTradePercent = startingBalance && startingBalance > 0 ? (largestLoss / startingBalance) * 100 : null;
 
     let equityCurveSlope: number | null = null;
     let equityCurveRSquared: number | null = null;
@@ -1410,13 +1505,13 @@ export class ExecutionService {
       this.configService.get<number>('RISK_MIN_TRADES_FOR_ADVANCED_METRICS') ?? 30;
     const hasMinimumTrades = totalTrades >= minimumTradeCount;
     const hasTimeSeries =
-      analysisDays !== null && analysisDays >= 21 && returns.length >= minimumTradeCount;
+      analysisDays !== null && analysisDays >= 365 && returns.length >= minimumTradeCount;
     const hasSufficientData = hasMinimumTrades && hasTimeSeries;
 
     const insufficiencyReason = !hasMinimumTrades
       ? `At least ${minimumTradeCount} closed trades are required for stable annualized metrics.`
       : !hasTimeSeries
-        ? 'The time-series window is too short for stable annualized metrics.'
+        ? 'At least one year of closed-trade history is required for CAGR and annualized metrics.'
         : null;
 
     const stableAnnualizedReturn = hasSufficientData
@@ -1433,8 +1528,25 @@ export class ExecutionService {
     const stableVolatilityAnnualized = hasSufficientData
       ? clampNullable(volatilityAnnualized, 0, 500)
       : null;
+    const accountGrowthPercent =
+      startingBalance !== null && currentBalance !== null && startingBalance > 0
+        ? ((currentBalance - startingBalance) / startingBalance) * 100
+        : null;
+    const totalReturnPercent = startingBalance !== null && startingBalance > 0 ? (netProfit / startingBalance) * 100 : null;
+    const metricAvailability = {
+      averageR: { available: false, reason: 'Requires initial monetary risk/tick value at entry; stop-loss distance alone is not enough.', formula: 'Profit / Initial Risk', source: 'trade_executions + contract/tick metadata' },
+      riskPerTradePercent: { available: false, reason: 'Requires initial monetary risk and account equity at entry.', formula: 'Initial Risk / Account Equity', source: 'trade_executions + account snapshots' },
+      cagr: { available: hasSufficientData, reason: hasSufficientData ? null : 'Requires at least one year of performance history.', formula: '(Ending / Starting)^(365/days)-1', source: 'account snapshots' },
+      alpha: { available: false, reason: 'Requires benchmark return series.', formula: 'Portfolio return - expected CAPM return', source: 'benchmark returns' },
+      beta: { available: false, reason: 'Requires benchmark return series.', formula: 'Cov(portfolio, benchmark) / Var(benchmark)', source: 'benchmark returns' },
+      commission: { available: false, reason: 'Commission data unavailable.', formula: 'Sum(commission)', source: 'broker execution records' },
+      maeMfe: { available: false, reason: 'Requires OHLC bar replay during each trade.', formula: 'MAE/MFE from intratrade price path', source: 'OHLC history' },
+    };
 
     const assumptions: string[] = [];
+    if (currentBalance === null) {
+      assumptions.push('Current Balance and Current Equity are unavailable until the EA publishes an account status snapshot; they are never inferred from closed trades.');
+    }
     if (startingBalance === null) {
       assumptions.push(
         'Starting balance is unavailable from account snapshots, so return-based risk metrics use trade-level notional normalization.',
@@ -1444,10 +1556,13 @@ export class ExecutionService {
       'Cost metrics are null because commission, swap, spread cost, and slippage are not stored on trade executions.',
     );
     assumptions.push(
+      'Average R, risk/reward, and risk per trade are null unless initial monetary risk can be reconstructed; raw stop-loss price distance is not enough for FX/CFD symbols.',
+    );
+    assumptions.push(
       'Benchmark-relative metrics (alpha, beta, correlation, tracking error, information ratio, treynor ratio, Jensen alpha) are null because no benchmark return series is stored.',
     );
     assumptions.push(
-      'Trade-type breakdown is derived from linked signal entry metadata when available; missing links are classified as UNKNOWN.',
+      'Trade-type breakdown is derived from linked signal entry metadata when available; missing links default to Market Buy/Sell based on trade direction.',
     );
     if (!hasSufficientData && insufficiencyReason) {
       assumptions.push(
@@ -1458,6 +1573,15 @@ export class ExecutionService {
     return analyticsSummarySchema.parse({
       startingBalance: roundNullable(startingBalance),
       endingBalance: roundNullable(endingBalance),
+      currentBalance: roundNullable(currentBalance),
+      currentEquity: roundNullable(currentEquity),
+      totalClosedProfit: round(netProfit),
+      floatingPl: roundNullable(floatingPl),
+      deposits: null,
+      withdrawals: null,
+      netDeposits: null,
+      totalReturnPercent: roundNullable(totalReturnPercent),
+      accountGrowthPercent: roundNullable(accountGrowthPercent),
       returnOnAccount: roundNullable(roi),
       roi: roundNullable(roi),
       annualizedReturn: roundNullable(stableAnnualizedReturn),
@@ -1470,6 +1594,7 @@ export class ExecutionService {
       losses,
       winRate: round(winRate),
       lossRate: round(lossRate),
+      breakEvenTrades,
       breakEvenRate: roundNullable(breakEvenRate),
       profitFactor: round(profitFactor),
       netProfit: round(netProfit),
@@ -1496,9 +1621,11 @@ export class ExecutionService {
       maxDrawdown: round(maxDrawdown),
       maxDrawdownPercent: roundNullable(maxDrawdownPercent),
       averageDrawdown: round(averageDrawdown),
+      medianDrawdown: roundNullable(medianDrawdown),
       drawdownDurationHours: roundNullable(
         maxDrawdownDurationMs > 0 ? maxDrawdownDurationMs / 3_600_000 : null,
       ),
+      recoveryDurationHours: roundNullable(lastRecoveryDurationMs !== null ? lastRecoveryDurationMs / 3_600_000 : null),
       recoveryFactor: roundNullable(recoveryFactor),
       ulcerIndex: roundNullable(ulcerIndex),
       painIndex: roundNullable(painIndex),
@@ -1506,6 +1633,9 @@ export class ExecutionService {
       avgHoldTimeHours: roundNullable(avgHoldTimeHours),
       avgWinHoldTimeHours: roundNullable(avgWinHoldTimeHours),
       avgLossHoldTimeHours: roundNullable(avgLossHoldTimeHours),
+      longestTradeHours: roundNullable(longestTradeHours),
+      shortestTradeHours: roundNullable(shortestTradeHours),
+      averageTimeBetweenTradesHours: roundNullable(averageTimeBetweenTradesHours),
       tradesPerDay: roundNullable(tradesPerDay),
       tradesPerWeek: roundNullable(tradesPerWeek),
       tradesPerMonth: roundNullable(tradesPerMonth),
@@ -1517,8 +1647,20 @@ export class ExecutionService {
 
       maxConsecutiveWins,
       maxConsecutiveLosses,
+      currentWinningStreak: currentWinStreak,
+      currentLosingStreak: currentLossStreak,
+      largestWinningStreakProfit: roundNullable(largestWinningStreakProfit),
+      largestLosingStreakLoss: roundNullable(largestLosingStreakLoss),
       riskRewardRatio: roundNullable(riskRewardRatio),
       riskPerTradePercent: roundNullable(riskPerTradePercent),
+      maximumDailyLoss: roundNullable(maximumDailyLoss),
+      maximumWeeklyLoss: roundNullable(maximumWeeklyLoss),
+      maximumMonthlyLoss: roundNullable(maximumMonthlyLoss),
+      largestWinningDay: roundNullable(largestWinningDay),
+      largestLosingDay: roundNullable(largestLosingDay),
+      averageDailyReturn: roundNullable(averageDailyReturn),
+      largestWinningTradePercent: roundNullable(largestWinningTradePercent),
+      largestLosingTradePercent: roundNullable(largestLosingTradePercent),
       valueAtRisk95: roundNullable(valueAtRisk95),
       conditionalVar95: roundNullable(conditionalVar95),
       kellyCriterion: roundNullable(kellyCriterion),
@@ -1532,6 +1674,10 @@ export class ExecutionService {
       marginUtilization: roundNullable(marginUtilization),
       exposurePercent: roundNullable(exposurePercent),
       concentrationRisk: roundNullable(concentrationRisk),
+      topInstrumentExposure: roundNullable(topInstrumentExposure),
+      topSymbolContribution: roundNullable(topSymbolContribution),
+      topSessionContribution: roundNullable(topSessionContribution),
+      topDirectionContribution: roundNullable(topDirectionContribution),
 
       totalCommissionPaid: null,
       totalSwapRolloverFees: null,
@@ -1564,6 +1710,7 @@ export class ExecutionService {
       correlationToBenchmark: null,
       trackingError: null,
 
+      metricAvailability,
       assumptions,
       dataSufficiency: {
         sufficient: hasSufficientData,

@@ -17,7 +17,7 @@ export const tradeCloseReasonSchema = z.enum([
   'UNKNOWN',
 ]);
 export const executionModeSchema = z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']);
-export const signalEntrySchema = z.enum(['MARKET', 'LIMIT']);
+export const signalEntrySchema = z.enum(['MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT']);
 export const parserProviderSchema = z.enum(['REGEX', 'OPENAI']);
 export const tradeLifecycleStatusSchema = z.enum(['OPEN', 'CLOSED', 'REJECTED']);
 export const accountSourceSchema = z.enum(['MANUAL', 'EA']);
@@ -224,6 +224,7 @@ export const tradeExecutionDtoSchema = z.object({
   profit: z.number(),
   status: tradeLifecycleStatusSchema,
   openingOrderType: signalSideSchema.nullable().optional(),
+  detectedTradeType: z.string().nullable().optional(),
   positionDirection: positionDirectionSchema.nullable().optional(),
   closeReason: tradeCloseReasonSchema.nullable().optional(),
   comment: z.string().nullable(),
@@ -262,6 +263,11 @@ export const periodBreakdownSchema = z.object({
   losses: z.number().int().nonnegative(),
   winRate: z.number(),
   netProfit: z.number(),
+  averageTrade: z.number().nullable().optional(),
+  averageWin: z.number().nullable().optional(),
+  averageLoss: z.number().nullable().optional(),
+  profitFactor: z.number().nullable().optional(),
+  expectancy: z.number().nullable().optional(),
 });
 
 export const tradeTypeBreakdownSchema = z.object({
@@ -289,6 +295,15 @@ export const equityCurvePointSchema = z.object({
 export const analyticsSummarySchema = z.object({
   startingBalance: z.number().nullable(),
   endingBalance: z.number().nullable(),
+  currentBalance: z.number().nullable(),
+  currentEquity: z.number().nullable(),
+  totalClosedProfit: z.number(),
+  floatingPl: z.number().nullable(),
+  deposits: z.number().nullable(),
+  withdrawals: z.number().nullable(),
+  netDeposits: z.number().nullable(),
+  totalReturnPercent: z.number().nullable(),
+  accountGrowthPercent: z.number().nullable(),
   returnOnAccount: z.number().nullable(),
   roi: z.number().nullable(),
   annualizedReturn: z.number().nullable(),
@@ -301,6 +316,7 @@ export const analyticsSummarySchema = z.object({
   losses: z.number().int().nonnegative(),
   winRate: z.number().min(0).max(100),
   lossRate: z.number().min(0).max(100),
+  breakEvenTrades: z.number().int().nonnegative(),
   breakEvenRate: z.number().min(0).max(100).nullable(),
   profitFactor: z.number().min(0),
   netProfit: z.number(),
@@ -327,7 +343,9 @@ export const analyticsSummarySchema = z.object({
   maxDrawdown: z.number(),
   maxDrawdownPercent: z.number().nullable(),
   averageDrawdown: z.number(),
+  medianDrawdown: z.number().nullable(),
   drawdownDurationHours: z.number().nullable(),
+  recoveryDurationHours: z.number().nullable(),
   recoveryFactor: z.number().nullable(),
   ulcerIndex: z.number().nullable(),
   painIndex: z.number().nullable(),
@@ -335,6 +353,9 @@ export const analyticsSummarySchema = z.object({
   avgHoldTimeHours: z.number().nullable(),
   avgWinHoldTimeHours: z.number().nullable(),
   avgLossHoldTimeHours: z.number().nullable(),
+  longestTradeHours: z.number().nullable(),
+  shortestTradeHours: z.number().nullable(),
+  averageTimeBetweenTradesHours: z.number().nullable(),
   tradesPerDay: z.number().nullable(),
   tradesPerWeek: z.number().nullable(),
   tradesPerMonth: z.number().nullable(),
@@ -346,8 +367,20 @@ export const analyticsSummarySchema = z.object({
 
   maxConsecutiveWins: z.number().int(),
   maxConsecutiveLosses: z.number().int(),
+  currentWinningStreak: z.number().int(),
+  currentLosingStreak: z.number().int(),
+  largestWinningStreakProfit: z.number().nullable(),
+  largestLosingStreakLoss: z.number().nullable(),
   riskRewardRatio: z.number().nullable(),
   riskPerTradePercent: z.number().nullable(),
+  maximumDailyLoss: z.number().nullable(),
+  maximumWeeklyLoss: z.number().nullable(),
+  maximumMonthlyLoss: z.number().nullable(),
+  largestWinningDay: z.number().nullable(),
+  largestLosingDay: z.number().nullable(),
+  averageDailyReturn: z.number().nullable(),
+  largestWinningTradePercent: z.number().nullable(),
+  largestLosingTradePercent: z.number().nullable(),
   valueAtRisk95: z.number().nullable(),
   conditionalVar95: z.number().nullable(),
   kellyCriterion: z.number().nullable(),
@@ -361,6 +394,10 @@ export const analyticsSummarySchema = z.object({
   marginUtilization: z.number().nullable(),
   exposurePercent: z.number().nullable(),
   concentrationRisk: z.number().nullable(),
+  topInstrumentExposure: z.number().nullable(),
+  topSymbolContribution: z.number().nullable(),
+  topSessionContribution: z.number().nullable(),
+  topDirectionContribution: z.number().nullable(),
 
   totalCommissionPaid: z.number().nullable(),
   totalSwapRolloverFees: z.number().nullable(),
@@ -387,6 +424,12 @@ export const analyticsSummarySchema = z.object({
   correlationToBenchmark: z.number().nullable(),
   trackingError: z.number().nullable(),
 
+  metricAvailability: z.record(z.string(), z.object({
+    available: z.boolean(),
+    reason: z.string().nullable(),
+    formula: z.string(),
+    source: z.string(),
+  })).optional(),
   assumptions: z.array(z.string()),
   dataSufficiency: z.object({
     sufficient: z.boolean(),

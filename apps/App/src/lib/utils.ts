@@ -19,7 +19,7 @@ export function formatLatency(value: number | null | undefined) {
 
 export function formatCurrency(value: number | null | undefined) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '--';
+    return 'Not Available';
   }
 
   return new Intl.NumberFormat(undefined, {
@@ -31,7 +31,7 @@ export function formatCurrency(value: number | null | undefined) {
 
 export function formatPercent(value: number | null | undefined, digits = 2) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '--';
+    return 'Not Available';
   }
 
   return `${value.toFixed(digits)}%`;
@@ -39,7 +39,7 @@ export function formatPercent(value: number | null | undefined, digits = 2) {
 
 export function formatDuration(hours: number | null | undefined) {
   if (typeof hours !== 'number' || Number.isNaN(hours)) {
-    return '--';
+    return 'Not Available';
   }
 
   if (hours < 1) {
