@@ -15,12 +15,14 @@ import {
 import {
   AccountStatusDTO,
   AnalyticsSummaryDTO,
+  DailyTradeSummaryDTO,
   ExecutionLogDTO,
   ExecutionStatus,
   SignalStatus,
   TradeExecutionDTO,
   accountStatusDtoSchema,
   analyticsSummarySchema,
+  dailyTradeSummaryItemSchema,
   executionLogSchema,
   signalDtoSchema,
   tradeExecutionDtoSchema,
@@ -558,6 +560,71 @@ export class ExecutionService {
     );
   }
 
+  async getDailyProfitSummary(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    accountId?: string,
+  ): Promise<DailyTradeSummaryDTO> {
+    let query = this.databaseService
+      .getClient()
+      .from('trade_executions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'CLOSED')
+      .gte('closed_at', startDate)
+      .lte('closed_at', endDate)
+      .order('closed_at', { ascending: true });
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const trades = (data ?? []) as TradeExecutionRecord[];
+
+    const dayMap = new Map<
+      string,
+      { netProfit: number; tradeCount: number; wins: number; losses: number; best: number | null; worst: number | null; symbols: Set<string> }
+    >();
+
+    for (const trade of trades) {
+      const dateKey = (trade.closed_at ?? trade.updated_at).slice(0, 10);
+      if (!dayMap.has(dateKey)) {
+        dayMap.set(dateKey, { netProfit: 0, tradeCount: 0, wins: 0, losses: 0, best: null, worst: null, symbols: new Set() });
+      }
+      const day = dayMap.get(dateKey)!;
+      day.netProfit += trade.profit;
+      day.tradeCount += 1;
+      if (trade.profit > 0) day.wins += 1;
+      else if (trade.profit < 0) day.losses += 1;
+      day.best = day.best === null ? trade.profit : Math.max(day.best, trade.profit);
+      day.worst = day.worst === null ? trade.profit : Math.min(day.worst, trade.profit);
+      day.symbols.add(trade.symbol.toUpperCase());
+    }
+
+    return Array.from(dayMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, d]) =>
+        dailyTradeSummaryItemSchema.parse({
+          date,
+          netProfit: d.netProfit,
+          tradeCount: d.tradeCount,
+          wins: d.wins,
+          losses: d.losses,
+          winRate: d.tradeCount > 0 ? (d.wins / d.tradeCount) * 100 : 0,
+          bestTrade: d.best,
+          worstTrade: d.worst,
+          symbols: Array.from(d.symbols),
+        }),
+      );
+  }
+
   async listLogs(
     userId: string,
     limit = 10,
@@ -675,7 +742,12 @@ export class ExecutionService {
     );
   }
 
-  async getAnalytics(userId: string, accountId?: string): Promise<AnalyticsSummaryDTO> {
+  async getAnalytics(
+    userId: string,
+    accountId?: string,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<AnalyticsSummaryDTO> {
     if (!accountId?.startsWith('upload:')) {
       await this.syncLiveExecutionData(userId, accountId);
     }
@@ -691,6 +763,14 @@ export class ExecutionService {
 
     if (accountId) {
       query = query.eq('account_id', accountId);
+    }
+
+    if (startDate) {
+      query = query.gte('closed_at', startDate);
+    }
+
+    if (endDate) {
+      query = query.lte('closed_at', endDate);
     }
 
     const { data, error } = await query;

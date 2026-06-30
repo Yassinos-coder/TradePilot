@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type ChangeEvent } from 'react';
+import { TimeFilter, dateRangeToParams, type DateRange } from '../components/analytics/TimeFilter';
+import { ExportButton } from '../components/analytics/ExportButton';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, type Variants } from 'framer-motion';
 import { usePagination } from '../hooks/usePagination';
@@ -415,8 +417,10 @@ export function AnalyticsPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [historyUploadError, setHistoryUploadError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const accountId = selectedAccountId === 'all' ? undefined : selectedAccountId;
+  const { startDate, endDate } = dateRangeToParams(dateRange);
 
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
@@ -462,12 +466,12 @@ export function AnalyticsPage() {
   });
 
   const analyticsQuery = useQuery({
-    queryKey: ['execution', 'analytics', accountId ?? 'all'],
-    queryFn: () => apiClient.executionAnalytics(accountId),
+    queryKey: ['execution', 'analytics', accountId ?? 'all', dateRange],
+    queryFn: () => apiClient.executionAnalytics(accountId, startDate, endDate),
     refetchInterval: 15_000,
   });
   const tradesQuery = useQuery({
-    queryKey: ['execution', 'trades', accountId ?? 'all'],
+    queryKey: ['execution', 'trades', accountId ?? 'all', dateRange],
     queryFn: () => apiClient.executionTrades(accountId, 500),
     refetchInterval: 15_000,
   });
@@ -745,7 +749,7 @@ export function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
             Performance
@@ -754,7 +758,9 @@ export function AnalyticsPage() {
             Analytics
           </h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <TimeFilter value={dateRange} onChange={setDateRange} />
+          {a && <ExportButton analytics={a} />}
           {lastRefreshedAt && !isRefreshing && (
             <p className="hidden text-xs text-slate-400 dark:text-slate-500 sm:block">
               Updated {formatRelativeTime(lastRefreshedAt)}

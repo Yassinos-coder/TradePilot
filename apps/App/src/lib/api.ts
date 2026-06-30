@@ -9,10 +9,10 @@ import {
   CopierProgramDTO,
   CreateAccountInput,
   CreateCopierProgramInput,
-  FollowerDeviceDTO,
-  UpdateCopierProgramInput,
+  DailyTradeSummaryDTO,
   DashboardOverviewDTO,
   ExecutionLogDTO,
+  FollowerDeviceDTO,
   NotificationPreferencesDTO,
   RequestEmailChangeInput,
   SettingsDTO,
@@ -28,6 +28,7 @@ import {
   TelegramConnectionDTO,
   TradeExecutionDTO,
   TradeHistoryFileDTO,
+  UpdateCopierProgramInput,
   UpdateProfileInput,
   UserDTO,
   UserSessionDTO,
@@ -214,9 +215,15 @@ export const apiClient = {
     });
     return data;
   },
-  async executionAnalytics(accountId?: string) {
+  async executionAnalytics(accountId?: string, startDate?: string, endDate?: string) {
     const { data } = await api.get<AnalyticsSummaryDTO>('/execution/analytics', {
-      params: accountId ? { accountId } : undefined,
+      params: { ...(accountId ? { accountId } : {}), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) },
+    });
+    return data;
+  },
+  async dailySummary(startDate: string, endDate: string, accountId?: string) {
+    const { data } = await api.get<DailyTradeSummaryDTO>('/execution/daily-summary', {
+      params: { startDate, endDate, ...(accountId ? { accountId } : {}) },
     });
     return data;
   },

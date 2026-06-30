@@ -65,8 +65,26 @@ export class ExecutionController {
   getAnalytics(
     @CurrentUser() user: RequestUser,
     @Query('accountId') accountId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.executionService.getAnalytics(user.userId, accountId);
+    return this.executionService.getAnalytics(user.userId, accountId, startDate, endDate);
+  }
+
+  @Get('daily-summary')
+  getDailySummary(
+    @CurrentUser() user: RequestUser,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    if (!startDate || !endDate) {
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = startDate ?? firstDay.toISOString().slice(0, 10);
+      endDate = endDate ?? now.toISOString().slice(0, 10);
+    }
+    return this.executionService.getDailyProfitSummary(user.userId, startDate, endDate, accountId);
   }
 
   @Get('trades')

@@ -2,7 +2,6 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   BellRing,
-  ChevronRight,
   MailCheck,
   Save,
   ShieldCheck,
@@ -33,12 +32,6 @@ import { TelegramPage } from './TelegramPage';
 
 type SettingsTab = 'profile' | 'security' | 'telegram' | 'notifications' | 'trading' | 'billing';
 
-type SettingsSection = {
-  id: string;
-  label: string;
-  description: string;
-};
-
 const TABS: Array<{ key: SettingsTab; label: string; description: string }> = [
   { key: 'profile', label: 'Profile', description: 'Identity, contact details, and email ownership.' },
   { key: 'security', label: 'Security', description: 'Password rotation and active session control.' },
@@ -47,76 +40,6 @@ const TABS: Array<{ key: SettingsTab; label: string; description: string }> = [
   { key: 'trading', label: 'Trading', description: 'Execution mode, risk limits, and blocked symbols.' },
   { key: 'billing', label: 'Billing', description: 'Subscription and plan management.' },
 ];
-
-const SECTION_MAP: Record<SettingsTab, SettingsSection[]> = {
-  profile: [
-    {
-      id: 'profile-identity',
-      label: 'Identity',
-      description: 'Name, phone number, and current email state.',
-    },
-    {
-      id: 'profile-email',
-      label: 'Email Verification',
-      description: 'Request and confirm account email changes.',
-    },
-  ],
-  security: [
-    {
-      id: 'security-password',
-      label: 'Password',
-      description: 'Rotate the account password securely.',
-    },
-    {
-      id: 'security-sessions',
-      label: 'Sessions',
-      description: 'Inspect and revoke active sessions.',
-    },
-  ],
-  telegram: [
-    {
-      id: 'telegram-connection',
-      label: 'Telegram',
-      description: 'Authentication and channel ingestion live here.',
-    },
-  ],
-  notifications: [
-    {
-      id: 'notifications-channels',
-      label: 'Channels',
-      description: 'Choose where notifications are delivered.',
-    },
-    {
-      id: 'notifications-events',
-      label: 'Events',
-      description: 'Control which execution events trigger alerts.',
-    },
-  ],
-  trading: [
-    {
-      id: 'trading-mode',
-      label: 'Execution Mode',
-      description: 'Auto, semi-auto, or manual handling.',
-    },
-    {
-      id: 'trading-risk',
-      label: 'Risk Controls',
-      description: 'Hard limits that block or pause execution.',
-    },
-    {
-      id: 'trading-symbols',
-      label: 'Excluded Symbols',
-      description: 'Symbols you want TradePilot to ignore.',
-    },
-  ],
-  billing: [
-    {
-      id: 'billing-overview',
-      label: 'Billing',
-      description: 'Subscription controls and invoices.',
-    },
-  ],
-};
 
 const MODE_OPTIONS = [
   {
@@ -236,7 +159,6 @@ export function SettingsPage() {
   const authUser = useAuthStore((state) => state.user);
   const updateAuthUser = useAuthStore((state) => state.updateUser);
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
-  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_MAP.profile[0]!.id);
 
   const settingsQuery = useQuery({
     queryKey: ['settings'],
@@ -297,47 +219,6 @@ export function SettingsPage() {
       setActiveTab('profile');
     }
   }, [searchParams]);
-
-  useEffect(() => {
-    const firstSectionId = SECTION_MAP[activeTab][0]?.id;
-    if (firstSectionId) {
-      setActiveSectionId(firstSectionId);
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    const sectionIds = SECTION_MAP[activeTab].map((section) => section.id);
-    const elements = sectionIds
-      .map((sectionId) => document.getElementById(sectionId))
-      .filter((element): element is HTMLElement => Boolean(element));
-
-    if (elements.length === 0) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio);
-
-        const nextId = visibleEntries[0]?.target.id;
-        if (nextId) {
-          setActiveSectionId(nextId);
-        }
-      },
-      {
-        rootMargin: '-18% 0px -62% 0px',
-        threshold: [0.2, 0.45, 0.7],
-      },
-    );
-
-    elements.forEach((element) => observer.observe(element));
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [activeTab]);
 
   useEffect(() => {
     if (settingsQuery.data && !settingsDraft) {
@@ -580,7 +461,6 @@ export function SettingsPage() {
     return JSON.stringify(notificationDraft) !== JSON.stringify(notificationsQuery.data);
   }, [notificationDraft, notificationsQuery.data]);
 
-  const activeSections = SECTION_MAP[activeTab];
   const currentTab = TABS.find((tab) => tab.key === activeTab) ?? TABS[0]!;
   const enabledChannelCount = notificationDraft
     ? Object.values(notificationDraft.channels).filter(Boolean).length
@@ -615,13 +495,6 @@ export function SettingsPage() {
     });
   };
 
-  const jumpToSection = (sectionId: string) => {
-    setActiveSectionId(sectionId);
-    const target = document.getElementById(sectionId);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
 
   if (
     settingsQuery.isLoading ||
@@ -714,72 +587,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="xl:sticky xl:top-24 xl:self-start">
-          <div className="rounded-[26px] border border-slate-200/80 bg-white/88 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/78">
-            <div className="pb-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                Page guide
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                {currentTab.description}
-              </p>
-            </div>
-
-            <div className="space-y-2 border-t border-slate-200/80 pt-4 dark:border-slate-800">
-              {activeSections.map((section) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => jumpToSection(section.id)}
-                  className={cn(
-                    'w-full rounded-2xl px-3 py-3 text-left transition-colors',
-                    activeSectionId === section.id
-                      ? 'bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950'
-                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900',
-                  )}
-                >
-                  <p className="text-sm font-semibold">{section.label}</p>
-                  <p
-                    className={cn(
-                      'mt-1 text-xs leading-5',
-                      activeSectionId === section.id
-                        ? 'text-white/80 dark:text-slate-600'
-                        : 'text-slate-500 dark:text-slate-400',
-                    )}
-                  >
-                    {section.description}
-                  </p>
-                  <ChevronRight className="mt-2 h-3.5 w-3.5 opacity-60" />
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-4 space-y-3 border-t border-slate-200/80 pt-4 dark:border-slate-800">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Execution
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                  {settingsDraft.executionPaused
-                    ? `Paused by failsafe: ${settingsDraft.executionPauseReason ?? 'UNKNOWN'}`
-                    : 'Healthy and ready for validated signals.'}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Email
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                  {profileDraft.pendingEmail
-                    ? `Waiting for verification on ${profileDraft.pendingEmail}.`
-                    : 'Primary email is verified and ready for notifications.'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </aside>
-
+      <div>
         <main className="space-y-5">
           {activeTab === 'profile' ? (
             <div className="space-y-5">

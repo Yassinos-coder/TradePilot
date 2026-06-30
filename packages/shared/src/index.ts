@@ -913,3 +913,20 @@ export const softDeleteSignalsSchema = z.object({
 export type ManualDispatchInput = z.infer<typeof manualDispatchSchema>;
 export type SignalHistoryFilter = z.infer<typeof signalHistoryFilterSchema>;
 export type SoftDeleteSignalsInput = z.infer<typeof softDeleteSignalsSchema>;
+
+export const dailyTradeSummaryItemSchema = z.object({
+  date: z.string(),
+  netProfit: z.number(),
+  tradeCount: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  winRate: z.number(),
+  bestTrade: z.number().nullable(),
+  worstTrade: z.number().nullable(),
+  symbols: z.array(z.string()),
+});
+
+export const dailyTradeSummarySchema = z.array(dailyTradeSummaryItemSchema);
+
+export type DailyTradeSummaryItem = z.infer<typeof dailyTradeSummaryItemSchema>;
+export type DailyTradeSummaryDTO = z.infer<typeof dailyTradeSummarySchema>;
