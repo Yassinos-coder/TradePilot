@@ -4,6 +4,7 @@ import {
   Activity,
   BarChart3,
   ChevronRight,
+  Copy,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -22,6 +23,7 @@ import { useThemeStore } from '../../store/theme-store';
 const NAV = [
   { to: '/app', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/trade-copier', label: 'Trade Copier', icon: Copy },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
 ] as const;
@@ -29,6 +31,7 @@ const NAV = [
 const PAGE_TITLES: Record<string, string> = {
   '/app': 'Dashboard',
   '/app/analytics': 'Analytics',
+  '/app/trade-copier': 'Trade Copier',
   '/app/settings': 'Settings',
   '/app/accounts': 'Accounts',
 };

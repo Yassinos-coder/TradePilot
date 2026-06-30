@@ -20,6 +20,7 @@ import {
 import {
   AccountStatusDTO,
   EaAccountStatusPayload,
+  EaCopyTradeEventMessage,
   EaTradeEventPayload,
   WebSocketInboundMessage,
   WebSocketOutboundMessage,
@@ -34,11 +35,13 @@ import {
   ExecutionStatus,
   SignalStatus,
   TradeExecutionRecord,
+  FollowerDeviceRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
 import { buildAlertTemplate } from '../notifications/email-templates';
 import { NotificationEventBusService } from '../notifications/notification-event-bus.service';
+import { TradeCopierService } from '../trade-copier/trade-copier.service';
 
 import {
   DispatchAckMessage,
@@ -49,9 +52,12 @@ import {
 
 interface SocketMetadata {
   connectionId: string;
+  role?: 'PROVIDER' | 'FOLLOWER';
   userId?: string;
   accountId?: string;
   accountName?: string;
+  followerDeviceId?: string;
+  followerProgramId?: string;
   lastSeenAt: number;
   latencyMs: number | null;
   lastServerPingAt: number | null;

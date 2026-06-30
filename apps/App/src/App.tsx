@@ -17,6 +17,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { RefundPage } from './pages/RefundPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TermsPage } from './pages/TermsPage';
+import { TradeCopierPage } from './pages/TradeCopierPage';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -99,6 +100,7 @@ export default function App() {
         <Route element={<ProtectedLayout />}>
           <Route path="/app" element={<DashboardPage />} />
           <Route path="/app/analytics" element={<AnalyticsPage />} />
+          <Route path="/app/trade-copier" element={<TradeCopierPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
           <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>

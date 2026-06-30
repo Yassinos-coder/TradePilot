@@ -47,6 +47,8 @@ export type TradeHistoryPlatform = 'MT4' | 'MT5' | 'GENERIC';
 export type SignalClassification = 'SIGNAL' | 'MANAGEMENT' | 'NOISE';
 export type PositionDirection = 'LONG' | 'SHORT';
 export type CloseReason = 'TP' | 'SL' | 'MANUAL' | 'PARTIAL' | 'BREAKEVEN' | 'UNKNOWN';
+export type CopierProgramStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
+export type FollowerDeviceStatus = 'PENDING_APPROVAL' | 'ACTIVE' | 'REVOKED';
 
 export interface UserRecord {
   id: string;
@@ -274,6 +276,43 @@ export interface UserSessionRecord {
   user_agent: string | null;
   ip_address: string | null;
   last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CopierProgramRecord {
+  id: string;
+  provider_user_id: string;
+  name: string;
+  description: string | null;
+  status: CopierProgramStatus;
+  max_follower_devices: number;
+  requires_approval: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CopierInviteCodeRecord {
+  id: string;
+  program_id: string;
+  code: string;
+  active: boolean;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface FollowerDeviceRecord {
+  id: string;
+  program_id: string;
+  nickname: string | null;
+  token_hash: string;
+  account_login_hash: string;
+  account_login_masked: string | null;
+  broker_server: string | null;
+  platform: 'MT4' | 'MT5' | null;
+  terminal_fingerprint_hash: string;
+  status: FollowerDeviceStatus;
+  last_seen_at: string | null;
   created_at: string;
   updated_at: string;
 }

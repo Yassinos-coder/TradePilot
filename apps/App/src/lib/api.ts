@@ -6,7 +6,11 @@ import {
   AccountStatusDTO,
   AnalyticsSummaryDTO,
   ChangePasswordInput,
+  CopierProgramDTO,
   CreateAccountInput,
+  CreateCopierProgramInput,
+  FollowerDeviceDTO,
+  UpdateCopierProgramInput,
   DashboardOverviewDTO,
   ExecutionLogDTO,
   NotificationPreferencesDTO,
@@ -233,5 +237,41 @@ export const apiClient = {
   },
   async dispatchManual(signalId: string, accountId: string) {
     await api.post(`/execution/${signalId}/dispatch-manual`, { accountId });
+  },
+  async copierPrograms() {
+    const { data } = await api.get<CopierProgramDTO[]>('/trade-copier/programs');
+    return data;
+  },
+  async createCopierProgram(payload: CreateCopierProgramInput) {
+    const { data } = await api.post<CopierProgramDTO>('/trade-copier/programs', payload);
+    return data;
+  },
+  async updateCopierProgram(programId: string, payload: UpdateCopierProgramInput) {
+    const { data } = await api.put<CopierProgramDTO>(`/trade-copier/programs/${programId}`, payload);
+    return data;
+  },
+  async rotateCopierInviteCode(programId: string) {
+    const { data } = await api.post<CopierProgramDTO>(
+      `/trade-copier/programs/${programId}/invite-code/rotate`,
+    );
+    return data;
+  },
+  async copierFollowers(programId: string) {
+    const { data } = await api.get<FollowerDeviceDTO[]>(
+      `/trade-copier/programs/${programId}/followers`,
+    );
+    return data;
+  },
+  async approveCopierFollower(programId: string, deviceId: string) {
+    const { data } = await api.post<FollowerDeviceDTO>(
+      `/trade-copier/programs/${programId}/followers/${deviceId}/approve`,
+    );
+    return data;
+  },
+  async revokeCopierFollower(programId: string, deviceId: string) {
+    const { data } = await api.post<FollowerDeviceDTO>(
+      `/trade-copier/programs/${programId}/followers/${deviceId}/revoke`,
+    );
+    return data;
   },
 };

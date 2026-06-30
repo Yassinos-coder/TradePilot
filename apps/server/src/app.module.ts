@@ -18,6 +18,7 @@ import { RedisModule } from './redis/redis.module';
 import { SettingsModule } from './settings/settings.module';
 import { SignalsModule } from './signals/signals.module';
 import { TelegramModule } from './telegram/telegram.module';
+import { TradeCopierModule } from './trade-copier/trade-copier.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -46,6 +47,7 @@ import { UsersModule } from './users/users.module';
     SettingsModule,
     SignalsModule,
     TelegramModule,
+    TradeCopierModule,
     EaModule,
     ExecutionModule,
     DashboardModule,

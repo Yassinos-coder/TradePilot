@@ -29,6 +29,64 @@ export const signalIngestionSourceSchema = z.enum([
 ]);
 export const commandResultStatusSchema = z.enum(['SUCCESS', 'ERROR']);
 
+export const copierProgramStatusSchema = z.enum(['ACTIVE', 'PAUSED', 'DISABLED']);
+export const followerDeviceStatusSchema = z.enum(['PENDING_APPROVAL', 'ACTIVE', 'REVOKED']);
+
+export const createCopierProgramSchema = z.object({
+  name: z.string().min(2).max(80),
+  description: z.string().max(500).nullable().default(null),
+  maxFollowerDevices: z.number().int().min(1).max(500).default(10),
+  requiresApproval: z.boolean().default(false),
+});
+
+export const updateCopierProgramSchema = createCopierProgramSchema.partial().extend({
+  status: copierProgramStatusSchema.optional(),
+});
+
+export const copierProgramSchema = z.object({
+  id: z.string().min(1),
+  providerUserId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  status: copierProgramStatusSchema,
+  maxFollowerDevices: z.number().int().positive(),
+  requiresApproval: z.boolean(),
+  activeInviteCode: z.string().nullable(),
+  followerCount: z.number().int().nonnegative(),
+  onlineFollowerCount: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const followerDeviceSchema = z.object({
+  id: z.string().min(1),
+  programId: z.string().min(1),
+  nickname: z.string().nullable(),
+  accountLoginMasked: z.string().nullable(),
+  brokerServer: z.string().nullable(),
+  platform: z.enum(['MT4', 'MT5']).nullable(),
+  status: followerDeviceStatusSchema,
+  lastSeenAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const anonymousFollowerJoinSchema = z.object({
+  inviteCode: z.string().min(6).max(40),
+  nickname: z.string().min(1).max(80).nullable().optional(),
+  accountLoginHash: z.string().min(16).max(256),
+  brokerServer: z.string().min(1).max(120),
+  platform: z.enum(['MT4', 'MT5']),
+  terminalFingerprintHash: z.string().min(16).max(256),
+});
+
+export const anonymousFollowerJoinResultSchema = z.object({
+  deviceId: z.string().min(1),
+  programId: z.string().min(1),
+  providerName: z.string().min(1),
+  status: followerDeviceStatusSchema,
+  token: z.string().min(32),
+});
+
 export const signalDtoSchema = z.object({
   action: signalActionSchema,
   symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
@@ -607,6 +665,14 @@ export const eaAuthMessageSchema = z.object({
   accountName: z.string().min(1),
 });
 
+export const eaFollowerAuthMessageSchema = z.object({
+  type: z.literal('auth_follower'),
+  token: z.string().min(32),
+  deviceId: z.string().min(1),
+  accountLoginHash: z.string().min(16),
+  terminalFingerprintHash: z.string().min(16),
+});
+
 export const eaPingMessageSchema = z.object({
   type: z.literal('ping'),
   timestamp: z.number().int().optional(),
@@ -689,6 +755,13 @@ export const eaSyncStateCompleteMessageSchema = z.object({
   synced_trades: z.number().int().nonnegative().optional(),
 });
 
+export const eaCopyTradeEventMessageSchema = z.object({
+  type: z.literal('copy_trade_event'),
+  providerProgramId: z.string().min(1),
+  providerTradeId: z.string().min(1),
+  data: eaTradeEventPayloadSchema,
+});
+
 export const eaAuthSuccessMessageSchema = z.object({
   type: z.literal('auth_success'),
 });
@@ -739,6 +812,7 @@ export const eaMoveSlMessageSchema = z.object({
 
 export const eaInboundMessageSchema = z.discriminatedUnion('type', [
   eaAuthMessageSchema,
+  eaFollowerAuthMessageSchema,
   eaPingMessageSchema,
   eaPongMessageSchema,
   eaSymbolsMessageSchema,
@@ -754,6 +828,7 @@ export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
   eaPongMessageSchema,
   eaErrorMessageSchema,
   eaSyncStateMessageSchema,
+  eaCopyTradeEventMessageSchema,
   eaSignalMessageSchema,
   eaPartialCloseMessageSchema,
   eaCloseAllMessageSchema,
@@ -761,6 +836,14 @@ export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
 ]);
 
 export type SignalAction = z.infer<typeof signalActionSchema>;
+export type CopierProgramStatus = z.infer<typeof copierProgramStatusSchema>;
+export type FollowerDeviceStatus = z.infer<typeof followerDeviceStatusSchema>;
+export type CreateCopierProgramInput = z.infer<typeof createCopierProgramSchema>;
+export type UpdateCopierProgramInput = z.infer<typeof updateCopierProgramSchema>;
+export type CopierProgramDTO = z.infer<typeof copierProgramSchema>;
+export type FollowerDeviceDTO = z.infer<typeof followerDeviceSchema>;
+export type AnonymousFollowerJoinInput = z.infer<typeof anonymousFollowerJoinSchema>;
+export type AnonymousFollowerJoinResult = z.infer<typeof anonymousFollowerJoinResultSchema>;
 export type SignalDTO = z.infer<typeof signalDtoSchema>;
 export type UserDTO = z.infer<typeof userDtoSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
@@ -804,6 +887,8 @@ export type ExecutionLogDTO = z.infer<typeof executionLogSchema>;
 export type DashboardOverviewDTO = z.infer<typeof dashboardOverviewSchema>;
 export type WebSocketInboundMessage = z.infer<typeof eaInboundMessageSchema>;
 export type WebSocketOutboundMessage = z.infer<typeof eaOutboundMessageSchema>;
+export type EaFollowerAuthMessage = z.infer<typeof eaFollowerAuthMessageSchema>;
+export type EaCopyTradeEventMessage = z.infer<typeof eaCopyTradeEventMessageSchema>;
 export type EaAccountStatusPayload = z.infer<typeof eaAccountStatusPayloadSchema>;
 export type EaTradeEventPayload = z.infer<typeof eaTradeEventPayloadSchema>;
 export type EaTradePayload = z.infer<typeof eaTradePayloadSchema>;
