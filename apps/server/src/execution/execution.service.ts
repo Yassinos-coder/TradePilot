@@ -611,12 +611,21 @@ export class ExecutionService {
       }),
     });
 
+    const responseText = await response.text().catch(() => '{}');
     if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      throw new InternalServerErrorException(`OpenAI error: ${errorText}`);
+      let parsed: { error?: { code?: string; message?: string } } = {};
+      try { parsed = JSON.parse(responseText); } catch { /* ignore */ }
+      const code = parsed.error?.code;
+      if (code === 'insufficient_quota' || response.status === 429) {
+        throw new InternalServerErrorException('OpenAI account has no remaining credits — add billing at platform.openai.com/settings/billing');
+      }
+      if (code === 'invalid_api_key' || response.status === 401) {
+        throw new InternalServerErrorException('OpenAI API key is invalid — update OPENAI_API_KEY in the server environment');
+      }
+      throw new InternalServerErrorException(`OpenAI error ${response.status}: ${parsed.error?.message ?? responseText}`);
     }
 
-    const result = await response.json() as { choices: Array<{ message: { content: string } }> };
+    const result = JSON.parse(responseText) as { choices: Array<{ message: { content: string } }> };
     return result.choices[0]?.message?.content?.trim() ?? 'Analysis unavailable.';
   }
 
