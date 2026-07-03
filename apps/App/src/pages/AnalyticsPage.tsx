@@ -470,6 +470,13 @@ export function AnalyticsPage() {
     queryFn: () => apiClient.executionAnalytics(accountId, startDate, endDate),
     refetchInterval: 15_000,
   });
+
+  const aiAnalysisQuery = useQuery({
+    queryKey: ['execution', 'ai-analysis', accountId ?? 'all', dateRange],
+    queryFn: () => apiClient.aiAnalysis(accountId, startDate, endDate),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
   const tradesQuery = useQuery({
     queryKey: ['execution', 'trades', accountId ?? 'all', dateRange],
     queryFn: () => apiClient.executionTrades(accountId, 500),
@@ -793,17 +800,34 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {insufficientData ? (
-        <Card
-          title="Advanced Metrics Paused"
-          eyebrow="Data Sufficiency"
-          description="Sharpe, Sortino, CAGR, and Calmar require a minimum trade count and time-series span."
-        >
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-            {a.dataSufficiency.reason ?? 'Insufficient data for advanced risk-adjusted metrics.'}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-600 dark:text-sky-400">AI Coach</p>
+            <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">Performance Analysis</p>
           </div>
-        </Card>
-      ) : null}
+          {aiAnalysisQuery.isFetching && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">Analyzing…</span>
+          )}
+        </div>
+
+        {aiAnalysisQuery.isLoading ? (
+          <div className="space-y-2">
+            {(['w-4/5', 'w-3/4', 'w-2/3', 'w-3/5', 'w-1/2'] as const).map((w) => (
+              <div key={w} className={`h-4 animate-pulse rounded bg-slate-100 dark:bg-slate-800 ${w}`} />
+            ))}</div>
+        ) : aiAnalysisQuery.isError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">
+            AI analysis unavailable — {(aiAnalysisQuery.error as Error)?.message ?? 'unknown error'}.
+          </p>
+        ) : aiAnalysisQuery.data ? (
+          <div className="space-y-2.5">
+            {aiAnalysisQuery.data.split('\n').filter(Boolean).slice(0, 5).map((line, i) => (
+              <p key={i} className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">{line}</p>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <Card
         title="Account Selector"
@@ -837,6 +861,7 @@ export function AnalyticsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Upload trade history file"
                 accept=".csv,.txt,.html,.htm,text/csv,text/plain,text/html"
                 onChange={handleHistoryFileChange}
                 className="hidden"

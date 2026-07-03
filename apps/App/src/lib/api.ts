@@ -221,6 +221,12 @@ export const apiClient = {
     });
     return data;
   },
+  async aiAnalysis(accountId?: string, startDate?: string, endDate?: string) {
+    const { data } = await api.get<string>('/execution/ai-analysis', {
+      params: { ...(accountId ? { accountId } : {}), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) },
+    });
+    return data;
+  },
   async dailySummary(startDate: string, endDate: string, accountId?: string) {
     const { data } = await api.get<DailyTradeSummaryDTO>('/execution/daily-summary', {
       params: { startDate, endDate, ...(accountId ? { accountId } : {}) },

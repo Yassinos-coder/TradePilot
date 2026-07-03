@@ -87,6 +87,16 @@ export class ExecutionController {
     return this.executionService.getDailyProfitSummary(user.userId, startDate, endDate, accountId);
   }
 
+  @Get('ai-analysis')
+  getAiAnalysis(
+    @CurrentUser() user: RequestUser,
+    @Query('accountId') accountId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.executionService.getAiAnalysis(user.userId, accountId, startDate, endDate);
+  }
+
   @Get('trades')
   listRecentTrades(
     @CurrentUser() user: RequestUser,

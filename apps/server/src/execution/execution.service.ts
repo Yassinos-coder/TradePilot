@@ -560,6 +560,66 @@ export class ExecutionService {
     );
   }
 
+  async getAiAnalysis(userId: string, accountId?: string, startDate?: string, endDate?: string): Promise<string> {
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    if (!apiKey) {
+      throw new InternalServerErrorException('OpenAI API key not configured');
+    }
+
+    const analytics = await this.getAnalytics(userId, accountId, startDate, endDate);
+
+    const slim = {
+      netProfit: analytics.netProfit,
+      totalTrades: analytics.totalTrades,
+      winRate: analytics.winRate,
+      profitFactor: analytics.profitFactor,
+      expectancy: analytics.expectancy,
+      maxDrawdownPercent: analytics.maxDrawdownPercent,
+      avgWin: analytics.avgWin,
+      avgLoss: analytics.avgLoss,
+      sharpeRatio: analytics.sharpeRatio,
+      sortinoRatio: analytics.sortinoRatio,
+      maxConsecutiveLosses: analytics.maxConsecutiveLosses,
+      maxConsecutiveWins: analytics.maxConsecutiveWins,
+      riskRewardRatio: analytics.riskRewardRatio,
+      avgHoldTimeHours: analytics.avgHoldTimeHours,
+      currentBalance: analytics.currentBalance,
+      startingBalance: analytics.startingBalance,
+      bySymbol: (analytics.bySymbol ?? []).slice(0, 5).map(s => ({ symbol: s.symbol, trades: s.trades, netProfit: s.netProfit, winRate: s.winRate })),
+    };
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-5',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional trading performance coach. Analyze the provided trading metrics JSON and deliver an honest, direct assessment. Respond in EXACTLY 5 lines. Each line is one complete sentence. No bullets, numbers, or headers. Be specific — use actual numbers from the data. Highlight the most important strength and the most critical weakness.`,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(slim),
+          },
+        ],
+        max_tokens: 350,
+        temperature: 0.65,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new InternalServerErrorException(`OpenAI error: ${errorText}`);
+    }
+
+    const result = await response.json() as { choices: Array<{ message: { content: string } }> };
+    return result.choices[0]?.message?.content?.trim() ?? 'Analysis unavailable.';
+  }
+
   async getDailyProfitSummary(
     userId: string,
     startDate: string,
