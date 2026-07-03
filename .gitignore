@@ -11,3 +11,4 @@ apps/server/prisma/migrations
 *.log
 .worktrees
 *.ex5
+PUSH_INSTRUCTIONS.md
