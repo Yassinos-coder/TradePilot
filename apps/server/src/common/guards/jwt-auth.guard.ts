@@ -7,6 +7,7 @@ import {
 
 import { RequestUser } from '../../auth/types/request-user.type';
 import { AuthService } from '../../auth/auth.service';
+import { readCookie } from '../../auth/auth-cookie.util';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -14,18 +15,19 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
-      headers: { authorization?: string; 'user-agent'?: string };
+      headers: { authorization?: string; cookie?: string; 'user-agent'?: string };
       ip?: string;
       socket?: { remoteAddress?: string };
       user?: RequestUser;
     }>();
     const authHeader = request.headers.authorization;
+    const accessToken = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : readCookie(request.headers.cookie);
 
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing Supabase bearer token');
+    if (!accessToken) {
+      throw new UnauthorizedException('Missing Supabase auth cookie');
     }
-
-    const accessToken = authHeader.slice('Bearer '.length);
     request.user = await this.authService.authenticateAccessToken(
       accessToken,
       {

@@ -35,25 +35,12 @@ import {
   VerifyEmailChangeInput,
 } from '@tradepilot/shared';
 
-import { supabase } from './supabase';
 
 const env = parseClientEnv(import.meta.env as Record<string, unknown>);
 
 export const api = axios.create({
   baseURL: env.VITE_API_BASE_URL,
-});
-
-api.interceptors.request.use(async (config) => {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (session?.access_token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${session.access_token}`;
-  }
-
-  return config;
+  withCredentials: true,
 });
 
 export const clientEnv = env;

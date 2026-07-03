@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Activity, AlertCircle, Loader2 } from 'lucide-react';
 
 import { Button } from '../components/ui/Button';
+import { syncAuthCookie } from '../lib/auth-cookie';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/auth-store';
 
@@ -44,19 +45,19 @@ export function AuthCallbackPage() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active || !session) return;
-      navigate(redirectTo, { replace: true });
+      void syncAuthCookie(session).finally(() => navigate(redirectTo, { replace: true }));
     });
 
     const settle = async () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (!active) return;
       if (sessionError) { setAsyncError(sessionError.message); return; }
-      if (session) { navigate(redirectTo, { replace: true }); return; }
+      if (session) { await syncAuthCookie(session); navigate(redirectTo, { replace: true }); return; }
 
       timeoutId = window.setTimeout(async () => {
         const { data: { session: retry } } = await supabase.auth.getSession();
         if (!active) return;
-        if (retry) { navigate(redirectTo, { replace: true }); return; }
+        if (retry) { await syncAuthCookie(retry); navigate(redirectTo, { replace: true }); return; }
         setAsyncError('Sign-in could not be completed. Please request a new magic link.');
       }, CALLBACK_TIMEOUT_MS);
     };

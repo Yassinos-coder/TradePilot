@@ -2,6 +2,7 @@ import { UserDTO } from '@tradepilot/shared';
 import { Session } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
+import { clearAuthCookie, syncAuthCookie } from '../lib/auth-cookie';
 import { supabase, supabaseEnv } from '../lib/supabase';
 
 interface AuthState {
@@ -41,6 +42,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
         throw error;
       }
 
+      await syncAuthCookie(session);
+
       set((state) => ({
         ...state,
         isAuthenticated: Boolean(session),
@@ -53,6 +56,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         authListenerAttached = true;
 
         supabase.auth.onAuthStateChange((_event, session) => {
+          void syncAuthCookie(session);
           set((state) => ({
             ...state,
             isAuthenticated: Boolean(session),
@@ -200,6 +204,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   },
   logout: async () => {
     try {
+      await clearAuthCookie();
       await supabase.auth.signOut();
     } finally {
       set({
