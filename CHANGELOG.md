@@ -5,25 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-03
 
 ### Added
 
-- Read-only assistant analytics API at `GET /api/assistant/analytics/tradepilot`, protected by `x-tradepilot-analytics-token`, for stable AI-readable TradePilot performance analysis.
-- Optional `accountId` query filter for scoped analytics exports while preserving read-only behavior.
-- Stable response schema `tradepilot.analytics.read.v1` including generated timestamp, analytics summary, recent trades, and latest account status for Hermes skill consumption.
-- Event-driven notification pipeline for execution and account lifecycle alerts, with delivery gated by per-user channel and event preferences.
-- Rich HTML email templates for account security flows and trading alerts, ready for MailerSend SMTP relay configuration.
-- Build-version manifest and in-app update prompt so deployed web clients can detect fresh releases and refresh into the latest assets.
-- Trade history imports on the Analytics page, supporting CSV/TXT/HTML exported histories with Supabase Storage persistence, parsed imported-file selector entries, and delete controls.
+- **Trading Calendar Dashboard** — month-view calendar with color-coded day squares (green/profit, red/loss, grey/no trades), `◄ Month Year ►` navigation, hover tooltips with daily stats, and click-to-open day detail drawer showing trade history filtered by date
+- **Dashboard summary cards** — Monthly Net Total, Annual Net Total, and live Unrealized P&L (equity − balance) with open position count refreshing every 10 s
+- **Month Statistics panel** — win-rate SVG ring, best/worst day, best/worst trade, and total trade count for the visible calendar month
+- **Trade History table on Dashboard** — paginated at 10 rows/page with Status, Symbol, and Account filter selects; columns: Symbol, Side, Volume, Entry, Exit, P&L, Status, Account, Opened, Closed
+- **Trade Copier page** — all execution monitoring moved here: master auto-copy toggle, trading engine grid (6 status items), connected accounts table, EA API key card, last Telegram message card, signal history table with filter/dispatch/delete, execution logs feed, failsafe alert — consolidated above the existing community copier programs section
+- **Analytics time filter** — segmented tab control (Today / This Week / This Month / This Year / All History) that re-queries backend with `startDate`/`endDate` params and scopes all metrics
+- **Analytics export button** — dropdown with Copy as Text, Copy as JSON, Download as Text, Download as JSON
+- **AI Coach panel on Analytics** — sends full analytics JSON to GPT-4.1 and displays a 5-line performance assessment; cached for 5 minutes, rendered above the account selector
+- **`GET /execution/daily-summary`** backend endpoint with `startDate`, `endDate`, `accountId` params; groups closed trades by date and returns per-day net profit, trade count, W/L, win rate, best/worst trade, and symbols list
+- **`GET /execution/ai-analysis`** backend endpoint that calls OpenAI GPT-4.1 with a slim analytics payload and returns a 5-line coaching analysis
+- **`Tooltip.tsx`** UI primitive — hover tooltip with Framer Motion fade, top/bottom placement
+- **`Drawer.tsx`** UI primitive — right-side slide-in panel with spring animation and backdrop
+
+### Changed
+
+- Dashboard is now a pure performance view; all execution-monitoring widgets removed and consolidated into Trade Copier
+- Analytics endpoint now accepts `startDate` and `endDate` query params for time-scoped metric computation
+- Settings page changed to full-width single-column layout (sticky sidebar navigation removed)
+- Trade history fetch limit raised to 1 000 records on the dashboard; dashboard trades refresh every 15 s
+- App version display now reads from `apps/App/package.json` via Vite build-time injection
 
 ### Fixed
 
-- Signal parsing now tolerates decorative wrappers around trade labels like `( SL )` and `( TP )`, allowing pending-index entries such as `US30 Buy Limit` to validate and dispatch correctly
-- Settings page redesigned into a structured workspace with sticky navigation, in-page section jumps, and clearer alert/trading summaries for long-scroll flows.
-- Execution, EA, and connectivity alerts can now emit notification events for email delivery when users enable those events in settings.
-- App sidebar now shows the running TradePilot version and build time for quicker release visibility.
-- Email sender identity now supports a branded display name, and the Settings page layout has been smoothed further with a lighter guide rail and less stacked-card friction.
+- Added `@` → `src/` path alias to `vite.config.ts` and `"paths": {"@/*": ["src/*"]}` to `tsconfig.json`; resolves Rollup build failure for all `@/` imports in new pages
+- `tsconfig.json` `baseUrl` deprecation suppressed with `"ignoreDeprecations": "6.0"`
+- Read-only assistant analytics API at `GET /api/assistant/analytics/tradepilot`, protected by `x-tradepilot-analytics-token`
+- Event-driven notification pipeline for execution and account lifecycle alerts, with delivery gated by per-user channel and event preferences
+- Build-version manifest and in-app update prompt so deployed clients detect fresh releases
+- Trade history imports on the Analytics page supporting CSV/TXT/HTML exports with Supabase Storage persistence
+- Signal parsing now tolerates decorative wrappers around trade labels like `( SL )` and `( TP )`
 
 ## [0.4.0] - 2026-05-15
 
