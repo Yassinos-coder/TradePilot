@@ -25,6 +25,14 @@ interface AuthState {
 
 let authListenerAttached = false;
 
+async function getUserFromServerSession(): Promise<UserDTO | null> {
+  try {
+    return await apiClient.profile();
+  } catch {
+    return null;
+  }
+}
+
 export const useAuthStore = create<AuthState>()((set) => ({
   isAuthenticated: false,
   session: null,
@@ -49,13 +57,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
       let isAuthenticated = Boolean(session);
 
       if (!session) {
-        try {
-          user = await apiClient.profile();
-          isAuthenticated = true;
-        } catch {
-          user = null;
-          isAuthenticated = false;
-        }
+        user = await getUserFromServerSession();
+        isAuthenticated = Boolean(user);
       }
 
       set((state) => ({
@@ -71,15 +74,30 @@ export const useAuthStore = create<AuthState>()((set) => ({
         authListenerAttached = true;
 
         supabase.auth.onAuthStateChange((_event, session) => {
-          void syncAuthCookie(session);
-          set((state) => ({
-            ...state,
-            isAuthenticated: Boolean(session),
-            session,
-            isLoading: false,
-            user: session ? state.user : null,
-            magicLinkSent: session ? false : state.magicLinkSent,
-          }));
+          void (async () => {
+            if (session) {
+              await syncAuthCookie(session);
+              set((state) => ({
+                ...state,
+                isAuthenticated: true,
+                session,
+                isLoading: false,
+                user: state.user,
+                magicLinkSent: false,
+              }));
+              return;
+            }
+
+            const serverUser = await getUserFromServerSession();
+            set((state) => ({
+              ...state,
+              isAuthenticated: Boolean(serverUser),
+              session: null,
+              isLoading: false,
+              user: serverUser,
+              magicLinkSent: serverUser ? false : state.magicLinkSent,
+            }));
+          })();
         });
       }
     } catch (error) {

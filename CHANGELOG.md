@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth callback now re-initializes the app auth store after creating the backend session cookie, preventing an immediate redirect back to sign-in on refresh/navigation.
 - Auth cookies now include a server-side refresh token cookie so expired or missing Supabase access-token cookies can be renewed without exposing long-lived tokens to frontend JavaScript.
 
+## [0.5.2] - 2026-07-12
+
+### Fixed
+
+- Supabase auth-state events with a null in-memory session now rehydrate from the backend HttpOnly cookie session instead of clearing a valid login on page reload or version-refresh reload.
+- Web app shell and version manifest now send no-cache headers, while hashed assets remain immutable, so the update button reliably loads the newest bundle.
+
 ## [0.5.1] - 2026-07-12
 
 ### Fixed
