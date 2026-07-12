@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analytics export output now uses the current analytics DTO field names for average win/loss and symbol trade counts.
 - App TypeScript config now uses the TypeScript 5.x-compatible `ignoreDeprecations` value.
 
+### Fixed
+
+- Browser reloads now restore the authenticated workspace from HttpOnly session cookies instead of forcing Google sign-in again.
+- Auth cookies now include a server-side refresh token cookie so expired Supabase access tokens can be renewed without exposing long-lived tokens to frontend JavaScript.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

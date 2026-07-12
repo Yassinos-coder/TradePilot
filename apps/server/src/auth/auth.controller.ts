@@ -5,7 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RequestUser } from './types/request-user.type';
 import { AuthService } from './auth.service';
-import { buildAuthCookie, buildClearAuthCookie } from './auth-cookie.util';
+import { buildAuthCookies, buildClearAuthCookies } from './auth-cookie.util';
 
 @Controller('auth')
 export class AuthController {
@@ -14,6 +14,7 @@ export class AuthController {
   @Post('session')
   async setSessionCookie(
     @Body('accessToken') accessToken: string,
+    @Body('refreshToken') refreshToken: string | undefined,
     @Req() request: any,
     @Res({ passthrough: true }) response: any,
   ) {
@@ -21,7 +22,7 @@ export class AuthController {
       ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
       userAgent: request.headers['user-agent'] ?? null,
     });
-    response.setHeader('Set-Cookie', buildAuthCookie(accessToken, request));
+    response.setHeader('Set-Cookie', buildAuthCookies(accessToken, refreshToken, request));
     return { success: true };
   }
 
@@ -30,7 +31,7 @@ export class AuthController {
     @Req() request: any,
     @Res({ passthrough: true }) response: any,
   ) {
-    response.setHeader('Set-Cookie', buildClearAuthCookie(request));
+    response.setHeader('Set-Cookie', buildClearAuthCookies(request));
     return { success: true };
   }
 

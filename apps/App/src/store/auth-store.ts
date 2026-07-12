@@ -2,6 +2,7 @@ import { UserDTO } from '@tradepilot/shared';
 import { Session } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
+import { apiClient } from '../lib/api';
 import { clearAuthCookie, syncAuthCookie } from '../lib/auth-cookie';
 import { supabase, supabaseEnv } from '../lib/supabase';
 
@@ -44,10 +45,24 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
       await syncAuthCookie(session);
 
+      let user: UserDTO | null = null;
+      let isAuthenticated = Boolean(session);
+
+      if (!session) {
+        try {
+          user = await apiClient.profile();
+          isAuthenticated = true;
+        } catch {
+          user = null;
+          isAuthenticated = false;
+        }
+      }
+
       set((state) => ({
         ...state,
-        isAuthenticated: Boolean(session),
+        isAuthenticated,
         session,
+        user: user ?? state.user,
         isLoading: false,
         error: null,
       }));

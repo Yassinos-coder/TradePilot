@@ -22,7 +22,6 @@ import { TradeCopierPage } from './pages/TradeCopierPage';
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isLoading = useAuthStore((state) => state.isLoading);
-  const session = useAuthStore((state) => state.session);
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
   const logout = useAuthStore((state) => state.logout);
@@ -30,7 +29,7 @@ function ProtectedLayout() {
   const profileQuery = useQuery({
     queryKey: ['profile'],
     queryFn: apiClient.profile,
-    enabled: isAuthenticated && Boolean(session?.access_token),
+    enabled: isAuthenticated,
     retry: false,
   });
 

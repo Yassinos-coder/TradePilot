@@ -10,6 +10,11 @@ interface AuthRequestContext {
   userAgent?: string | null;
 }
 
+export interface RefreshedAuthSession {
+  accessToken: string;
+  refreshToken?: string;
+}
+
 function getSessionIdFromJwt(token: string): string | null {
   const parts = token.split('.');
 
@@ -67,6 +72,21 @@ export class AuthService {
       sessionId,
       ipAddress: context?.ipAddress ?? null,
       userAgent: context?.userAgent ?? null,
+    };
+  }
+
+  async refreshSession(refreshToken: string): Promise<RefreshedAuthSession> {
+    const { data, error } = await this.databaseService.getClient().auth.refreshSession({
+      refresh_token: refreshToken,
+    });
+
+    if (error || !data.session?.access_token) {
+      throw new UnauthorizedException('Invalid or expired Supabase session');
+    }
+
+    return {
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token ?? refreshToken,
     };
   }
 

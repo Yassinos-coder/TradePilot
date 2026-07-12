@@ -7,34 +7,61 @@ import {
 
 import { RequestUser } from '../../auth/types/request-user.type';
 import { AuthService } from '../../auth/auth.service';
-import { readCookie } from '../../auth/auth-cookie.util';
+import { buildAuthCookies, readCookie, readRefreshCookie } from '../../auth/auth-cookie.util';
+
+interface AuthenticatedRequest {
+  headers: { authorization?: string; cookie?: string; 'user-agent'?: string };
+  ip?: string;
+  secure?: boolean;
+  socket?: { remoteAddress?: string };
+  user?: RequestUser;
+}
+
+interface CookieResponse {
+  setHeader: (name: string, value: string | string[]) => void;
+}
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(private readonly authService: AuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<{
-      headers: { authorization?: string; cookie?: string; 'user-agent'?: string };
-      ip?: string;
-      socket?: { remoteAddress?: string };
-      user?: RequestUser;
-    }>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const response = context.switchToHttp().getResponse<CookieResponse>();
     const authHeader = request.headers.authorization;
-    const accessToken = authHeader?.startsWith('Bearer ')
+    const bearerToken = authHeader?.startsWith('Bearer ')
       ? authHeader.slice('Bearer '.length)
-      : readCookie(request.headers.cookie);
+      : undefined;
+    const cookieToken = readCookie(request.headers.cookie);
+    const accessToken = bearerToken ?? cookieToken;
+    const refreshToken = readRefreshCookie(request.headers.cookie);
 
     if (!accessToken) {
       throw new UnauthorizedException('Missing Supabase auth cookie');
     }
-    request.user = await this.authService.authenticateAccessToken(
-      accessToken,
-      {
-        ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
-        userAgent: request.headers['user-agent'] ?? null,
-      },
-    );
+
+    const authContext = {
+      ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+    };
+
+    try {
+      request.user = await this.authService.authenticateAccessToken(accessToken, authContext);
+    } catch (error) {
+      if (!refreshToken || bearerToken) {
+        throw error;
+      }
+
+      const refreshed = await this.authService.refreshSession(refreshToken);
+      response.setHeader(
+        'Set-Cookie',
+        buildAuthCookies(refreshed.accessToken, refreshed.refreshToken, request),
+      );
+      request.user = await this.authService.authenticateAccessToken(
+        refreshed.accessToken,
+        authContext,
+      );
+    }
 
     return true;
   }
