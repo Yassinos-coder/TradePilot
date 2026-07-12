@@ -46,8 +46,11 @@ export class AccountsController {
   }
 
   @Get()
-  listAccounts(@CurrentUser() user: RequestUser) {
-    return this.accountsService.listAccounts(user.userId);
+  listAccounts(
+    @CurrentUser() user: RequestUser,
+    @Query('includeHidden') includeHidden?: string,
+  ) {
+    return this.accountsService.listAccounts(user.userId, includeHidden === 'true');
   }
 
   @Post()
@@ -62,5 +65,16 @@ export class AccountsController {
   @HttpCode(204)
   deleteAccount(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.accountsService.deleteAccount(user.userId, id);
+  }
+
+  @Post(':id/hide')
+  hideAccount(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.accountsService.hideAccount(user.userId, id);
+  }
+
+  @Delete(':id/records')
+  @HttpCode(204)
+  deleteAccountRecords(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.accountsService.deleteAccountRecords(user.userId, id);
   }
 }

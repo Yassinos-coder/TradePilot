@@ -20,15 +20,15 @@ function formatAsText(a: AnalyticsSummaryDTO): string {
     `Wins:               ${a.wins}`,
     `Losses:             ${a.losses}`,
     `Profit Factor:      ${a.profitFactor?.toFixed(2) ?? 'N/A'}`,
-    `Avg Win:            $${a.averageWin?.toFixed(2) ?? 'N/A'}`,
-    `Avg Loss:           $${a.averageLoss?.toFixed(2) ?? 'N/A'}`,
+    `Avg Win:            $${a.avgWin?.toFixed(2) ?? 'N/A'}`,
+    `Avg Loss:           $${a.avgLoss?.toFixed(2) ?? 'N/A'}`,
     `Max Drawdown:       ${a.maxDrawdownPercent?.toFixed(2) ?? 'N/A'}%`,
     `Sharpe Ratio:       ${a.sharpeRatio?.toFixed(2) ?? 'N/A'}`,
     `Calmar Ratio:       ${a.calmarRatio?.toFixed(2) ?? 'N/A'}`,
     `Sortino Ratio:      ${a.sortinoRatio?.toFixed(2) ?? 'N/A'}`,
     '',
     '--- Symbol Breakdown ---',
-    ...(a.bySymbol ?? []).map((s) => `  ${s.symbol}: ${s.tradeCount} trades, $${s.netProfit.toFixed(2)}`),
+    ...(a.bySymbol ?? []).map((s) => `  ${s.symbol}: ${s.trades} trades, $${s.netProfit.toFixed(2)}`),
   ];
   return lines.join('\n');
 }

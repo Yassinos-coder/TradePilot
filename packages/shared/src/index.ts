@@ -232,6 +232,7 @@ export const accountDtoSchema = z.object({
   name: z.string().min(1),
   broker: z.string().nullable().optional(),
   source: accountSourceSchema.default('EA'),
+  hidden: z.boolean().default(false),
   online: z.boolean().default(false),
   latencyMs: z.number().int().nonnegative().nullable().optional(),
   lastSeenAt: z.string().nullable().optional(),

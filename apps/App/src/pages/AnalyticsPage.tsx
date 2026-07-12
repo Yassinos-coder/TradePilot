@@ -8,6 +8,7 @@ import { Pagination } from '../components/ui/Pagination';
 import {
   AlertTriangle,
   BarChart3,
+  EyeOff,
   FileText,
   Gauge,
   RefreshCw,
@@ -417,6 +418,7 @@ export function AnalyticsPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [historyUploadError, setHistoryUploadError] = useState<string | null>(null);
+  const [accountActionError, setAccountActionError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const accountId = selectedAccountId === 'all' ? undefined : selectedAccountId;
@@ -462,6 +464,39 @@ export function AnalyticsPage() {
         queryClient.invalidateQueries({ queryKey: ['execution', 'analytics'] }),
         queryClient.invalidateQueries({ queryKey: ['execution', 'trades'] }),
       ]);
+    },
+  });
+
+  const hideAccountMutation = useMutation({
+    mutationFn: apiClient.hideAccount,
+    onMutate: () => setAccountActionError(null),
+    onSuccess: async () => {
+      setSelectedAccountId('all');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'analytics'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'trades'] }),
+      ]);
+    },
+    onError: (error) => {
+      setAccountActionError(error instanceof Error ? error.message : 'Failed to hide account.');
+    },
+  });
+
+  const deleteAccountRecordsMutation = useMutation({
+    mutationFn: apiClient.deleteAccountRecords,
+    onMutate: () => setAccountActionError(null),
+    onSuccess: async () => {
+      setSelectedAccountId('all');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'analytics'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'trades'] }),
+        queryClient.invalidateQueries({ queryKey: ['execution', 'history-files'] }),
+      ]);
+    },
+    onError: (error) => {
+      setAccountActionError(error instanceof Error ? error.message : 'Failed to delete account records.');
     },
   });
 
@@ -518,6 +553,32 @@ export function AnalyticsPage() {
     [deleteHistoryMutation],
   );
 
+  const handleHideAccount = useCallback(
+    (account: { id: string; name: string; externalAccountId?: string | null }) => {
+      const label = `${account.name}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
+      const confirmed = window.confirm(
+        `Hide ${label} from analytics?\n\nThis keeps the database records but removes the account from the selector and from All accounts analytics.`,
+      );
+      if (confirmed) {
+        hideAccountMutation.mutate(account.id);
+      }
+    },
+    [hideAccountMutation],
+  );
+
+  const handleDeleteAccountRecords = useCallback(
+    (account: { id: string; name: string; externalAccountId?: string | null }) => {
+      const label = `${account.name}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
+      const confirmed = window.confirm(
+        `Permanently delete records for ${label}?\n\nThis removes stored trades, snapshots, symbol mappings, execution logs, and the account row from TradePilot. This cannot be undone. If the EA reconnects, a fresh account row can be created again.`,
+      );
+      if (confirmed) {
+        deleteAccountRecordsMutation.mutate(account.id);
+      }
+    },
+    [deleteAccountRecordsMutation],
+  );
+
   const a = analyticsQuery.data;
   const trades = tradesQuery.data ?? [];
 
@@ -562,6 +623,10 @@ export function AnalyticsPage() {
       value: `upload:${file.id}`,
     })),
   ];
+
+  const selectedLiveAccount = (accountsQuery.data ?? []).find(
+    (acc) => acc.externalAccountId === selectedAccountId,
+  );
 
   const overviewStats = [
     {
@@ -881,6 +946,47 @@ export function AnalyticsPage() {
               </button>
             </div>
           </div>
+
+          {selectedLiveAccount ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Manage {selectedLiveAccount.name} ({selectedLiveAccount.externalAccountId})
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Hide keeps the records but excludes this account from the selector and All accounts analytics. Delete records permanently removes stored trades, snapshots, logs, and symbols for this account.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleHideAccount(selectedLiveAccount)}
+                    disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
+                    className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-all hover:bg-amber-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                  >
+                    <EyeOff className="h-4 w-4" />
+                    {hideAccountMutation.isPending ? 'Hiding…' : 'Hide account'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteAccountRecords(selectedLiveAccount)}
+                    disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
+                    className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 transition-all hover:bg-red-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deleteAccountRecordsMutation.isPending ? 'Deleting…' : 'Delete records'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {accountActionError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+              {accountActionError}
+            </div>
+          ) : null}
 
           {historyUploadError ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">

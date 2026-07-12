@@ -655,7 +655,10 @@ export class ExecutionService {
       throw new InternalServerErrorException(error.message);
     }
 
-    const trades = (data ?? []) as TradeExecutionRecord[];
+    const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
+    const trades = ((data ?? []) as TradeExecutionRecord[]).filter(
+      (trade) => !hiddenAccountIds.includes(trade.account_id),
+    );
 
     const dayMap = new Map<
       string,
@@ -751,7 +754,10 @@ export class ExecutionService {
       throw new InternalServerErrorException(error.message);
     }
 
-    return (data ?? []).map((trade) => this.toTradeExecutionDto(trade as TradeExecutionRecord));
+    const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
+    return ((data ?? []) as TradeExecutionRecord[])
+      .filter((trade) => !hiddenAccountIds.includes(trade.account_id))
+      .map((trade) => this.toTradeExecutionDto(trade));
   }
 
   async getLatestAccountStatus(
@@ -848,7 +854,10 @@ export class ExecutionService {
       throw new InternalServerErrorException(error.message);
     }
 
-    const closedTrades = (data ?? []) as TradeExecutionRecord[];
+    const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
+    const closedTrades = ((data ?? []) as TradeExecutionRecord[]).filter(
+      (trade) => !hiddenAccountIds.includes(trade.account_id),
+    );
     const chronological = [...closedTrades].sort(
       (a, b) => new Date(a.closed_at ?? a.updated_at).getTime() - new Date(b.closed_at ?? b.updated_at).getTime(),
     );
@@ -912,7 +921,9 @@ export class ExecutionService {
       netProfit: number;
     };
 
-    const snapshots = (snapshotData ?? []) as SnapshotPoint[];
+    const snapshots = ((snapshotData ?? []) as SnapshotPoint[]).filter(
+      (snapshot) => !hiddenAccountIds.includes(snapshot.account_id),
+    );
 
     const firstSnapshotByAccount = new Map<string, SnapshotPoint>();
     const latestSnapshotByAccount = new Map<string, SnapshotPoint>();
@@ -2130,6 +2141,28 @@ export class ExecutionService {
     if (error) {
       throw new InternalServerErrorException(error.message);
     }
+  }
+
+  private async listHiddenAccountIds(userId: string): Promise<string[]> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('settings')
+      .select('sessions')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const sessions = (data?.sessions ?? {}) as { hiddenAccountIds?: unknown };
+    if (!Array.isArray(sessions.hiddenAccountIds)) {
+      return [];
+    }
+
+    return sessions.hiddenAccountIds.filter(
+      (accountId): accountId is string => typeof accountId === 'string' && accountId.length > 0,
+    );
   }
 
   private toExecutionLogDto(log: ExecutionLogRecord): ExecutionLogDTO {

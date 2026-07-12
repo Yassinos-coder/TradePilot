@@ -133,6 +133,13 @@ export const apiClient = {
   async deleteAccount(id: string) {
     await api.delete(`/accounts/${id}`);
   },
+  async hideAccount(id: string) {
+    const { data } = await api.post<AccountDTO>(`/accounts/${id}/hide`);
+    return data;
+  },
+  async deleteAccountRecords(id: string) {
+    await api.delete(`/accounts/${id}/records`);
+  },
   async signals(options?: {
     limit?: number;
     filter?: SignalHistoryFilter;

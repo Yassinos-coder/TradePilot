@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 
 import {
   AccountDTO,
@@ -15,6 +15,10 @@ import {
 } from '../database/database.types';
 import { EaGatewayService } from '../ea/ea-gateway.service';
 
+type AccountVisibilitySessions = Record<string, unknown> & {
+  hiddenAccountIds?: unknown;
+};
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -22,8 +26,8 @@ export class AccountsService {
     private readonly gateway: EaGatewayService,
   ) {}
 
-  async listAccounts(userId: string): Promise<AccountDTO[]> {
-    const [accountsResult, snapshotsResult, connectionState] = await Promise.all([
+  async listAccounts(userId: string, includeHidden = false): Promise<AccountDTO[]> {
+    const [accountsResult, snapshotsResult, connectionState, hiddenAccountIds] = await Promise.all([
       this.databaseService
         .getClient()
         .from('accounts')
@@ -38,6 +42,7 @@ export class AccountsService {
         .order('created_at', { ascending: false })
         .limit(250),
       this.gateway.getConnectionState(userId),
+      this.listHiddenAccountIds(userId),
     ]);
 
     if (accountsResult.error) {
@@ -60,27 +65,30 @@ export class AccountsService {
       connectionState.accounts.map((account) => [account.accountId, account]),
     );
 
-    return ((accountsResult.data ?? []) as AccountRecord[]).map((account) => {
-      const externalAccountId = account.external_account_id ?? null;
-      const live = externalAccountId ? liveAccounts.get(externalAccountId) : null;
-      const latestStatus =
-        externalAccountId && latestStatusByAccount.has(externalAccountId)
-          ? this.toAccountStatusDto(latestStatusByAccount.get(externalAccountId)!)
-          : null;
+    return ((accountsResult.data ?? []) as AccountRecord[])
+      .filter((account) => includeHidden || !this.isAccountHidden(account, hiddenAccountIds))
+      .map((account) => {
+        const externalAccountId = account.external_account_id ?? null;
+        const live = externalAccountId ? liveAccounts.get(externalAccountId) : null;
+        const latestStatus =
+          externalAccountId && latestStatusByAccount.has(externalAccountId)
+            ? this.toAccountStatusDto(latestStatusByAccount.get(externalAccountId)!)
+            : null;
 
-      return accountDtoSchema.parse({
-        id: account.id,
-        externalAccountId,
-        name: account.name,
-        broker: account.broker,
-        source: account.source,
-        online: Boolean(live),
-        latencyMs: live?.latencyMs ?? account.latency_ms ?? null,
-        lastSeenAt: live?.lastSeenAt ?? account.last_seen_at ?? latestStatus?.reportedAt ?? null,
-        latestStatus,
-        createdAt: account.created_at,
+        return accountDtoSchema.parse({
+          id: account.id,
+          externalAccountId,
+          name: account.name,
+          broker: account.broker,
+          source: account.source,
+          hidden: this.isAccountHidden(account, hiddenAccountIds),
+          online: Boolean(live),
+          latencyMs: live?.latencyMs ?? account.latency_ms ?? null,
+          lastSeenAt: live?.lastSeenAt ?? account.last_seen_at ?? latestStatus?.reportedAt ?? null,
+          latestStatus,
+          createdAt: account.created_at,
+        });
       });
-    });
   }
 
   async createAccount(userId: string, payload: CreateAccountInput): Promise<AccountDTO> {
@@ -100,7 +108,7 @@ export class AccountsService {
       throw new InternalServerErrorException(error?.message ?? 'Failed to create account');
     }
 
-    return this.toAccountDto(account as AccountRecord, null);
+    return this.toAccountDto(account as AccountRecord, null, []);
   }
 
   async deleteAccount(userId: string, accountId: string): Promise<void> {
@@ -114,6 +122,88 @@ export class AccountsService {
     if (error) {
       throw new InternalServerErrorException(error.message);
     }
+  }
+
+  async hideAccount(userId: string, accountId: string): Promise<AccountDTO> {
+    const { data: account, error } = await this.databaseService
+      .getClient()
+      .from('accounts')
+      .select('*')
+      .eq('id', accountId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    const currentHiddenAccountIds = await this.listHiddenAccountIds(userId);
+    const hiddenAccountIds = new Set(currentHiddenAccountIds);
+    hiddenAccountIds.add(accountId);
+    const externalAccountId = (account as AccountRecord).external_account_id;
+    if (externalAccountId) {
+      hiddenAccountIds.add(externalAccountId);
+    }
+
+    const nextHiddenAccountIds = [...hiddenAccountIds];
+    await this.saveHiddenAccountIds(userId, nextHiddenAccountIds);
+
+    return this.toAccountDto(account as AccountRecord, null, nextHiddenAccountIds);
+  }
+
+  async deleteAccountRecords(userId: string, accountId: string): Promise<void> {
+    const client = this.databaseService.getClient();
+    const { data: account, error: accountError } = await client
+      .from('accounts')
+      .select('*')
+      .eq('id', accountId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (accountError) {
+      throw new InternalServerErrorException(accountError.message);
+    }
+
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    const externalAccountId = (account as AccountRecord).external_account_id;
+    const accountIds = [accountId, externalAccountId].filter(Boolean) as string[];
+
+    for (const targetAccountId of accountIds) {
+      const deleteResults = await Promise.all([
+        client.from('trade_executions').delete().eq('user_id', userId).eq('account_id', targetAccountId),
+        client.from('execution_logs').delete().eq('user_id', userId).eq('account_id', targetAccountId),
+        client.from('ea_account_status_snapshots').delete().eq('user_id', userId).eq('account_id', targetAccountId),
+        client.from('user_symbols').delete().eq('user_id', userId).eq('account_id', targetAccountId),
+      ]);
+
+      const deleteError = deleteResults.find((result) => result.error)?.error;
+      if (deleteError) {
+        throw new InternalServerErrorException(deleteError.message);
+      }
+    }
+
+    const { error: deleteAccountError } = await client
+      .from('accounts')
+      .delete()
+      .eq('id', accountId)
+      .eq('user_id', userId);
+
+    if (deleteAccountError) {
+      throw new InternalServerErrorException(deleteAccountError.message);
+    }
+
+    const hiddenAccountIds = new Set(await this.listHiddenAccountIds(userId));
+    for (const id of accountIds) {
+      hiddenAccountIds.delete(id);
+    }
+    await this.saveHiddenAccountIds(userId, [...hiddenAccountIds]);
   }
 
   async getLatestAccountStatus(
@@ -173,9 +263,71 @@ export class AccountsService {
     );
   }
 
+  private async listHiddenAccountIds(userId: string): Promise<string[]> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('settings')
+      .select('sessions')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return this.extractHiddenAccountIds((data?.sessions ?? {}) as AccountVisibilitySessions);
+  }
+
+  private async saveHiddenAccountIds(userId: string, hiddenAccountIds: string[]): Promise<void> {
+    const client = this.databaseService.getClient();
+    const { data, error } = await client
+      .from('settings')
+      .select('sessions')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    if (!data) {
+      throw new NotFoundException('Settings not found');
+    }
+
+    const sessions = ((data.sessions ?? {}) as AccountVisibilitySessions) ?? {};
+    const nextSessions = {
+      ...sessions,
+      hiddenAccountIds: [...new Set(hiddenAccountIds)],
+    };
+
+    const { error: updateError } = await client
+      .from('settings')
+      .update({ sessions: nextSessions })
+      .eq('user_id', userId);
+
+    if (updateError) {
+      throw new InternalServerErrorException(updateError.message);
+    }
+  }
+
+  private extractHiddenAccountIds(sessions: AccountVisibilitySessions): string[] {
+    if (!Array.isArray(sessions.hiddenAccountIds)) {
+      return [];
+    }
+
+    return sessions.hiddenAccountIds.filter(
+      (accountId): accountId is string => typeof accountId === 'string' && accountId.length > 0,
+    );
+  }
+
+  private isAccountHidden(account: AccountRecord, hiddenAccountIds: string[]): boolean {
+    return hiddenAccountIds.includes(account.id) || Boolean(account.external_account_id && hiddenAccountIds.includes(account.external_account_id));
+  }
+
   private toAccountDto(
     account: AccountRecord,
     latestStatus: AccountStatusDTO | null,
+    hiddenAccountIds: string[],
   ): AccountDTO {
     return accountDtoSchema.parse({
       id: account.id,
@@ -183,6 +335,7 @@ export class AccountsService {
       name: account.name,
       broker: account.broker,
       source: account.source,
+      hidden: this.isAccountHidden(account, hiddenAccountIds),
       online: false,
       latencyMs: account.latency_ms,
       lastSeenAt: account.last_seen_at,

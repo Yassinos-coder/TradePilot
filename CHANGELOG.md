@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-07-12
+
+### Added
+
+- **Analytics account management** — selected live accounts can now be hidden from the Analytics account selector and excluded from aggregate “All accounts” views without deleting stored records.
+- **Permanent account record deletion** — destructive account cleanup action removes stored trades, execution logs, EA status snapshots, user symbol mappings, and the account row after confirmation.
+
+### Changed
+
+- Aggregate analytics, recent trades, and daily P/L now respect hidden-account preferences stored in existing settings metadata, avoiding a required production database migration.
+- Analytics export output now uses the current analytics DTO field names for average win/loss and symbol trade counts.
+- App TypeScript config now uses the TypeScript 5.x-compatible `ignoreDeprecations` value.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
