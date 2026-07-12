@@ -8,11 +8,13 @@ export const AUTH_REFRESH_COOKIE_NAME = 'app_refresh_token';
 
 export function readCookie(header: string | undefined, name = AUTH_COOKIE_NAME): string | undefined {
   if (!header) return undefined;
-  return header
+  const encodedValue = header
     .split(';')
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${name}=`))
     ?.slice(name.length + 1);
+
+  return encodedValue ? decodeURIComponent(encodedValue) : undefined;
 }
 
 export function readRefreshCookie(header: string | undefined): string | undefined {

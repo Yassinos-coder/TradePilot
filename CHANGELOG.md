@@ -21,7 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Browser reloads now restore the authenticated workspace from HttpOnly session cookies instead of forcing Google sign-in again.
-- Auth cookies now include a server-side refresh token cookie so expired Supabase access tokens can be renewed without exposing long-lived tokens to frontend JavaScript.
+- OAuth callback now re-initializes the app auth store after creating the backend session cookie, preventing an immediate redirect back to sign-in on refresh/navigation.
+- Auth cookies now include a server-side refresh token cookie so expired or missing Supabase access-token cookies can be renewed without exposing long-lived tokens to frontend JavaScript.
+
+## [0.5.1] - 2026-07-12
+
+### Fixed
+
+- Released app version bump for the browser session persistence fix.
 
 ## [0.5.0] - 2026-07-03
 

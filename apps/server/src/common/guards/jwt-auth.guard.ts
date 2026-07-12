@@ -36,14 +36,27 @@ export class JwtAuthGuard implements CanActivate {
     const accessToken = bearerToken ?? cookieToken;
     const refreshToken = readRefreshCookie(request.headers.cookie);
 
-    if (!accessToken) {
-      throw new UnauthorizedException('Missing Supabase auth cookie');
-    }
-
     const authContext = {
       ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
       userAgent: request.headers['user-agent'] ?? null,
     };
+
+    if (!accessToken) {
+      if (!refreshToken) {
+        throw new UnauthorizedException('Missing Supabase auth cookie');
+      }
+
+      const refreshed = await this.authService.refreshSession(refreshToken);
+      response.setHeader(
+        'Set-Cookie',
+        buildAuthCookies(refreshed.accessToken, refreshed.refreshToken, request),
+      );
+      request.user = await this.authService.authenticateAccessToken(
+        refreshed.accessToken,
+        authContext,
+      );
+      return true;
+    }
 
     try {
       request.user = await this.authService.authenticateAccessToken(accessToken, authContext);

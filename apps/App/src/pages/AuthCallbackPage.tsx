@@ -23,6 +23,7 @@ export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const initializeAuth = useAuthStore((s) => s.initialize);
   const callbackError = useMemo(() => getCallbackError(searchParams), [searchParams]);
   const [asyncError, setAsyncError] = useState<string | null>(null);
 
@@ -43,21 +44,27 @@ export function AuthCallbackPage() {
     let active = true;
     let timeoutId: number | undefined;
 
+    const completeSignIn = async (session: NonNullable<Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']>) => {
+      await syncAuthCookie(session);
+      await initializeAuth();
+      navigate(redirectTo, { replace: true });
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active || !session) return;
-      void syncAuthCookie(session).finally(() => navigate(redirectTo, { replace: true }));
+      void completeSignIn(session);
     });
 
     const settle = async () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (!active) return;
       if (sessionError) { setAsyncError(sessionError.message); return; }
-      if (session) { await syncAuthCookie(session); navigate(redirectTo, { replace: true }); return; }
+      if (session) { await completeSignIn(session); return; }
 
       timeoutId = window.setTimeout(async () => {
         const { data: { session: retry } } = await supabase.auth.getSession();
         if (!active) return;
-        if (retry) { await syncAuthCookie(retry); navigate(redirectTo, { replace: true }); return; }
+        if (retry) { await completeSignIn(retry); return; }
         setAsyncError('Sign-in could not be completed. Please request a new magic link.');
       }, CALLBACK_TIMEOUT_MS);
     };
@@ -68,7 +75,7 @@ export function AuthCallbackPage() {
       subscription.unsubscribe();
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [error, navigate, redirectTo]);
+  }, [error, initializeAuth, navigate, redirectTo]);
 
   if (isAuthenticated && !error) return <Navigate to={redirectTo} replace />;
 
