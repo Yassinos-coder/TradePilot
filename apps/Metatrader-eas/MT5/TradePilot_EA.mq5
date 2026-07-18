@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.15"
+#property version   "3.16"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -50,11 +50,33 @@ void Log(string msg) {
 }
 
 string EscapeJson(string value) {
-   string result = value;
-   StringReplace(result, "\\", "\\\\");
-   StringReplace(result, "\"", "\\\"");
-   StringReplace(result, "\r", " ");
-   StringReplace(result, "\n", " ");
+   string result = "";
+   int len = StringLen(value);
+
+   for (int i = 0; i < len; i++) {
+      ushort c = StringGetCharacter(value, i);
+
+      if (c == '\\') {
+         result += "\\\\";
+      } else if (c == '"') {
+         result += "\\\"";
+      } else if (c == 8) {
+         result += "\\b";
+      } else if (c == 9) {
+         result += "\\t";
+      } else if (c == 10) {
+         result += "\\n";
+      } else if (c == 12) {
+         result += "\\f";
+      } else if (c == 13) {
+         result += "\\r";
+      } else if (c < 32) {
+         result += StringFormat("\\u%04X", c);
+      } else {
+         result += CharToString(c);
+      }
+   }
+
    return result;
 }
 
@@ -175,13 +197,25 @@ void WsBuildFrame(string text, uchar &frame[]) {
    int plen = StringToCharArray(text, payload, 0, WHOLE_ARRAY, CP_UTF8) - 1;
 
    int headerLen = 2;
-   bool extended = (plen > 125);
-   if (extended) headerLen += 2;
+   if (plen > 65535)
+      headerLen += 8;
+   else if (plen > 125)
+      headerLen += 2;
    int totalLen = headerLen + 4 + plen;
 
    ArrayResize(frame, totalLen);
    frame[0] = 0x81;
-   if (extended) {
+   if (plen > 65535) {
+      frame[1] = (uchar)(0x80 | 0x7F);
+      frame[2] = 0;
+      frame[3] = 0;
+      frame[4] = 0;
+      frame[5] = 0;
+      frame[6] = (uchar)((plen >> 24) & 0xFF);
+      frame[7] = (uchar)((plen >> 16) & 0xFF);
+      frame[8] = (uchar)((plen >> 8) & 0xFF);
+      frame[9] = (uchar)(plen & 0xFF);
+   } else if (plen > 125) {
       frame[1] = (uchar)(0x80 | 0x7E);
       frame[2] = (uchar)((plen >> 8) & 0xFF);
       frame[3] = (uchar)(plen & 0xFF);
@@ -451,17 +485,17 @@ void SendTradeEvent(
       "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%I64u\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"opening_order_type\":\"%s\",\"position_direction\":\"%s\",\"volume\":%s,\"entry_price\":%s,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%s,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
       AccountId(),
       ticket,
-      symbol,
-      side,
-      openingOrderType,
-      positionDirection,
+      EscapeJson(symbol),
+      EscapeJson(side),
+      EscapeJson(openingOrderType),
+      EscapeJson(positionDirection),
       DoubleToString(volume, 2),
       JsonNullableNumber(hasEntryPrice, entryPrice, 5),
       JsonNullableNumber(hasExitPrice, exitPrice, 5),
       JsonNullableNumber(hasStopLoss, stopLoss, 5),
       JsonNullableNumber(hasTakeProfit, takeProfit, 5),
       DoubleToString(profit, 2),
-      status,
+      EscapeJson(status),
       EscapeJson(comment),
       IsoTimestamp(openedAt),
       hasClosedAt ? "\"" + IsoTimestamp(closedAt) + "\"" : "null"
@@ -1208,7 +1242,7 @@ void Connect() {
 int OnInit() {
    EventSetMillisecondTimer(100);
    MathSrand((int)TimeLocal());
-   Log("EA v3.15 initialised, connecting");
+   Log("EA v3.16 initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }

@@ -4,7 +4,7 @@
 //| Requires: Tools > Options > Expert Advisors > Allow DLL imports  |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.00"
+#property version   "3.01"
 #property strict
 
 #import "winhttp.dll"
@@ -64,11 +64,33 @@ void Log(string msg) {
 }
 
 string EscapeJson(string value) {
-   string result = value;
-   StringReplace(result, "\\", "\\\\");
-   StringReplace(result, "\"", "\\\"");
-   StringReplace(result, "\r", " ");
-   StringReplace(result, "\n", " ");
+   string result = "";
+   int len = StringLen(value);
+
+   for (int i = 0; i < len; i++) {
+      int c = StringGetCharacter(value, i);
+
+      if (c == '\\') {
+         result += "\\\\";
+      } else if (c == '"') {
+         result += "\\\"";
+      } else if (c == 8) {
+         result += "\\b";
+      } else if (c == 9) {
+         result += "\\t";
+      } else if (c == 10) {
+         result += "\\n";
+      } else if (c == 12) {
+         result += "\\f";
+      } else if (c == 13) {
+         result += "\\r";
+      } else if (c < 32) {
+         result += StringFormat("\\u%04X", c);
+      } else {
+         result += CharToStr(c);
+      }
+   }
+
    return result;
 }
 
@@ -298,15 +320,15 @@ void SendTradeEvent(
       "{\"type\":\"trade_event\",\"accountId\":\"%s\",\"data\":{\"ticket\":\"%d\",\"signal_id\":null,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%.2f,\"entry_price\":%.5f,\"exit_price\":%s,\"stop_loss\":%s,\"take_profit\":%s,\"profit\":%.2f,\"status\":\"%s\",\"comment\":\"%s\",\"opened_at\":\"%s\",\"closed_at\":%s}}",
       AccountId(),
       ticket,
-      symbol,
-      side,
+      EscapeJson(symbol),
+      EscapeJson(side),
       volume,
       entryPrice,
       status == "OPEN" ? "null" : DoubleToStr(exitPrice, 5),
       stopLoss > 0 ? DoubleToStr(stopLoss, 5) : "null",
       takeProfit > 0 ? DoubleToStr(takeProfit, 5) : "null",
       profit,
-      status,
+      EscapeJson(status),
       EscapeJson(comment),
       IsoTimestamp(openedAt),
       status == "OPEN" ? "null" : "\"" + IsoTimestamp(closedAt) + "\""
