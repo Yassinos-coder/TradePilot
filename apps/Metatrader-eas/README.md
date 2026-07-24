@@ -39,6 +39,64 @@ Expert Advisors for MT5 and MT4 that connect to TradePilot and auto-execute sign
 
 ---
 
+## MT5 — `MT5/TradePilot_ORB_EA.mq5` (standalone ORB strategy)
+
+A fully-autonomous **Opening Range Breakout** EA — no server, no signals. It marks the New York 09:30 opening range, waits for a lower-timeframe candle to *close* outside it, and trades the breakout with an ATR stop and RR take-profit. Multi-symbol from a single chart.
+
+**Requirements:** MetaTrader 5. Native indicators only — no DLL.
+
+### Install
+
+1. Copy `TradePilot_ORB_EA.mq5` to `%APPDATA%\MetaQuotes\Terminal\<id>\MQL5\Experts\`.
+2. Open MetaEditor (F4) and compile — **0 errors, 0 warnings**.
+3. Attach to **any one chart** (it trades every symbol in `Symbols` regardless of the chart symbol).
+4. Enable **Allow Algo Trading**.
+
+### How it works
+
+1. At 09:30 New York, the first `OpeningRangeMinutes` (default 15) form the **opening range** (High/Low incl. wicks).
+2. On the confirmation timeframe (M1/M2/M5), the EA waits for a candle to **close** outside the range: close above High → **BUY**, close below Low → **SELL**.
+3. **SL** = entry ∓ `ATR × AtrMultiplier`; **TP** = entry ± `SL distance × RiskRewardRatio`.
+4. One breakout per direction per day, one trade per symbol, no re-entry until the next NY day. Exits are SL/TP only in v1.
+
+### Broker time / DST
+
+New York 09:30 is converted to broker server time with US Eastern DST applied automatically. Two modes:
+
+- **AUTO_DETECT** (default) — derives the broker's UTC offset at runtime; best for **live** trading.
+- **MANUAL_OFFSET** — set `ManualBrokerGmtOffset` (broker winter GMT offset, e.g. `+2`) and `BrokerFollowsEuDst`; deterministic and recommended for the **Strategy Tester / optimization** (where auto-detect can be unreliable).
+
+### Key inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `Symbols` | `XAUUSD,US100,US30,NZDUSD` | Comma-separated symbols to trade |
+| `SessionStartHour` / `Minute` | `9` / `30` | NY session start |
+| `OpeningRangeMinutes` | `15` | Opening range duration |
+| `EntryWindowEndHour` / `Minute` | `12` / `0` | Latest NY time to take a breakout |
+| `BrokerTimeMode` | `AUTO_DETECT` | `AUTO_DETECT` (live) or `MANUAL_OFFSET` (tester) |
+| `ManualBrokerGmtOffset` | `2` | Broker winter GMT offset (MANUAL mode) |
+| `BrokerFollowsEuDst` | `true` | Broker shifts +1h on EU summer time (MANUAL mode) |
+| `ConfirmTimeframe` | `M1` | Breakout confirmation TF (M1/M2/M5) |
+| `AtrPeriod` / `AtrTimeframe` / `AtrMultiplier` | `14` / `M15` / `1.5` | ATR stop-loss |
+| `RiskRewardRatio` | `2.0` | Take-profit as a multiple of risk |
+| `SizingMode` | `RISK_PERCENT` | `FIXED` or `RISK_PERCENT` |
+| `FixedLotSize` / `RiskPercent` | `0.10` / `1.0` | Lot per mode |
+| `MaxSpreadPoints` | `50` | Skip entry above this spread (0 = off) |
+| `TradeMonday…TradeFriday` | `true` | Allowed weekdays |
+| `MagicNumber` / `SlippagePoints` | `20260723` / `20` | Order identity / max deviation |
+| `EnableTrading` | `true` | `false` = dry-run (log only) |
+| `EnableLogging` | `true` | Verbose Experts-tab logging |
+| `ShowDashboard` | `true` | On-chart status panel (auto-off in tester) |
+
+Every parameter is an `input`, so all are optimizable in the Strategy Tester.
+
+### Backtesting
+
+Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` for the tester's server time. Test on the confirmation timeframe (e.g. M1) with "Every tick based on real ticks". For multi-symbol runs, the tester loads the other symbols' data on demand.
+
+---
+
 ## MT4 — `MT4/TradePilot_EA.mq4`
 
 **Requirements:** MetaTrader 4 on Windows (uses `winhttp.dll`, available since Windows Vista SP2).
