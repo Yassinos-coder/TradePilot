@@ -11,7 +11,7 @@
 //      outside the range:  close > rangeHigh -> BUY,  close < rangeLow -> SELL.
 //   3. One breakout per direction per day, one position at a time, no re-entry
 //      until the next NY day.
-//   4. ATR stop-loss, Risk:Reward take-profit, fixed or risk-% sizing.
+//   4. Swing +/- ATR-buffer stop-loss, fixed 2:1 take-profit, fixed or risk-% sizing.
 //
 // Differences vs the MT5 EA (platform constraints, not logic changes):
 //   * Single-symbol — a TradingView strategy trades ONLY the chart symbol.
@@ -63,13 +63,14 @@ orMins    = input.int(15, "Opening Range Minutes",     1,     group=grpSession)
 eHour     = input.int(12, "Entry Window End Hour (NY)", 0, 23, group=grpSession)
 eMin      = input.int(0,  "Entry Window End Minute (NY)", 0, 59, group=grpSession)
 
-// Stop Loss (ATR)
+// Stop Loss (swing +/- ATR buffer)
 atrPeriod = input.int(14, "ATR Period", 1, group=grpStop)
 atrTf     = input.timeframe("15", "ATR Timeframe", group=grpStop)
 atrMult   = input.float(1.5, "ATR Multiplier", minval=0.1, step=0.1, group=grpStop)
+swingLen  = input.int(5, "Swing Lookback Bars", minval=1, group=grpStop, tooltip="Long SL = recent swing low minus ATR buffer. Short SL = recent swing high plus ATR buffer. Uses completed bars before the breakout candle.")
 
 // Take Profit
-rr        = input.float(2.0, "Risk : Reward Ratio", minval=0.1, step=0.1, group=grpTp)
+fixedRR   = 2.0
 
 // Position Sizing
 sizeMode  = input.string("Risk %", "Sizing Mode", options=["Risk %", "Fixed Qty"], group=grpSizing)
@@ -120,6 +121,9 @@ isTradingDay = (dow == dayofweek.monday    and tMon) or
 // ATR (higher timeframe) — non-repainting via lookahead_off.
 // ============================================================================
 htfAtr = request.security(syminfo.tickerid, atrTf, ta.atr(atrPeriod), lookahead = barmerge.lookahead_off)
+atrBuffer = htfAtr * atrMult
+swingLow  = ta.lowest(low, swingLen)[1]
+swingHigh = ta.highest(high, swingLen)[1]
 
 // ============================================================================
 // DAILY STATE MACHINE  (mirrors CSymbolTrader in the EA)
@@ -173,7 +177,7 @@ longSig     = withinEntry and dayTradeOk and not boughtToday and close > rHigh
 shortSig    = withinEntry and dayTradeOk and not soldToday   and close < rLow
 
 flat     = strategy.position_size == 0
-canTrade = barstate.isconfirmed and flat and isTradingDay and not na(htfAtr) and htfAtr > 0
+canTrade = barstate.isconfirmed and flat and isTradingDay and not na(atrBuffer) and atrBuffer > 0 and not na(swingLow) and not na(swingHigh)
 
 // ============================================================================
 // POSITION SIZING  (mirrors CTradeMath::LotForRisk)
@@ -194,16 +198,19 @@ f_qty(slDist) =>
 var line enLn = na
 var line slLn = na
 var line tpLn = na
+var label enLbl = na
+var label slLbl = na
+var label tpLbl = na
 
 tookLong  = false
 tookShort = false
 
 if canTrade and longSig
-    slDist = htfAtr * atrMult
     en = close
-    sl = en - slDist
-    tp = en + slDist * rr
-    q  = f_qty(slDist)
+    sl = swingLow - atrBuffer
+    riskDist = en - sl
+    tp = en + riskDist * fixedRR
+    q  = f_qty(riskDist)
     if q > 0 and sl < en
         strategy.entry("Long", strategy.long, qty = q)
         strategy.exit("Long TP/SL", from_entry = "Long", stop = sl, limit = tp)
@@ -217,11 +224,11 @@ if canTrade and longSig
         tookLong := true
 
 if canTrade and shortSig
-    slDist = htfAtr * atrMult
     en = close
-    sl = en + slDist
-    tp = en - slDist * rr
-    q  = f_qty(slDist)
+    sl = swingHigh + atrBuffer
+    riskDist = sl - en
+    tp = en - riskDist * fixedRR
+    q  = f_qty(riskDist)
     if q > 0 and sl > en
         strategy.entry("Short", strategy.short, qty = q)
         strategy.exit("Short TP/SL", from_entry = "Short", stop = sl, limit = tp)
@@ -242,9 +249,18 @@ if (tookLong or tookShort) and showLevels
         line.delete(slLn)
     if not na(tpLn)
         line.delete(tpLn)
+    if not na(enLbl)
+        label.delete(enLbl)
+    if not na(slLbl)
+        label.delete(slLbl)
+    if not na(tpLbl)
+        label.delete(tpLbl)
     enLn := line.new(bar_index, lastEn, bar_index + 1, lastEn, color=color.white, style=line.style_dashed, extend=extend.right)
     slLn := line.new(bar_index, lastSl, bar_index + 1, lastSl, color=color.red,   style=line.style_dotted, extend=extend.right)
     tpLn := line.new(bar_index, lastTp, bar_index + 1, lastTp, color=color.green, style=line.style_dotted, extend=extend.right)
+    enLbl := label.new(bar_index, lastEn, "ENTRY", style=label.style_label_left, textcolor=color.black, color=color.white, size=size.small)
+    slLbl := label.new(bar_index, lastSl, "SL",    style=label.style_label_left, textcolor=color.white, color=color.red,   size=size.small)
+    tpLbl := label.new(bar_index, lastTp, "TP 2R", style=label.style_label_left, textcolor=color.white, color=color.green, size=size.small)
 
 // ============================================================================
 // VISUALS — opening-range box + high/low lines, entry markers
@@ -337,5 +353,5 @@ if showDash and bar_index == last_bar_index
     table.cell(dash, 1, 8, str.tostring(closed) + " (" + str.tostring(longCount) + " / " + str.tostring(shortCount) + ")", text_color=color.white, text_size=size.small)
 
     table.cell(dash, 0, 9, "Sizing / RR", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 9, (sizeMode == "Risk %" ? str.tostring(riskPct, "#.##") + "%" : str.tostring(fixedQty)) + " / 1:" + str.tostring(rr, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 9, (sizeMode == "Risk %" ? str.tostring(riskPct, "#.##") + "%" : str.tostring(fixedQty)) + " / 1:" + str.tostring(fixedRR, "#.##"), text_color=color.white, text_size=size.small)
 // ============================================================================
