@@ -68,9 +68,11 @@ input group "=== Position Sizing ==="
 input ESizingMode     InpSizingMode            = SIZING_RISK_PERCENT; // Lot mode
 input double          InpFixedLotSize          = 0.10;  // Fixed lot size
 input double          InpRiskPercent           = 1.0;   // Risk % of balance (Risk% mode)
+input bool            InpSkipIfRiskLotBelowMin = true;  // Risk%: skip if broker min lot would exceed target risk
 
 input group "=== Filters ==="
 input int             InpMaxSpreadPoints       = 50;    // Max spread in points (0 = disabled)
+input bool            InpRespectAnySymbolPosition = false; // Block if any position exists on symbol
 
 input group "=== Trading Schedule ==="
 input bool            InpTradeMonday           = true;
@@ -82,6 +84,7 @@ input bool            InpTradeFriday           = true;
 input group "=== Execution ==="
 input ulong           InpMagicNumber           = 20260723; // Magic number
 input int             InpSlippagePoints        = 20;       // Max slippage (points)
+input bool            InpOneTradePerSymbolDay  = true;     // true = no opposite breakout after first trade closes
 input bool            InpEnableTrading         = true;     // false = dry-run (log only)
 input bool            InpEnableLogging         = true;     // Verbose logging
 
@@ -129,7 +132,10 @@ public:
    //--- Broker server offset from UTC (seconds), per selected mode.
    static int BrokerOffsetSeconds(const datetime serverNow)
    {
-      if(InpBrokerTimeMode == BROKER_AUTO_DETECT)
+      // In the Strategy Tester, TimeGMT() is simulated from tester data and
+      // broker-offset auto-detection is not deterministic. Prefer the manual
+      // winter GMT offset path there so NY 09:30 maps consistently.
+      if(InpBrokerTimeMode == BROKER_AUTO_DETECT && !MQLInfoInteger(MQL_TESTER))
       {
          long diff    = (long)serverNow - (long)TimeGMT();
          long rounded = (long)MathRound((double)diff / 1800.0) * 1800; // nearest 30 min
@@ -270,6 +276,11 @@ public:
       return NormalizeDouble(volume, volDigits);
    }
 
+   static double MinVolume(const string sym)
+   {
+      return SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+   }
+
    //--- Read the ATR of the last completed bar. Returns false if not ready.
    static bool GetAtr(const int handle, double &atr)
    {
@@ -324,6 +335,7 @@ private:
    bool     m_rangeReady;
    double   m_rangeHigh;
    double   m_rangeLow;
+   bool     m_tradedToday;
    bool     m_boughtToday;
    bool     m_soldToday;
    datetime m_lastConfirmBar;   // new-candle detector on the confirm TF
@@ -440,6 +452,7 @@ public:
          ulong ticket = PositionGetTicket(i);
          if(ticket == 0 || !PositionSelectByTicket(ticket)) continue;
          if(PositionGetString(POSITION_SYMBOL) != m_symbol) continue;
+         if(InpRespectAnySymbolPosition) return true;
          if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
          return true;
       }
@@ -452,6 +465,7 @@ private:
       m_rangeReady     = false;
       m_rangeHigh      = 0.0;
       m_rangeLow       = 0.0;
+      m_tradedToday    = false;
       m_boughtToday    = false;
       m_soldToday      = false;
       m_lastConfirmBar = 0;
@@ -487,7 +501,14 @@ private:
          used++;
       }
 
-      if(used <= 0 || hi <= 0.0 || lo <= 0.0 || hi <= lo) return false;
+      // Avoid forming an OR from partially-synchronised history. M1 data should
+      // contain one bar per opening-range minute before the range is trusted.
+      if(used < InpOpeningRangeMinutes)
+      {
+         CLogger::Warn(m_symbol, StringFormat("Opening range history incomplete: %d/%d M1 bars - retrying", used, InpOpeningRangeMinutes));
+         return false;
+      }
+      if(hi <= 0.0 || lo <= 0.0 || hi <= lo) return false;
       m_rangeHigh = hi;
       m_rangeLow  = lo;
       return true;
@@ -496,6 +517,7 @@ private:
    //--- On each freshly-closed confirm candle, act on a range breakout.
    void TryBreakout(const datetime serverNow, const datetime rangeEnd)
    {
+      if(InpOneTradePerSymbolDay && m_tradedToday) return;
       if(m_boughtToday && m_soldToday) return;
 
       datetime entryEnd = CTimeManager::NyWallToServer(serverNow, InpEntryWindowEndHour, InpEntryWindowEndMinute);
@@ -515,12 +537,23 @@ private:
       double close1 = iClose(m_symbol, tf, 1);
       if(close1 <= 0.0) return;
 
-      // Spread filter.
-      long spread = SymbolInfoInteger(m_symbol, SYMBOL_SPREAD);
-      if(InpMaxSpreadPoints > 0 && spread > InpMaxSpreadPoints)
+      // Spread filter: calculate from the current tick so live executable
+      // spread is used instead of a possibly stale SYMBOL_SPREAD snapshot.
+      if(InpMaxSpreadPoints > 0)
       {
-         CLogger::Warn(m_symbol, StringFormat("Spread %d > max %d - skipping breakout", (int)spread, InpMaxSpreadPoints));
-         return;
+         MqlTick spreadTick;
+         double point = SymbolInfoDouble(m_symbol, SYMBOL_POINT);
+         if(!SymbolInfoTick(m_symbol, spreadTick) || spreadTick.ask <= 0.0 || spreadTick.bid <= 0.0 || point <= 0.0)
+         {
+            CLogger::Warn(m_symbol, "No valid tick for spread check - skipping breakout");
+            return;
+         }
+         double spreadPts = (spreadTick.ask - spreadTick.bid) / point;
+         if(spreadPts > InpMaxSpreadPoints)
+         {
+            CLogger::Warn(m_symbol, StringFormat("Spread %.1f > max %d - skipping breakout", spreadPts, InpMaxSpreadPoints));
+            return;
+         }
       }
 
       int digits = (int)SymbolInfoInteger(m_symbol, SYMBOL_DIGITS);
@@ -578,7 +611,15 @@ private:
       if(InpSizingMode == SIZING_RISK_PERCENT)
       {
          double riskMoney = AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPercent / 100.0;
-         lot = CTradeMath::LotForRisk(m_symbol, riskMoney, slDist);
+         double rawLot = CTradeMath::LotForRisk(m_symbol, riskMoney, slDist);
+         double minLot = CTradeMath::MinVolume(m_symbol);
+         if(InpSkipIfRiskLotBelowMin && minLot > 0.0 && rawLot > 0.0 && rawLot < minLot)
+         {
+            CLogger::Warn(m_symbol, StringFormat("Risk lot %.4f below broker min %.4f - skipping to preserve %.2f%% risk cap",
+                          rawLot, minLot, InpRiskPercent));
+            return false;
+         }
+         lot = rawLot;
       }
       lot = CTradeMath::NormalizeVolume(m_symbol, lot);
       if(lot <= 0.0)
@@ -596,13 +637,14 @@ private:
                        side, lot, DoubleToString(entry, digits), DoubleToString(sl, digits),
                        DoubleToString(tp, digits), DoubleToString(atr, digits), InpRiskRewardRatio));
          if(isBuy) m_boughtToday = true; else m_soldToday = true;
+         m_tradedToday = true;
          return true;
       }
 
       // Pre-trade validation (connection, permissions, symbol mode, margin).
       string reason;
       ENUM_ORDER_TYPE ot = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-      if(!CanOpen(ot, lot, reason))
+      if(!CanOpen(ot, lot, sl, tp, reason))
       {
          CLogger::Error(m_symbol, "Entry blocked: " + reason);
          return false;
@@ -617,22 +659,25 @@ private:
               ? g_trade.Buy(lot, m_symbol, 0.0, sl, tp, comment)
               : g_trade.Sell(lot, m_symbol, 0.0, sl, tp, comment);
 
-      if(ok)
+      uint rc = g_trade.ResultRetcode();
+      if(ok && (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED || rc == TRADE_RETCODE_DONE_PARTIAL))
       {
          if(isBuy) m_boughtToday = true; else m_soldToday = true;
-         CLogger::Info(m_symbol, StringFormat("%s EXECUTED lot=%.2f entry~%s SL=%s TP=%s ATR=%s RR=%.2f",
+         m_tradedToday = true;
+         CLogger::Info(m_symbol, StringFormat("%s EXECUTED lot=%.2f entry~%s SL=%s TP=%s ATR=%s RR=%.2f rc=%d %s",
                        side, lot, DoubleToString(entry, digits), DoubleToString(sl, digits),
-                       DoubleToString(tp, digits), DoubleToString(atr, digits), InpRiskRewardRatio));
+                       DoubleToString(tp, digits), DoubleToString(atr, digits), InpRiskRewardRatio,
+                       rc, g_trade.ResultRetcodeDescription()));
          return true;
       }
 
-      CLogger::Error(m_symbol, StringFormat("Order failed rc=%d %s",
-                     g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
+      CLogger::Error(m_symbol, StringFormat("Order failed ok=%s rc=%d %s",
+                     ok ? "true" : "false", rc, g_trade.ResultRetcodeDescription()));
       return false;
    }
 
    //--- Broker/permission/margin gate before sending an order.
-   bool CanOpen(const ENUM_ORDER_TYPE ot, const double volume, string &reason)
+   bool CanOpen(const ENUM_ORDER_TYPE ot, const double volume, const double sl, const double tp, string &reason)
    {
       reason = "";
 
@@ -657,6 +702,24 @@ private:
       { reason = "no valid market prices"; return false; }
 
       double price  = (ot == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
+
+      double point = SymbolInfoDouble(m_symbol, SYMBOL_POINT);
+      long stopsLevel = SymbolInfoInteger(m_symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      long freezeLevel = SymbolInfoInteger(m_symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      long minLevel = (stopsLevel > freezeLevel) ? stopsLevel : freezeLevel;
+      if(point > 0.0 && minLevel > 0)
+      {
+         double minDist = minLevel * point;
+         double slDist = MathAbs(price - sl);
+         double tpDist = MathAbs(tp - price);
+         if(slDist < minDist || tpDist < minDist)
+         {
+            reason = StringFormat("SL/TP too close for broker stop level: SL %.1f pts TP %.1f pts min %d pts",
+                                  slDist / point, tpDist / point, (int)minLevel);
+            return false;
+         }
+      }
+
       double margin = 0.0;
       if(!OrderCalcMargin(ot, m_symbol, volume, price, margin))
       { reason = StringFormat("margin calc failed err=%d", GetLastError()); return false; }

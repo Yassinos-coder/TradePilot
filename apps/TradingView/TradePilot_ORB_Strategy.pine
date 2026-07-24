@@ -82,6 +82,7 @@ tTue = input.bool(true, "Tuesday",   group=grpSchedule)
 tWed = input.bool(true, "Wednesday", group=grpSchedule)
 tThu = input.bool(true, "Thursday",  group=grpSchedule)
 tFri = input.bool(true, "Friday",    group=grpSchedule)
+oneTradePerDay = input.bool(true, "One Trade Per Day", group=grpSchedule, tooltip="Matches the MT5 EA default: once any breakout trade is taken, ignore opposite breakouts until the next NY day.")
 
 // Visuals
 showRange  = input.bool(true, "Show Opening Range", group=grpViz)
@@ -126,6 +127,7 @@ htfAtr = request.security(syminfo.tickerid, atrTf, ta.atr(atrPeriod), lookahead 
 var float rHigh       = na
 var float rLow        = na
 var bool  rReady      = false
+var bool  tradedToday = false
 var bool  boughtToday = false
 var bool  soldToday   = false
 var int   orStartBar  = na
@@ -143,6 +145,7 @@ if isNewDay
     rHigh       := na
     rLow        := na
     rReady      := false
+    tradedToday := false
     boughtToday := false
     soldToday   := false
     orStartBar  := na
@@ -165,8 +168,9 @@ if (not rReady) and tod >= orEnd and not na(rHigh) and not na(rLow) and rHigh > 
 // BREAKOUT CONFIRMATION + FILTERS
 // ============================================================================
 withinEntry = rReady and tod <= entryEnd
-longSig     = withinEntry and not boughtToday and close > rHigh
-shortSig    = withinEntry and not soldToday   and close < rLow
+dayTradeOk  = not oneTradePerDay or not tradedToday
+longSig     = withinEntry and dayTradeOk and not boughtToday and close > rHigh
+shortSig    = withinEntry and dayTradeOk and not soldToday   and close < rLow
 
 flat     = strategy.position_size == 0
 canTrade = barstate.isconfirmed and flat and isTradingDay and not na(htfAtr) and htfAtr > 0
@@ -203,6 +207,7 @@ if canTrade and longSig
     if q > 0 and sl < en
         strategy.entry("Long", strategy.long, qty = q)
         strategy.exit("Long TP/SL", from_entry = "Long", stop = sl, limit = tp)
+        tradedToday := true
         boughtToday := true
         longCount   += 1
         lastEn := en
@@ -220,6 +225,7 @@ if canTrade and shortSig
     if q > 0 and sl > en
         strategy.entry("Short", strategy.short, qty = q)
         strategy.exit("Short TP/SL", from_entry = "Short", stop = sl, limit = tp)
+        tradedToday := true
         soldToday  := true
         shortCount += 1
         lastEn := en

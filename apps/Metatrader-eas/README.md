@@ -57,7 +57,7 @@ A fully-autonomous **Opening Range Breakout** EA — no server, no signals. It m
 1. At 09:30 New York, the first `OpeningRangeMinutes` (default 15) form the **opening range** (High/Low incl. wicks).
 2. On the confirmation timeframe (M1/M2/M5), the EA waits for a candle to **close** outside the range: close above High → **BUY**, close below Low → **SELL**.
 3. **SL** = entry ∓ `ATR × AtrMultiplier`; **TP** = entry ± `SL distance × RiskRewardRatio`.
-4. One breakout per direction per day, one trade per symbol, no re-entry until the next NY day. Exits are SL/TP only in v1.
+4. Default behavior is one trade per symbol per NY day; `OneTradePerSymbolDay=false` allows one breakout per direction. Exits are SL/TP only in v1.
 
 ### Broker time / DST
 
@@ -82,9 +82,12 @@ New York 09:30 is converted to broker server time with US Eastern DST applied au
 | `RiskRewardRatio` | `2.0` | Take-profit as a multiple of risk |
 | `SizingMode` | `RISK_PERCENT` | `FIXED` or `RISK_PERCENT` |
 | `FixedLotSize` / `RiskPercent` | `0.10` / `1.0` | Lot per mode |
-| `MaxSpreadPoints` | `50` | Skip entry above this spread (0 = off) |
+| `SkipIfRiskLotBelowMin` | `true` | Risk% mode skips trades where broker min lot would exceed requested risk |
+| `MaxSpreadPoints` | `50` | Skip entry above this live tick spread (0 = off) |
+| `RespectAnySymbolPosition` | `false` | If true, block entries when any position exists on the symbol |
 | `TradeMonday…TradeFriday` | `true` | Allowed weekdays |
 | `MagicNumber` / `SlippagePoints` | `20260723` / `20` | Order identity / max deviation |
+| `OneTradePerSymbolDay` | `true` | Once any trade is taken, ignore opposite breakouts until next NY day |
 | `EnableTrading` | `true` | `false` = dry-run (log only) |
 | `EnableLogging` | `true` | Verbose Experts-tab logging |
 | `ShowDashboard` | `true` | On-chart status panel (auto-off in tester) |

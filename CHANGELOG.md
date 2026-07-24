@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ORB strategy hardening** — MT5 ORB now uses deterministic manual broker offset in Strategy Tester, validates complete M1 opening-range history, checks live tick spread and broker stop/freeze levels before entry, avoids risk% oversizing below broker minimum lots, confirms CTrade retcodes before marking a trade executed, and defaults to one trade per symbol per NY day; the TradingView ORB strategy now has a matching one-trade-per-day toggle.
 - MT5 EA WebSocket sessions now tolerate non-fatal post-auth server errors, answer control-frame pings with masked pong frames, and use a longer configurable heartbeat timeout to avoid connect/disconnect loops.
 - Position-proxy command results can now be stored even when a ticket-targeted close/modify has no symbol in the EA response.
 - Browser reloads now restore the authenticated workspace from HttpOnly session cookies instead of forcing Google sign-in again.
