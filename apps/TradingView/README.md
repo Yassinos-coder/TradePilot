@@ -1,4 +1,26 @@
-# TradePilot ORB — TradingView Strategy
+# TradePilot TradingView Scripts
+
+## ATR Projection Levels Indicator
+
+`TradePilot_ATR_Projection_Levels.pine` is a Pine Script **v6 indicator** that automates Yassine's weekly ATR projection workflow.
+
+It anchors from the last confirmed weekly close, projects Fibonacci-style volatility levels (`-2`, `-1.5`, `-1`, `0`, `1`, `1.5`, `2`) using weekly ATR, and converts each level into an extended grey reaction zone whose height comes from the 4H ATR equilibrium of the last completed weekly window. Optional dashed daily ATR levels can be shown at the same time for volatility refresh during the week.
+
+Key inputs:
+
+- `Trend Detection`: `Auto` or `Manual`.
+- `Manual Direction`: `Bullish` or `Bearish` when manual mode is selected.
+- `ATR Length`: default `14`.
+- `Zone Height`: `4H ATR Equilibrium` or `Weekly ATR`.
+- `Show Daily Refreshed Levels`: overlays dashed daily levels from previous daily close + daily ATR.
+
+If auto structure detects a ranging market, the indicator hides projection levels and shows a ranging status watermark/dashboard.
+
+Install: open TradingView → Pine Editor → paste `TradePilot_ATR_Projection_Levels.pine` → **Add to chart**.
+
+---
+
+## ORB Strategy
 
 `TradePilot_ORB_Strategy.pine` is a Pine Script **v6** port of the MT5 Expert Advisor
 [`../Metatrader-eas/MT5/TradePilot_ORB_EA.mq5`](../Metatrader-eas/MT5/TradePilot_ORB_EA.mq5).

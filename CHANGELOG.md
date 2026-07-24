@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **TradingView ATR Projection Levels indicator** — new Pine v6 indicator automates Yassine's weekly ATR projection workflow with manual/auto trend detection, weekly ATR fib-style zones, 4H ATR-equilibrium zone height, optional daily refreshed dashed levels, and ranging-market status watermark.
 - **Secure Position Proxy API** — new API-key/HMAC-protected `/api/position-proxy/*` endpoints let authorized tools such as Postman read open positions and deliver open/close/partial-close/SL-TP modify commands to a connected EA.
 - **MT5 live open-position snapshots** — state sync now reports currently open MT5 positions so backend reads are not limited to stale historical trade events.
 - **Analytics account management** — selected live accounts can now be hidden from the Analytics account selector and excluded from aggregate “All accounts” views without deleting stored records.
