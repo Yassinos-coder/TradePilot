@@ -14,6 +14,7 @@ import { EaModule } from './ea/ea.module';
 import { ExecutionModule } from './execution/execution.module';
 import { HealthController } from './health.controller';
 import { NotificationsModule } from './notifications/notifications.module';
+import { PositionProxyModule } from './position-proxy/position-proxy.module';
 import { RedisModule } from './redis/redis.module';
 import { SettingsModule } from './settings/settings.module';
 import { SignalsModule } from './signals/signals.module';
@@ -52,6 +53,7 @@ import { UsersModule } from './users/users.module';
     ExecutionModule,
     DashboardModule,
     AssistantAnalyticsModule,
+    PositionProxyModule,
   ],
 })
 export class AppModule {}

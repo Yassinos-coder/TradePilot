@@ -208,6 +208,22 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     await promise;
   }
 
+  async dispatchProxyCommand(
+    userId: string,
+    accountId: string,
+    message: WebSocketOutboundMessage,
+  ): Promise<boolean> {
+    const userConnections = this.socketsByUser.get(userId);
+    const connection = userConnections?.get(accountId);
+
+    if (!connection || connection.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    this.sendMessage(connection, message);
+    return true;
+  }
+
   onModuleDestroy() {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
@@ -982,6 +998,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string | null,
     payload: Extract<WebSocketInboundMessage, { type: 'command_result' }>,
   ) {
+    const symbolLabel = payload.symbol || 'N/A';
+
     if (payload.status === 'ERROR') {
       this.notificationEventBus.emit({
         userId,
@@ -993,7 +1011,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           eyebrow: 'Execution Failure',
           details: [
             { label: 'Action', value: payload.action },
-            { label: 'Symbol', value: payload.symbol },
+            { label: 'Symbol', value: symbolLabel },
             { label: 'Account', value: accountName ?? accountId },
           ],
         }),
@@ -1001,7 +1019,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           accountId,
           accountName,
           action: payload.action,
-          symbol: payload.symbol,
+          symbol: payload.symbol ?? null,
           executionKey: payload.execution_key,
           details: payload.details ?? null,
         },
@@ -1017,7 +1035,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         accountId,
         accountName,
         action: payload.action,
-        symbol: payload.symbol,
+        symbol: payload.symbol ?? null,
         executionKey: payload.execution_key,
         details: payload.details ?? null,
       },

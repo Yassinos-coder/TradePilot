@@ -37,6 +37,9 @@ const rawServerEnvSchema = z.object({
   RISK_MIN_TRADES_FOR_ADVANCED_METRICS: z.coerce.number().int().min(5).default(30),
   TRADEPILOT_ANALYTICS_READ_TOKEN: z.string().min(20).optional(),
   TRADEPILOT_ANALYTICS_USER_ID: z.string().uuid().optional(),
+  TRADEPILOT_PROXY_API_KEY: z.string().min(32).optional(),
+  TRADEPILOT_PROXY_HMAC_SECRET: z.string().min(32).optional(),
+  TRADEPILOT_PROXY_USER_ID: z.string().uuid().optional(),
 });
 
 export const serverEnvSchema = rawServerEnvSchema.transform((environment) => ({

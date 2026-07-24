@@ -28,6 +28,8 @@ export const signalIngestionSourceSchema = z.enum([
   'TELEGRAM_BACKFILL',
 ]);
 export const commandResultStatusSchema = z.enum(['SUCCESS', 'ERROR']);
+export const positionProxyDeliveryStatusSchema = z.enum(['DELIVERED', 'ERROR']);
+
 
 export const copierProgramStatusSchema = z.enum(['ACTIVE', 'PAUSED', 'DISABLED']);
 export const followerDeviceStatusSchema = z.enum(['PENDING_APPROVAL', 'ACTIVE', 'REVOKED']);
@@ -246,6 +248,48 @@ export const createAccountSchema = z.object({
 });
 
 export const accountStatusHistorySchema = z.array(accountStatusDtoSchema);
+
+export const positionProxyOpenSchema = z.object({
+  accountId: z.string().min(1),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
+  side: signalSideSchema,
+  volume: z.number().positive(),
+  entry: signalEntrySchema.default('MARKET'),
+  entryPrice: z.number().positive().nullable().optional(),
+  stopLoss: z.number().positive().nullable().optional(),
+  takeProfit: z.number().positive().nullable().optional(),
+});
+
+export const positionProxyCloseSchema = z.object({
+  accountId: z.string().min(1),
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
+  percent: z.number().min(1).max(100).default(100),
+}).refine((value) => Boolean(value.ticket || value.symbol), {
+  message: 'Provide either ticket or symbol',
+  path: ['ticket'],
+});
+
+export const positionProxyModifySchema = z.object({
+  accountId: z.string().min(1),
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
+  stopLoss: z.number().positive().nullable().optional(),
+  takeProfit: z.number().positive().nullable().optional(),
+}).refine((value) => Boolean(value.ticket || value.symbol), {
+  message: 'Provide either ticket or symbol',
+  path: ['ticket'],
+}).refine((value) => value.stopLoss !== undefined || value.takeProfit !== undefined, {
+  message: 'Provide stopLoss or takeProfit',
+  path: ['stopLoss'],
+});
+
+export const positionProxyCommandResultSchema = z.object({
+  requestId: z.string().min(1),
+  accountId: z.string().min(1),
+  status: positionProxyDeliveryStatusSchema,
+  message: z.string().min(1),
+});
 
 export const tradeHistoryFileStatusSchema = z.enum(['UPLOADED', 'PARSED', 'FAILED']);
 export const tradeHistoryPlatformSchema = z.enum(['MT4', 'MT5', 'GENERIC']);
@@ -735,7 +779,7 @@ export const eaCommandResultMessageSchema = z.object({
   type: z.literal('command_result'),
   accountId: z.string().min(1),
   action: signalActionSchema,
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
+  symbol: z.string().max(32).transform((value) => value.toUpperCase()).nullable().optional(),
   status: commandResultStatusSchema,
   message: z.string().min(1),
   signal_id: z.string().nullable().optional(),
@@ -776,9 +820,10 @@ export const eaTradePayloadSchema = z.object({
   symbol: z.string().min(2),
   type: signalSideSchema,
   entry: signalEntrySchema,
+  volume: z.number().positive().optional(),
   entry_price: z.number().positive().nullable(),
   stop_loss: z.number().positive().nullable(),
-  take_profit: z.number().positive(),
+  take_profit: z.number().positive().nullable(),
   signal_id: z.string().min(1).optional(),
   execution_key: z.string().min(1).optional(),
 });
@@ -790,7 +835,8 @@ export const eaSignalMessageSchema = z.object({
 
 export const eaPartialCloseMessageSchema = z.object({
   type: z.literal('partial_close'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
   percent: z.number().min(1).max(100),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
@@ -798,15 +844,18 @@ export const eaPartialCloseMessageSchema = z.object({
 
 export const eaCloseAllMessageSchema = z.object({
   type: z.literal('close_all'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
 });
 
 export const eaMoveSlMessageSchema = z.object({
   type: z.literal('move_sl'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
-  new_stop_loss: z.number().positive(),
+  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
+  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  new_stop_loss: z.number().positive().nullable().optional(),
+  new_take_profit: z.number().positive().nullable().optional(),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
 });
@@ -894,6 +943,10 @@ export type EaAccountStatusPayload = z.infer<typeof eaAccountStatusPayloadSchema
 export type EaTradeEventPayload = z.infer<typeof eaTradeEventPayloadSchema>;
 export type EaTradePayload = z.infer<typeof eaTradePayloadSchema>;
 export type EaCommandResultStatus = z.infer<typeof commandResultStatusSchema>;
+export type PositionProxyOpenInput = z.infer<typeof positionProxyOpenSchema>;
+export type PositionProxyCloseInput = z.infer<typeof positionProxyCloseSchema>;
+export type PositionProxyModifyInput = z.infer<typeof positionProxyModifySchema>;
+export type PositionProxyCommandResult = z.infer<typeof positionProxyCommandResultSchema>;
 
 export const manualDispatchSchema = z.object({
   accountId: z.string().uuid(),
