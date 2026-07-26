@@ -7,6 +7,7 @@ import {
   Query,
   ServiceUnavailableException,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -16,6 +17,11 @@ import {
   positionProxyModifySchema,
   positionProxyOpenSchema,
 } from '@tradepilot/shared';
+
+import { RequestUser } from '../auth/types/request-user.type';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 import { PositionProxyService } from './position-proxy.service';
 
@@ -44,6 +50,29 @@ export class PositionProxyController {
       throw new ServiceUnavailableException('accountId query parameter is required');
     }
     return this.proxy.listOpenPositions(userId, accountId);
+  }
+
+
+
+  @UseGuards(JwtAuthGuard)
+  @Get('trade/positions')
+  listUserPositions(
+    @CurrentUser() user: RequestUser,
+    @Query('accountId') accountId?: string,
+  ) {
+    if (!accountId) {
+      throw new ServiceUnavailableException('accountId query parameter is required');
+    }
+    return this.proxy.listOpenPositions(user.userId, accountId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('trade/open')
+  openUserPosition(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(positionProxyOpenSchema)) body: unknown,
+  ) {
+    return this.proxy.openPosition(user.userId, positionProxyOpenSchema.parse(body));
   }
 
   @Post('open')

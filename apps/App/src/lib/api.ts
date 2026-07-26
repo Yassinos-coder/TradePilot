@@ -14,6 +14,8 @@ import {
   ExecutionLogDTO,
   FollowerDeviceDTO,
   NotificationPreferencesDTO,
+  PositionProxyCommandResult,
+  PositionProxyOpenInput,
   RequestEmailChangeInput,
   SettingsDTO,
   SignalHistoryFilter,
@@ -244,6 +246,16 @@ export const apiClient = {
   },
   async dispatchManual(signalId: string, accountId: string) {
     await api.post(`/execution/${signalId}/dispatch-manual`, { accountId });
+  },
+  async positionProxyOpen(payload: PositionProxyOpenInput) {
+    const { data } = await api.post<PositionProxyCommandResult>('/position-proxy/trade/open', payload);
+    return data;
+  },
+  async positionProxyPositions(accountId: string) {
+    const { data } = await api.get<TradeExecutionDTO[]>('/position-proxy/trade/positions', {
+      params: { accountId },
+    });
+    return data;
   },
   async copierPrograms() {
     const { data } = await api.get<CopierProgramDTO[]>('/trade-copier/programs');

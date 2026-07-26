@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.16"
+#property version   "3.17"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -947,6 +947,14 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
          success = g_trade.BuyLimit(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
       else
          success = g_trade.SellLimit(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
+   } else if (entryKind == "STOP" && entryPrice > 0.0) {
+      if (isBuy)
+         success = g_trade.BuyStop(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
+      else
+         success = g_trade.SellStop(normalizedLot, entryPrice, symbol, stopLoss, takeProfit, ORDER_TIME_GTC, 0, comment);
+   } else if (entryKind == "STOP_LIMIT") {
+      SendCommandResult("OPEN", symbol, false, "STOP_LIMIT orders are not supported yet; use STOP or LIMIT", signalId, executionKey);
+      return false;
    } else {
       if (isBuy)
          success = g_trade.Buy(normalizedLot, symbol, 0.0, stopLoss, takeProfit, comment);

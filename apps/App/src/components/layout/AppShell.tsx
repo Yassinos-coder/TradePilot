@@ -13,6 +13,7 @@ import {
   Sun,
   Wallet,
   X,
+  CandlestickChart,
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
@@ -24,6 +25,7 @@ const NAV = [
   { to: '/app', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/app/trade-copier', label: 'Trade Copier', icon: Copy },
+  { to: '/app/open-trades', label: 'Open Trades', icon: CandlestickChart },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
 ] as const;
@@ -32,6 +34,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app': 'Dashboard',
   '/app/analytics': 'Analytics',
   '/app/trade-copier': 'Trade Copier',
+  '/app/open-trades': 'Open Trades',
   '/app/settings': 'Settings',
   '/app/accounts': 'Accounts',
 };

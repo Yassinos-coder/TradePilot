@@ -258,6 +258,15 @@ export const positionProxyOpenSchema = z.object({
   entryPrice: z.number().positive().nullable().optional(),
   stopLoss: z.number().positive().nullable().optional(),
   takeProfit: z.number().positive().nullable().optional(),
+}).refine((value) => value.entry !== 'MARKET' || value.entryPrice === null || value.entryPrice === undefined, {
+  message: 'Market orders must not include an entryPrice',
+  path: ['entryPrice'],
+}).refine((value) => value.entry === 'MARKET' || Boolean(value.entryPrice), {
+  message: 'Pending orders require entryPrice',
+  path: ['entryPrice'],
+}).refine((value) => value.entry !== 'STOP_LIMIT', {
+  message: 'STOP_LIMIT orders are not supported by the connected EA yet. Use STOP or LIMIT.',
+  path: ['entry'],
 });
 
 export const positionProxyCloseSchema = z.object({

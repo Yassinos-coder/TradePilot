@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Open Trades workspace** — new authenticated sidebar tab for manually sending MARKET, LIMIT, and STOP orders to a connected EA, with account selection, order preview, broker position snapshots, and latest execution results.
+- **STOP order support in the position proxy path** — the shared/API contract now validates pending-order entry prices and the MT5/MT4 EAs route STOP orders to Buy Stop / Sell Stop broker commands. STOP_LIMIT remains explicitly rejected until it is implemented safely end-to-end.
 - **Half notches on the ATR projection ladder** — optional `-0.5` and `+0.5` levels in both the indicator and the strategy, for maps drawn in half-weekly-ATR steps. Off by default in both; on the strategy it also halves the room to the next target, so it needs a fresh backtest before use.
 
 ### Fixed
