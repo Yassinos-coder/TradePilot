@@ -107,8 +107,9 @@ emaFastLen = input.int(50,  "Auto Fast EMA", minval=1, group=grpBias)
 emaSlowLen = input.int(200, "Auto Slow EMA", minval=1, group=grpBias)
 
 // ATR projection
-atrLen        = input.int(14, "ATR Length", minval=1, group=grpAtr)
-zoneAtrSource = input.string("4H ATR Equilibrium", "Zone Height", options=["4H ATR Equilibrium", "Weekly ATR"], group=grpAtr, tooltip="4H ATR Equilibrium = midpoint between the 4H ATR high/low of the last closed week. Needs a 4H-or-lower chart, otherwise Weekly ATR is used automatically.")
+atrLen             = input.int(14, "ATR Length", minval=1, group=grpAtr)
+includeHalfNotches = input.bool(false, "Include Half Notches (+/- 0.5)", group=grpAtr, tooltip="Adds -0.5 and +0.5 to the ladder, matching a manual map drawn in half-weekly-ATR steps. Off by default because it also HALVES the room to the next notch: with the same zone-edge stop, RR roughly halves and most setups then fail the Minimum RR gate. Re-run the backtest before trusting it.")
+zoneAtrSource      = input.string("4H ATR Equilibrium", "Zone Height", options=["4H ATR Equilibrium", "Weekly ATR"], group=grpAtr, tooltip="4H ATR Equilibrium = midpoint between the 4H ATR high/low of the last closed week. Needs a 4H-or-lower chart, otherwise Weekly ATR is used automatically.")
 
 // Entry logic
 entryMode        = input.string("Both", "Entry Trigger", options=["Reaction", "Breakout", "Both"], group=grpEntry, tooltip="Reaction = the zone held and price closed back along the bias. Breakout = price pushed through the zone along the bias.")
@@ -177,15 +178,33 @@ showDash = input.bool(true, "Show Dashboard", group=grpDash)
 dashPos  = input.string("Top Right", "Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grpDash)
 
 // ============================================================================
-// HIGHER TIMEFRAME DATA — last CONFIRMED weekly bar, history == realtime.
+// HIGHER TIMEFRAME DATA — the last COMPLETED weekly bar.
+// ----------------------------------------------------------------------------
+// close[1] on the weekly series means "one week back from the weekly bar that
+// CONTAINS this chart bar". That is the last completed week only while the week
+// is still forming. On the bar that ends a week — Friday's close, and every
+// weekend after it — the finished week is the anchor, but close[1] skips it and
+// points a week further back.
+//
+// So fetch both offsets and pick with weekDone, true only on the chart bar that
+// closes the weekly bar. On that bar the weekly close IS this bar's close, so
+// nothing is read before it exists. The anchor locks in at Friday's close and
+// carries unchanged through the next week.
+//
+// Matches TradePilot_ATR_Projection_Levels.pine so the map and the trades agree.
 // ============================================================================
-weeklyClose       = request.security(syminfo.tickerid, "W", close[1],                     lookahead=barmerge.lookahead_on)
-weeklyAtr         = request.security(syminfo.tickerid, "W", ta.atr(atrLen)[1],             lookahead=barmerge.lookahead_on)
-weeklyEmaFast     = request.security(syminfo.tickerid, "W", ta.ema(close, emaFastLen)[1],  lookahead=barmerge.lookahead_on)
-weeklyEmaSlow     = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlowLen)[1],  lookahead=barmerge.lookahead_on)
-weeklyEmaFastPrev = request.security(syminfo.tickerid, "W", ta.ema(close, emaFastLen)[2],  lookahead=barmerge.lookahead_on)
-weeklyStructHigh  = request.security(syminfo.tickerid, "W", ta.highest(high, 3)[2],        lookahead=barmerge.lookahead_on)
-weeklyStructLow   = request.security(syminfo.tickerid, "W", ta.lowest(low, 3)[2],          lookahead=barmerge.lookahead_on)
+[wkTimeClose, wkClose0, wkClose1, wkAtr0, wkAtr1] = request.security(syminfo.tickerid, "W", [time_close, close, close[1], ta.atr(atrLen), ta.atr(atrLen)[1]], lookahead=barmerge.lookahead_on)
+[wkEmaF0, wkEmaF1, wkEmaF2, wkEmaS0, wkEmaS1, wkHigh1, wkHigh2, wkLow1, wkLow2] = request.security(syminfo.tickerid, "W", [ta.ema(close, emaFastLen), ta.ema(close, emaFastLen)[1], ta.ema(close, emaFastLen)[2], ta.ema(close, emaSlowLen), ta.ema(close, emaSlowLen)[1], ta.highest(high, 3)[1], ta.highest(high, 3)[2], ta.lowest(low, 3)[1], ta.lowest(low, 3)[2]], lookahead=barmerge.lookahead_on)
+
+weekDone = not na(wkTimeClose) and time_close >= wkTimeClose
+
+weeklyClose       = weekDone ? wkClose0 : wkClose1
+weeklyAtr         = weekDone ? wkAtr0   : wkAtr1
+weeklyEmaFast     = weekDone ? wkEmaF0  : wkEmaF1
+weeklyEmaSlow     = weekDone ? wkEmaS0  : wkEmaS1
+weeklyEmaFastPrev = weekDone ? wkEmaF1  : wkEmaF2
+weeklyStructHigh  = weekDone ? wkHigh1  : wkHigh2
+weeklyStructLow   = weekDone ? wkLow1   : wkLow2
 
 // 4H ATR equilibrium of the last completed weekly window: the manual step of
 // dropping to H4, reading the ATR high/low between weekly boundaries and taking
@@ -211,7 +230,11 @@ else
 // there are too few samples per week — fall back to Weekly ATR instead of
 // silently degrading.
 h4EqReliable = timeframe.in_seconds() <= 14400
-h4AtrEq      = (not na(prevWeekH4High) and not na(prevWeekH4Low)) ? (prevWeekH4High + prevWeekH4Low) / 2.0 : na
+// Same weekDone rule as the anchor: a finished week's own 4H window is the
+// completed one; mid-week it is the previous week's.
+h4AtrEqCur   = (not na(curWeekH4High)  and not na(curWeekH4Low))  ? (curWeekH4High  + curWeekH4Low)  / 2.0 : na
+h4AtrEqPrev  = (not na(prevWeekH4High) and not na(prevWeekH4Low)) ? (prevWeekH4High + prevWeekH4Low) / 2.0 : na
+h4AtrEq      = weekDone ? h4AtrEqCur : h4AtrEqPrev
 h4EqUsable   = h4EqReliable and not na(h4AtrEq)
 useH4Eq      = zoneAtrSource == "4H ATR Equilibrium" and h4EqUsable
 zoneHeight   = useH4Eq ? h4AtrEq : weeklyAtr
@@ -266,8 +289,8 @@ momOk = momMode == "Off" ? true : momMode == "RSI" ? (not na(rsiValue) and (dire
 // ============================================================================
 // HELPERS
 // ============================================================================
-var float[] fibs = array.from(-2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0)
-fibCount = 7
+var float[] fibs = includeHalfNotches ? array.from(-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0) : array.from(-2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0)
+fibCount = array.size(fibs)
 
 projectLevel(anchor, unit, fib, dir) =>
     anchor + unit * fib * dir
@@ -288,7 +311,7 @@ tradeQty(riskDist) =>
 // ============================================================================
 // PER-WEEK STATE
 // ============================================================================
-var bool[] fibUsed    = array.new_bool(7, false)
+var bool[] fibUsed    = array.new_bool(array.size(fibs), false)
 var int    weekTrades = 0
 var int    armIdx     = -1
 var int    armSide    = 0   // 1 = tested from the bias side (reaction), -1 = pushing through (breakout)

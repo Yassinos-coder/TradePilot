@@ -31,6 +31,7 @@ emaFastLen = input.int(50, "Auto Fast EMA", minval=1, group=grpBias)
 emaSlowLen = input.int(200, "Auto Slow EMA", minval=1, group=grpBias)
 
 atrLen = input.int(14, "ATR Length", minval=1, group=grpAtr)
+includeHalfNotches = input.bool(false, "Include Half Notches (+/- 0.5)", group=grpAtr, tooltip="Adds -0.5 and +0.5 to the projection ladder, i.e. half-weekly-ATR steps between the whole notches. Off keeps the original -2, -1.5, -1, 0, 1, 1.5, 2 set.")
 showWeeklyZones = input.bool(true, "Show Weekly ATR Zones", group=grpAtr)
 showWeeklyMidlines = input.bool(true, "Show Weekly Zone Midlines", group=grpAtr)
 zoneAtrSource = input.string("4H ATR Equilibrium", "Zone Height", options=["4H ATR Equilibrium", "Weekly ATR"], group=grpAtr, tooltip="4H ATR Equilibrium = midpoint between 4H ATR high/low from the last closed week.")
@@ -85,21 +86,43 @@ plot(showEma4 ? ema4 : na, "EMA 4", color=colEma4, linewidth=maWidth)
 plot(showEma5 ? ema5 : na, "EMA 5", color=colEma5, linewidth=maWidth)
 
 // ============================================================================
-// HIGHER TIMEFRAME DATA
+// HIGHER TIMEFRAME DATA — the last COMPLETED weekly bar.
+// ----------------------------------------------------------------------------
+// "Last confirmed weekly close" has to mean the close of the most recently
+// FINISHED week. Reading close[1] off the weekly series only says that while the
+// current weekly bar is still forming: the moment a week completes — Friday's
+// close, and all weekend after it — that finished week IS the anchor, yet close[1]
+// still points one week further back. That was the stale anchor (4018.22 on a
+// 256.08 ATR instead of 4052.79 on 250.88).
+//
+// So fetch both offsets and pick with weekDone, true only on the chart bar that
+// ends the weekly bar. On that bar the weekly close equals this bar's own close,
+// so using it looks ahead at nothing; mid-week we fall back to the previous week.
+// The anchor therefore locks in at Friday's close and carries unchanged through
+// the following week, which is what the manual workflow does.
+//
+// lookahead_on is required here, not a shortcut: it makes the weekly bar that
+// CONTAINS this chart bar the reference point, identically on history and in
+// realtime, so weekDone can then choose the offset. Everything below reads
+// values already printed at the time of the bar.
 // ============================================================================
-weeklyClose = request.security(syminfo.tickerid, "W", close[1], lookahead=barmerge.lookahead_off)
-weeklyAtr   = request.security(syminfo.tickerid, "W", ta.atr(atrLen)[1], lookahead=barmerge.lookahead_off)
-weeklyEmaFast = request.security(syminfo.tickerid, "W", ta.ema(close, emaFastLen), lookahead=barmerge.lookahead_off)
-weeklyEmaSlow = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
-weeklyEmaFastPrev = request.security(syminfo.tickerid, "W", ta.ema(close, emaFastLen)[1], lookahead=barmerge.lookahead_off)
-weeklyEmaSlowPrev = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlowLen)[1], lookahead=barmerge.lookahead_off)
-weeklyStructHigh = request.security(syminfo.tickerid, "W", ta.highest(high, 3)[1], lookahead=barmerge.lookahead_off)
-weeklyStructLow  = request.security(syminfo.tickerid, "W", ta.lowest(low, 3)[1], lookahead=barmerge.lookahead_off)
+[wkTimeClose, wkClose0, wkClose1, wkAtr0, wkAtr1] = request.security(syminfo.tickerid, "W", [time_close, close, close[1], ta.atr(atrLen), ta.atr(atrLen)[1]], lookahead=barmerge.lookahead_on)
+[wkEmaF0, wkEmaF1, wkEmaF2, wkEmaS0, wkEmaS1, wkHigh1, wkHigh2, wkLow1, wkLow2] = request.security(syminfo.tickerid, "W", [ta.ema(close, emaFastLen), ta.ema(close, emaFastLen)[1], ta.ema(close, emaFastLen)[2], ta.ema(close, emaSlowLen), ta.ema(close, emaSlowLen)[1], ta.highest(high, 3)[1], ta.highest(high, 3)[2], ta.lowest(low, 3)[1], ta.lowest(low, 3)[2]], lookahead=barmerge.lookahead_on)
+
+weekDone = not na(wkTimeClose) and time_close >= wkTimeClose
+
+weeklyClose = weekDone ? wkClose0 : wkClose1
+weeklyAtr   = weekDone ? wkAtr0   : wkAtr1
+weeklyEmaFast = weekDone ? wkEmaF0 : wkEmaF1
+weeklyEmaSlow = weekDone ? wkEmaS0 : wkEmaS1
+weeklyEmaFastPrev = weekDone ? wkEmaF1 : wkEmaF2
+weeklyStructHigh = weekDone ? wkHigh1 : wkHigh2
+weeklyStructLow  = weekDone ? wkLow1  : wkLow2
 
 // 4H ATR equilibrium from the last completed weekly window. This mirrors the
 // manual step of dropping to H4, finding ATR high/low between weekly boundaries,
 // and using the midpoint as the zone height.
-h4Atr = request.security(syminfo.tickerid, "240", ta.atr(atrLen), lookahead=barmerge.lookahead_off)
+h4Atr = request.security(syminfo.tickerid, "240", ta.atr(atrLen)[1], lookahead=barmerge.lookahead_on)
 isNewWeek = timeframe.change("W")
 var float curWeekH4AtrHigh = na
 var float curWeekH4AtrLow = na
@@ -119,7 +142,11 @@ else
 // only meaningful when the chart timeframe is 4H or lower. Above that there are too
 // few samples per week, and the value silently degrades — fall back to Weekly ATR.
 h4EqReliable = timeframe.in_seconds() <= 14400
-h4AtrEq = (not na(prevWeekH4AtrHigh) and not na(prevWeekH4AtrLow)) ? (prevWeekH4AtrHigh + prevWeekH4AtrLow) / 2.0 : na
+// Same weekDone rule as the anchor: once a week has finished, ITS 4H window is
+// the completed one. Mid-week, the previous week's window is.
+h4AtrEqCur  = (not na(curWeekH4AtrHigh)  and not na(curWeekH4AtrLow))  ? (curWeekH4AtrHigh  + curWeekH4AtrLow)  / 2.0 : na
+h4AtrEqPrev = (not na(prevWeekH4AtrHigh) and not na(prevWeekH4AtrLow)) ? (prevWeekH4AtrHigh + prevWeekH4AtrLow) / 2.0 : na
+h4AtrEq = weekDone ? h4AtrEqCur : h4AtrEqPrev
 h4EqUsable = h4EqReliable and not na(h4AtrEq)
 useH4Eq = zoneAtrSource == "4H ATR Equilibrium" and h4EqUsable
 zoneHeight = useH4Eq ? h4AtrEq : weeklyAtr
@@ -146,7 +173,7 @@ bgcolor(showBiasBg ? (direction == 1 ? bullBg : direction == -1 ? bearBg : range
 // ============================================================================
 // DRAW HELPERS
 // ============================================================================
-var float[] fibs = array.from(-2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0)
+var float[] fibs = includeHalfNotches ? array.from(-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0) : array.from(-2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0)
 var box[] weeklyBoxes = array.new_box()
 var line[] weeklyLines = array.new_line()
 var label[] weeklyLabels = array.new_label()

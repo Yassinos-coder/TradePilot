@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-26
+
+### Added
+
+- **Half notches on the ATR projection ladder** — optional `-0.5` and `+0.5` levels in both the indicator and the strategy, for maps drawn in half-weekly-ATR steps. Off by default in both; on the strategy it also halves the room to the next target, so it needs a fresh backtest before use.
+
+### Fixed
+
+- **Weekly anchor and ATR skipped the week that had just finished** — the projection map read one week back from the weekly bar containing the current chart bar, which is only correct while that week is still forming. From Friday's close onward, and all weekend, the completed week was ignored and its predecessor used instead: on XAUUSD the anchor read 4018.22 on a 256.08 ATR where the correct values were 4052.79 and 250.88, putting every zone a full week out of place. The anchor now locks in when a week closes and carries unchanged through the next one, resolving identically on history and in real time. Affects both the indicator and the strategy, so previous strategy backtests need re-running.
+- **4H ATR equilibrium had the same off-by-one** — zone height was averaging the 4H ATR window of the week before last whenever the current week had already closed, and now uses the completed week's window.
+- Weekly bias inputs are read from confirmed weekly bars, so the structure verdict changes only on a weekly close instead of drifting mid-week, and the three-week structure break compares against the three weeks preceding the anchor week.
+
 ## [0.6.0] - 2026-07-26
 
 ### Added
