@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-07-12
+## [0.6.0] - 2026-07-26
 
 ### Added
 
-- **TradingView ATR Projection Levels indicator** — new Pine v6 indicator automates Yassine's weekly ATR projection workflow with manual/auto trend detection, weekly ATR fib-style zones, 4H ATR-equilibrium zone height, optional daily refreshed dashed levels, and ranging-market status watermark.
+- **TradingView ATR Projection Strategy** — new Pine v6 strategy trades the projection map the indicator draws: bias-aligned entries when a bar touches a weekly-ATR notch and a later close clears it, stops at the zone's protected edge plus an ATR buffer, targets at the next notch. Defaults are tuned for the 2H chart (arm expiry 15 bars, cooldown 6 bars, 0.15-ATR confirmation buffer, minimum 1.5 RR, 3 trades per week).
+- **MA and momentum confirmation filters** — entries now require price on the correct side of a moving average (200 by default, chart or higher timeframe, optional slope requirement) and momentum agreement via RSI midline or MACD histogram. Neither is plotted; the dashboard's Filters row reports which one blocked a signal.
+- **Position notional cap** — risk-% sizing is capped at a configurable multiple of equity, so oversized forex orders are reduced instead of being silently rejected by the tester for insufficient margin. The dashboard flags capped orders, whose realised risk sits below the configured target.
+- **Loss cooldown and optional breakeven stop** — a configurable bar cooldown after a losing exit stops the same notch re-arming into the chop that just stopped it out, and the stop can optionally move to breakeven at a chosen R multiple.
+- **TradingView ATR Projection Levels indicator** — new Pine v6 indicator automates Yassine's weekly ATR projection workflow with manual/auto trend detection, weekly ATR fib-style zones, 4H ATR-equilibrium zone height, chart-timeframe EMAs, optional bias background tint, near-price zone limiting, and a ranging-market status watermark.
 - **Secure Position Proxy API** — new API-key/HMAC-protected `/api/position-proxy/*` endpoints let authorized tools such as Postman read open positions and deliver open/close/partial-close/SL-TP modify commands to a connected EA.
 - **MT5 live open-position snapshots** — state sync now reports currently open MT5 positions so backend reads are not limited to stale historical trade events.
 - **Analytics account management** — selected live accounts can now be hidden from the Analytics account selector and excluded from aggregate “All accounts” views without deleting stored records.
@@ -20,10 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Aggregate analytics, recent trades, and daily P/L now respect hidden-account preferences stored in existing settings metadata, avoiding a required production database migration.
 - Analytics export output now uses the current analytics DTO field names for average win/loss and symbol trade counts.
 - App TypeScript config now uses the TypeScript 5.x-compatible `ignoreDeprecations` value.
+- TradingView documentation now covers the projection indicator and strategy, including the 2H default rationale and the forex sizing caveat that causes rejected orders to look like missing signals.
+
+### Removed
+
+- **ORB scripts** — the MT5 opening-range-breakout Expert Advisor and its TradingView strategy port have been dropped; the ATR projection map is now the strategy line of work.
+- Daily refreshed dashed levels in the projection indicator, replaced by chart-timeframe EMAs and optional near-price zone limiting.
+- `package-lock.json` is no longer tracked, and is now ignored.
 
 ### Fixed
 
-- **ORB strategy hardening** — MT5 ORB now uses deterministic manual broker offset in Strategy Tester, validates complete M1 opening-range history, checks live tick spread and broker stop/freeze levels before entry, avoids risk% oversizing below broker minimum lots, confirms CTrade retcodes before marking a trade executed, and defaults to one trade per symbol per NY day; the TradingView ORB strategy now has a matching one-trade-per-day toggle.
 - MT5 EA WebSocket sessions now tolerate non-fatal post-auth server errors, answer control-frame pings with masked pong frames, and use a longer configurable heartbeat timeout to avoid connect/disconnect loops.
 - Position-proxy command results can now be stored even when a ticket-targeted close/modify has no symbol in the EA response.
 - Browser reloads now restore the authenticated workspace from HttpOnly session cookies instead of forcing Google sign-in again.
