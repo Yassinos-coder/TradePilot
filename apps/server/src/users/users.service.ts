@@ -276,9 +276,13 @@ export class UsersService {
   }
 
   /**
-   * One row per device when the client supplies a device id, so signing in again
-   * from the same browser refreshes that row rather than piling up entries.
-   * Clients without a device id fall back to the old per-session identity.
+   * Keyed on the Supabase session, which is the only full unique constraint on
+   * this table. The device id rides along as data and the read side folds rows
+   * by device, so the sessions list still shows one entry per browser.
+   *
+   * Do not switch this to (user_id, device_id): that index has to stay partial
+   * to allow null device ids, and Postgres cannot infer a partial index for
+   * ON CONFLICT, so the upsert fails with 42P10 on every authenticated request.
    */
   async upsertSession(input: {
     userId: string;
@@ -299,9 +303,7 @@ export class UsersService {
     const { error } = await this.databaseService
       .getClient()
       .from('user_sessions')
-      .upsert(row, {
-        onConflict: input.deviceId ? 'user_id,device_id' : 'user_id,auth_session_id',
-      });
+      .upsert(row, { onConflict: 'user_id,auth_session_id' });
 
     if (error) {
       throw new InternalServerErrorException(error.message);

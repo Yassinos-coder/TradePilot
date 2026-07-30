@@ -587,13 +587,14 @@ create table if not exists tradepilot.user_sessions (
 
 alter table tradepilot.user_sessions add column if not exists device_id text;
 
--- One row per browser: the client mints a device id once and reuses it, so
--- signing in again from the same browser updates that row instead of adding
--- another. Sessions from before this column existed keep the old per-session
--- identity, which is why the index is partial.
-create unique index if not exists idx_user_sessions_device
-  on tradepilot.user_sessions(user_id, device_id)
-  where device_id is not null;
+-- Deliberately NOT unique. A device legitimately holds several Supabase
+-- sessions over time, and a unique (user_id, device_id) index would both reject
+-- the second sign-in and break the upsert, since Postgres cannot infer a
+-- partial index for ON CONFLICT. The sessions list folds rows by device when it
+-- reads them instead.
+drop index if exists tradepilot.idx_user_sessions_device;
+create index if not exists idx_user_sessions_device
+  on tradepilot.user_sessions(user_id, device_id);
 
 -- ─── trade history files ─────────────────────────────────────────────────────
 
