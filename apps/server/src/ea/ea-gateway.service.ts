@@ -14,13 +14,11 @@ import {
   DEFAULT_EA_SERVER_PING_INTERVAL_MS,
   EA_DISPATCH_ACK_PREFIX,
   EA_DISPATCH_CHANNEL,
-  EA_PRESENCE_KEY_PREFIX,
   EA_WEBSOCKET_PATH,
 } from '@tradepilot/config';
 import {
   AccountStatusDTO,
   EaAccountStatusPayload,
-  EaCopyTradeEventMessage,
   EaTradeEventPayload,
   WebSocketInboundMessage,
   WebSocketOutboundMessage,
@@ -29,47 +27,36 @@ import {
 } from '@tradepilot/shared';
 import { deriveBaseSymbol } from '@tradepilot/trading';
 
+import { ApiKeysService } from '../api-keys/services/api-keys.service';
+import { CopierLinksService } from '../copier/services/copier-links.service';
+import { CopierService } from '../copier/services/copier.service';
 import { DatabaseService } from '../database/database.service';
 import {
   AccountStatusSnapshotRecord,
   ExecutionStatus,
-  SignalStatus,
   TradeExecutionRecord,
-  FollowerDeviceRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
-import { UsersService } from '../users/users.service';
 import { buildAlertTemplate } from '../notifications/email-templates';
 import { NotificationEventBusService } from '../notifications/notification-event-bus.service';
-import { TradeCopierService } from '../trade-copier/trade-copier.service';
 
 import {
   DispatchAckMessage,
   DispatchEventMessage,
   EaConnectionAccountState,
   EaConnectionState,
-} from '../execution/execution.types';
+} from './interfaces/ea.interfaces';
+import { DispatchIntentService } from './services/dispatch-intent.service';
+import { EaPresenceService, PresencePayload } from './services/ea-presence.service';
 
 interface SocketMetadata {
   connectionId: string;
-  role?: 'PROVIDER' | 'FOLLOWER';
   userId?: string;
   accountId?: string;
   accountName?: string;
-  followerDeviceId?: string;
-  followerProgramId?: string;
   lastSeenAt: number;
   latencyMs: number | null;
   lastServerPingAt: number | null;
-}
-
-interface PresencePayload {
-  connectionId: string;
-  instanceId: string;
-  accountId: string;
-  accountName: string | null;
-  lastSeenAt: number;
-  latencyMs: number | null;
 }
 
 interface PendingStateSync {
@@ -93,11 +80,15 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private unsubscribeDispatch?: () => Promise<void>;
 
   constructor(
-    private readonly usersService: UsersService,
+    private readonly apiKeysService: ApiKeysService,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
     private readonly databaseService: DatabaseService,
     private readonly notificationEventBus: NotificationEventBusService,
+    private readonly presenceService: EaPresenceService,
+    private readonly dispatchIntentService: DispatchIntentService,
+    private readonly copierService: CopierService,
+    private readonly copierLinksService: CopierLinksService,
   ) {}
 
   async onModuleInit() {
@@ -154,28 +145,10 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   }
 
   async listConnectionStates(userId: string): Promise<EaConnectionAccountState[]> {
-    const presenceKeys = await this.redisService.scanKeys(
-      `${EA_PRESENCE_KEY_PREFIX}:${userId}:*`,
-    );
-    const values = await this.redisService.getMany(presenceKeys);
-    const presences = values
-      .map((value) => {
-        if (!value) {
-          return null;
-        }
-
-        try {
-          return JSON.parse(value) as PresencePayload;
-        } catch {
-          return null;
-        }
-      })
-      .filter((value): value is PresencePayload => Boolean(value));
-
+    const presences = await this.presenceService.list(userId);
     const latestStatuses = await this.getLatestStatusesByAccount(userId);
 
     return presences
-      .sort((left, right) => right.lastSeenAt - left.lastSeenAt)
       .map((presence) => ({
         accountId: presence.accountId,
         accountName: presence.accountName,
@@ -288,18 +261,28 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     await this.touch(client);
 
     if (message.type === 'auth') {
-      const user = await this.usersService.findByApiKey(message.apiKey);
+      const resolved = await this.apiKeysService.resolveKey(message.apiKey, 'EA');
 
-      if (!user) {
+      if (!resolved) {
         this.sendMessage(client, {
           type: 'error',
-          message: 'Invalid API key',
+          message: 'Invalid, expired or revoked API key',
         });
         client.close();
         return;
       }
 
-      await this.registerSocket(client, user.id, message.accountId, message.accountName);
+      await this.registerSocket(
+        client,
+        resolved.userId,
+        message.accountId,
+        message.accountName,
+        {
+          platform: message.platform ?? null,
+          currency: message.currency ?? null,
+          leverage: message.leverage ?? null,
+        },
+      );
       this.sendMessage(client, { type: 'auth_success' });
       return;
     }
@@ -436,6 +419,11 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     userId: string,
     accountId: string,
     accountName: string,
+    terminalInfo: {
+      platform: 'MT4' | 'MT5' | null;
+      currency: string | null;
+      leverage: number | null;
+    },
   ) {
     const metadata = this.socketMetadata.get(client);
 
@@ -461,7 +449,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
 
     existingConnections.set(accountId, client);
     this.socketsByUser.set(userId, existingConnections);
-    await this.upsertEaAccount(userId, accountId, accountName, metadata.latencyMs, metadata.lastSeenAt);
+    await this.upsertEaAccount(
+      userId,
+      accountId,
+      accountName,
+      metadata.latencyMs,
+      metadata.lastSeenAt,
+      terminalInfo,
+    );
     await this.persistPresence(client);
   }
 
@@ -602,8 +597,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       metadata.latencyMs,
       metadata.lastSeenAt,
     );
-    await this.redisService.setJson(
-      this.getPresenceKey(metadata.userId, metadata.accountId),
+    await this.presenceService.set(
+      metadata.userId,
       {
         connectionId: metadata.connectionId,
         instanceId: this.instanceId,
@@ -636,9 +631,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         }
       }
 
-      await this.redisService.delete(
-        this.getPresenceKey(metadata.userId, metadata.accountId),
-      );
+      await this.presenceService.remove(metadata.userId, metadata.accountId);
 
       if (userIsNowOffline) {
         this.notificationEventBus.emit({
@@ -675,7 +668,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string,
     latencyMs: number | null,
     lastSeenAt: number,
+    terminalInfo?: {
+      platform: 'MT4' | 'MT5' | null;
+      currency: string | null;
+      leverage: number | null;
+    },
   ) {
+    // `role` is deliberately absent: it is set by the user in the copier UI and
+    // must survive every reconnect.
     const { error } = await this.databaseService
       .getClient()
       .from('accounts')
@@ -688,6 +688,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           source: 'EA',
           last_seen_at: new Date(lastSeenAt).toISOString(),
           latency_ms: latencyMs,
+          ...(terminalInfo?.platform ? { platform: terminalInfo.platform } : {}),
+          ...(terminalInfo?.currency ? { currency: terminalInfo.currency } : {}),
+          ...(terminalInfo?.leverage ? { leverage: terminalInfo.leverage } : {}),
         },
         {
           onConflict: 'user_id,external_account_id',
@@ -809,9 +812,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         ? this.resolveCloseReason(existingRecord, payload)
         : existingRecord?.close_reason ?? null;
 
+    // The order comment carries the execution key the dispatch was sent with.
+    const entryType = existingRecord?.entry_type
+      ?? (await this.dispatchIntentService.resolve(payload.comment));
+
     const record = {
       user_id: userId,
-      signal_id: payload.signal_id ?? null,
+      copy_event_id: payload.signal_id ?? null,
+      entry_type: entryType,
       account_id: accountId,
       account_name: accountName,
       ticket: payload.ticket,
@@ -879,8 +887,16 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       accountName,
     );
 
-    if (payload.signal_id && payload.status === 'OPEN') {
-      await this.updateSignalStatus(payload.signal_id, 'EXECUTED').catch(() => undefined);
+    await this.fanOutIfMaster(userId, accountId, existingRecord, payload);
+
+    // A fill on a slave closes the loop: record its ticket against the copy order
+    // so a later close or modify on the master can target this exact position.
+    if (payload.comment && payload.status === 'OPEN') {
+      await this.copierService
+        .linkSlaveFill(payload.comment, payload.ticket, payload.volume)
+        .catch((error) => {
+          this.logger.warn(`Failed to link slave fill: ${String(error)}`);
+        });
     }
 
     if (payload.status === 'OPEN') {
@@ -1026,6 +1042,18 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       });
     }
 
+    if (payload.execution_key) {
+      await this.copierService
+        .recordCommandOutcome(
+          payload.execution_key,
+          payload.status === 'SUCCESS',
+          payload.message,
+        )
+        .catch((error) => {
+          this.logger.warn(`Failed to record copy command outcome: ${String(error)}`);
+        });
+    }
+
     await this.insertExecutionEvent(
       userId,
       payload.signal_id ?? null,
@@ -1045,9 +1073,118 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
+  /**
+   * If the reporting terminal is the user's MASTER, hand the event to the copier
+   * so it can mirror onto every enabled slave link.
+   */
+  private async fanOutIfMaster(
+    userId: string,
+    accountId: string,
+    existingRecord: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ) {
+    if (payload.status === 'REJECTED') {
+      return;
+    }
+
+    try {
+      const master = await this.copierLinksService.findMasterByExternalId(userId, accountId);
+
+      if (!master) {
+        return;
+      }
+
+      const action = this.resolveCopyAction(existingRecord, payload);
+
+      if (!action) {
+        return;
+      }
+
+      await this.copierService.onMasterTradeEvent({
+        userId,
+        masterAccountId: master.id,
+        masterExternalAccountId: accountId,
+        masterTicket: payload.ticket,
+        action,
+        symbol: payload.symbol,
+        baseSymbol: deriveBaseSymbol(payload.symbol),
+        side: payload.opening_order_type ?? payload.type,
+        volume: payload.volume,
+        entryPrice: payload.entry_price,
+        stopLoss: payload.stop_loss,
+        takeProfit: payload.take_profit,
+        closePercent:
+          action === 'PARTIAL_CLOSE' ? this.resolveClosePercent(existingRecord, payload) : null,
+        masterEventAt: payload.status === 'CLOSED'
+          ? payload.closed_at ?? new Date().toISOString()
+          : payload.opened_at,
+      });
+    } catch (error) {
+      // A copier failure must never break telemetry ingestion for the master.
+      this.logger.error(`Copy fan-out failed for account ${accountId}: ${String(error)}`);
+    }
+  }
+
+  /**
+   * The EA reports position state, not intent, so the action is inferred by
+   * diffing against what we already stored for this ticket.
+   */
+  private resolveCopyAction(
+    existingRecord: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ): 'OPEN' | 'CLOSE' | 'PARTIAL_CLOSE' | 'MODIFY' | null {
+    if (payload.status === 'CLOSED') {
+      return 'CLOSE';
+    }
+
+    if (!existingRecord) {
+      return 'OPEN';
+    }
+
+    if (payload.volume < Number(existingRecord.volume)) {
+      return 'PARTIAL_CLOSE';
+    }
+
+    const stopChanged = !this.numbersMatch(existingRecord.stop_loss, payload.stop_loss);
+    const takeProfitChanged = !this.numbersMatch(existingRecord.take_profit, payload.take_profit);
+
+    if (stopChanged || takeProfitChanged) {
+      return 'MODIFY';
+    }
+
+    // Same ticket, same volume, same levels: a heartbeat resend, not an action.
+    return null;
+  }
+
+  private resolveClosePercent(
+    existingRecord: TradeExecutionRecord | null,
+    payload: EaTradeEventPayload,
+  ): number {
+    const previousVolume = Number(existingRecord?.volume ?? 0);
+
+    if (previousVolume <= 0 || payload.volume >= previousVolume) {
+      return 100;
+    }
+
+    const closedFraction = (previousVolume - payload.volume) / previousVolume;
+    return Math.min(100, Math.max(1, Math.round(closedFraction * 100)));
+  }
+
+  private numbersMatch(left: number | null, right: number | null): boolean {
+    if (left === null && right === null) {
+      return true;
+    }
+
+    if (left === null || right === null) {
+      return false;
+    }
+
+    return Math.abs(Number(left) - Number(right)) < 1e-8;
+  }
+
   private async insertExecutionEvent(
     userId: string,
-    signalId: string | null,
+    copyEventId: string | null,
     status: ExecutionStatus,
     message: string,
     details: Record<string, unknown> | null,
@@ -1060,7 +1197,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       .from('execution_logs')
       .insert({
         user_id: userId,
-        signal_id: signalId,
+        copy_event_id: copyEventId,
         account_id: accountId,
         account_name: accountName,
         execution_key: executionKey ?? null,
@@ -1078,7 +1215,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private isTradeExecutionUnchanged(
     existing: TradeExecutionRecord,
     candidate: {
-      signal_id: string | null;
+      copy_event_id: string | null;
+      entry_type: TradeExecutionRecord['entry_type'];
       account_id: string;
       account_name: string | null;
       ticket: string;
@@ -1100,7 +1238,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     },
   ) {
     return (
-      existing.signal_id === candidate.signal_id &&
+      existing.copy_event_id === candidate.copy_event_id &&
+      existing.entry_type === candidate.entry_type &&
       existing.account_id === candidate.account_id &&
       (existing.account_name ?? null) === candidate.account_name &&
       existing.ticket === candidate.ticket &&
@@ -1246,18 +1385,6 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     return 'UNKNOWN';
   }
 
-  private async updateSignalStatus(signalId: string, status: SignalStatus) {
-    const { error } = await this.databaseService
-      .getClient()
-      .from('signals')
-      .update({ status })
-      .eq('id', signalId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
   private toAccountStatusDto(snapshot: AccountStatusSnapshotRecord): AccountStatusDTO {
     return accountStatusDtoSchema.parse({
       accountId: snapshot.account_id,
@@ -1270,10 +1397,6 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       openPositions: snapshot.open_positions,
       reportedAt: snapshot.created_at,
     });
-  }
-
-  private getPresenceKey(userId: string, accountId: string) {
-    return `${EA_PRESENCE_KEY_PREFIX}:${userId}:${accountId}`;
   }
 
   private sendMessage(client: WebSocket, message: WebSocketOutboundMessage) {

@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
-  ChevronRight,
   Copy,
   LayoutDashboard,
   LogOut,
@@ -16,52 +15,45 @@ import {
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
-import { useAppUpdate } from '../../hooks/useAppUpdate';
-import { useAuthStore } from '../../store/auth-store';
-import { useThemeStore } from '../../store/theme-store';
+import { useAppUpdate } from '@/hooks/useAppUpdate';
+import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth-store';
+import { useThemeStore } from '@/store/theme-store';
 
 const NAV = [
-  { to: '/app', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/app', label: 'Overview', icon: LayoutDashboard },
+  { to: '/app/copier', label: 'Trade Copier', icon: Copy },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/app/trade-copier', label: 'Trade Copier', icon: Copy },
-  { to: '/app/settings', label: 'Settings', icon: Settings2 },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
+  { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
 
 const PAGE_TITLES: Record<string, string> = {
-  '/app': 'Dashboard',
+  '/app': 'Overview',
+  '/app/copier': 'Trade Copier',
   '/app/analytics': 'Analytics',
-  '/app/trade-copier': 'Trade Copier',
-  '/app/settings': 'Settings',
   '/app/accounts': 'Accounts',
+  '/app/settings': 'Settings',
 };
 
 interface SidebarProps {
   onNavigate?: () => void;
   versionLabel: string;
-  builtAtLabel: string;
 }
 
-function SidebarContent({ onNavigate, versionLabel, builtAtLabel }: SidebarProps) {
+function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
   const { theme, toggleTheme } = useThemeStore();
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? 'TP';
 
   return (
-    <div className="flex h-full flex-col bg-white/95 dark:bg-slate-950/96">
-      <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5 dark:border-slate-800">
-        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-600 shadow-[0_16px_36px_-18px_rgba(2,132,199,0.85)]">
+    <div className="bg-sidebar flex h-full flex-col">
+      <div className="flex h-16 items-center gap-3 px-5">
+        <div className="bg-brand flex h-9 w-9 items-center justify-center rounded-xl">
           <Activity className="h-4 w-4 text-white" />
         </div>
-        <div>
-          <p className="text-sm font-semibold tracking-tight text-slate-950 dark:text-white">
-            TradePilot
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Live execution workspace
-          </p>
-        </div>
+        <p className="text-base font-semibold tracking-tight text-white">TradePilot</p>
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
@@ -72,74 +64,59 @@ function SidebarContent({ onNavigate, versionLabel, builtAtLabel }: SidebarProps
             end={to === '/app'}
             onClick={onNavigate}
             className={({ isActive }) =>
-              [
-                'group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors',
+              cn(
+                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100',
-              ].join(' ')
+                  ? 'bg-brand text-white'
+                  : 'text-sidebar-fg hover:bg-white/5 hover:text-white',
+              )
             }
           >
             {({ isActive }) => (
               <>
                 <Icon
-                  className={[
-                    'h-4 w-4 shrink-0',
-                    isActive
-                      ? 'text-sky-600 dark:text-sky-300'
-                      : 'text-slate-400 dark:text-slate-500',
-                  ].join(' ')}
+                  className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-sidebar-fg')}
                 />
                 {label}
-                {isActive ? <ChevronRight className="ml-auto h-4 w-4 opacity-60" /> : null}
               </>
             )}
           </NavLink>
         ))}
       </nav>
 
-      <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+      <div className="border-sidebar-line space-y-2 border-t p-3">
         <button
           type="button"
           onClick={toggleTheme}
-          className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+          className="text-sidebar-fg flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-white/5 hover:text-white"
         >
           {theme === 'dark' ? (
-            <Sun className="h-4 w-4 text-amber-500" />
+            <Sun className="h-4 w-4 text-warning" />
           ) : (
-            <Moon className="h-4 w-4 text-slate-400" />
+            <Moon className="h-4 w-4" />
           )}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </button>
 
-        <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 px-3 py-3 dark:border-slate-800">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">
+        <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+          <div className="bg-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white">
             {initials}
           </div>
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-sidebar-fg min-w-0 flex-1 truncate text-xs">
             {user?.email ?? '--'}
           </span>
           <button
             type="button"
             onClick={() => void logout()}
             title="Sign out"
-            className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-red-400"
+            aria-label="Sign out"
+            className="text-sidebar-fg cursor-pointer rounded-lg p-2 transition-colors hover:bg-white/5 hover:text-white"
           >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/80">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-            Version
-          </p>
-          <p className="mt-1 text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-            {versionLabel}
-          </p>
-          <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-            Built {builtAtLabel}
-          </p>
-        </div>
+        <p className="text-sidebar-fg px-3 pb-1 text-[11px]">{versionLabel}</p>
       </div>
     </div>
   );
@@ -151,13 +128,12 @@ export function AppShell() {
   const { currentManifest, availableManifest, hasUpdate, isRefreshing, dismiss, refreshToLatest } =
     useAppUpdate();
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'TradePilot';
-  const versionLabel = `TradePilot v${currentManifest.version}`;
-  const builtAtLabel = new Date(currentManifest.builtAt).toLocaleString();
+  const versionLabel = `v${currentManifest.version}`;
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.1),_transparent_30%),linear-gradient(180deg,#f8fbff_0%,#f8fafc_100%)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.12),_transparent_26%),linear-gradient(180deg,#020617_0%,#071224_42%,#020617_100%)]">
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-72 lg:border-r lg:border-slate-200/80 lg:backdrop-blur dark:lg:border-slate-800">
-        <SidebarContent versionLabel={versionLabel} builtAtLabel={builtAtLabel} />
+    <div className="bg-canvas min-h-screen">
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-64">
+        <SidebarContent versionLabel={versionLabel} />
       </div>
 
       <AnimatePresence>
@@ -170,20 +146,21 @@ export function AppShell() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileNavOpen(false)}
-              className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm lg:hidden"
+              className="bg-overlay fixed inset-0 z-40 backdrop-blur-sm lg:hidden"
             />
             <motion.aside
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="fixed inset-y-0 left-0 z-50 w-[84vw] max-w-sm border-r border-slate-200 shadow-2xl dark:border-slate-800 lg:hidden"
+              className="fixed inset-y-0 left-0 z-50 w-[80vw] max-w-xs shadow-2xl lg:hidden"
             >
-              <div className="absolute right-3 top-3 z-10">
+              <div className="absolute top-3 right-3 z-10">
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="rounded-full bg-white/90 p-2 text-slate-600 shadow-sm dark:bg-slate-900/90 dark:text-slate-300"
+                  aria-label="Close navigation"
+                  className="text-sidebar-fg cursor-pointer rounded-lg p-2 hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -191,33 +168,28 @@ export function AppShell() {
               <SidebarContent
                 onNavigate={() => setMobileNavOpen(false)}
                 versionLabel={versionLabel}
-                builtAtLabel={builtAtLabel}
               />
             </motion.aside>
           </>
         ) : null}
       </AnimatePresence>
 
-      <div className="flex min-h-screen flex-col lg:pl-72">
-        <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/85 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 sm:px-6">
+      <div className="flex min-h-screen flex-col lg:pl-64">
+        <header className="border-line bg-surface sticky top-0 z-30 border-b px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300 lg:hidden"
+              aria-label="Open navigation"
+              className="border-line text-content-secondary flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border lg:hidden"
             >
               <Menu className="h-4 w-4" />
             </button>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-600 dark:text-sky-400">
-                TradePilot
-              </p>
-              <h1 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-white">
-                {pageTitle}
-              </h1>
-            </div>
-            <div className="ml-auto inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <h1 className="text-content-primary text-xl font-semibold tracking-tight">
+              {pageTitle}
+            </h1>
+            <div className="border-positive/20 bg-positive-subtle text-positive-content ml-auto inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium">
+              <span className="bg-positive h-2 w-2 animate-pulse rounded-full" />
               Live
             </div>
           </div>
@@ -231,7 +203,7 @@ export function AppShell() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="px-4 py-5 sm:px-6 sm:py-6"
+              className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6"
             >
               <Outlet />
             </motion.div>
@@ -246,23 +218,22 @@ export function AppShell() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed bottom-4 right-4 z-[70] w-[min(92vw,390px)]"
+            className="fixed right-4 bottom-4 z-[70] w-[min(92vw,380px)]"
           >
-            <div className="overflow-hidden rounded-[24px] border border-sky-200/80 bg-white/96 shadow-[0_24px_80px_-30px_rgba(2,132,199,0.55)] backdrop-blur dark:border-sky-500/20 dark:bg-slate-950/96">
-              <div className="border-b border-sky-100 bg-[linear-gradient(135deg,rgba(224,242,254,0.95),rgba(255,255,255,0.92))] px-5 py-4 dark:border-sky-500/15 dark:bg-[linear-gradient(135deg,rgba(8,47,73,0.92),rgba(15,23,42,0.96))]">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700 dark:text-sky-300">
+            <div className="border-line bg-surface rounded-card overflow-hidden border shadow-2xl">
+              <div className="border-line-subtle border-b px-5 py-4">
+                <p className="text-brand text-[11px] font-semibold tracking-widest uppercase">
                   Update available
                 </p>
-                <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-                  A fresher TradePilot build is ready
+                <h2 className="text-content-primary mt-1 text-base font-semibold tracking-tight">
+                  A newer TradePilot build is ready
                 </h2>
               </div>
               <div className="space-y-4 px-5 py-4">
-                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-                  Refresh to load the latest web update and clear cached assets so the new UI and
-                  logic show immediately.
+                <p className="text-content-secondary text-sm leading-6">
+                  Refresh to load the latest build and clear cached assets.
                 </p>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
+                <div className="border-line bg-surface-muted text-content-secondary rounded-lg border px-4 py-3 text-xs leading-5">
                   New version: v{availableManifest.version}
                   <br />
                   Built: {new Date(availableManifest.builtAt).toLocaleString()}
@@ -271,7 +242,7 @@ export function AppShell() {
                   <button
                     type="button"
                     onClick={dismiss}
-                    className="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                    className="text-content-secondary hover:bg-surface-muted hover:text-content-primary cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors"
                   >
                     Later
                   </button>
@@ -279,9 +250,9 @@ export function AppShell() {
                     type="button"
                     onClick={() => void refreshToLatest()}
                     disabled={isRefreshing}
-                    className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="bg-brand text-brand-fg hover:bg-brand-hover inline-flex cursor-pointer items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isRefreshing ? 'Refreshing...' : 'Refresh now'}
+                    {isRefreshing ? 'Refreshing…' : 'Refresh now'}
                   </button>
                 </div>
               </div>

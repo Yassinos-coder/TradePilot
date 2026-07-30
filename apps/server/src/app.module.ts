@@ -1,25 +1,22 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 
 import { parseServerEnv } from '@tradepilot/config';
 
 import { AccountsModule } from './accounts/accounts.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
 import { AssistantAnalyticsModule } from './assistant-analytics/assistant-analytics.module';
 import { AuthModule } from './auth/auth.module';
-import { redisConnectionFromUrl } from './common/utils/redis';
+import { CopierModule } from './copier/copier.module';
 import { DatabaseModule } from './database/database.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EaModule } from './ea/ea.module';
-import { ExecutionModule } from './execution/execution.module';
+import { EaSharedModule } from './ea/ea-shared.module';
 import { HealthController } from './health.controller';
 import { NotificationsModule } from './notifications/notifications.module';
-import { PositionProxyModule } from './position-proxy/position-proxy.module';
 import { RedisModule } from './redis/redis.module';
 import { SettingsModule } from './settings/settings.module';
-import { SignalsModule } from './signals/signals.module';
-import { TelegramModule } from './telegram/telegram.module';
-import { TradeCopierModule } from './trade-copier/trade-copier.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -31,29 +28,20 @@ import { UsersModule } from './users/users.module';
       envFilePath: ['.env', '../../.env'],
       validate: (environment) => parseServerEnv(environment),
     }),
-    BullModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: redisConnectionFromUrl(
-          configService.getOrThrow<string>('REDIS_URL'),
-        ),
-      }),
-    }),
     RedisModule,
     DatabaseModule,
     UsersModule,
+    ApiKeysModule,
     NotificationsModule,
     AuthModule,
     AccountsModule,
     SettingsModule,
-    SignalsModule,
-    TelegramModule,
-    TradeCopierModule,
+    EaSharedModule,
+    CopierModule,
     EaModule,
-    ExecutionModule,
+    AnalyticsModule,
     DashboardModule,
     AssistantAnalyticsModule,
-    PositionProxyModule,
   ],
 })
 export class AppModule {}

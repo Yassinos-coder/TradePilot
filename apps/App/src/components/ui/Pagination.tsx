@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
 interface PaginationProps {
   page: number;
@@ -44,11 +44,11 @@ export function Pagination({
   return (
     <div
       className={cn(
-        'flex items-center justify-between gap-4 border-t border-slate-100 pt-4 dark:border-slate-800',
+        'border-line-subtle flex items-center justify-between gap-4 border-t pt-4',
         className,
       )}
     >
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-content-tertiary text-xs">
         {startIndex}–{endIndex} of {totalItems}
       </p>
 
@@ -57,7 +57,7 @@ export function Pagination({
           type="button"
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors disabled:pointer-events-none disabled:opacity-40"
           aria-label="Previous page"
         >
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -67,7 +67,7 @@ export function Pagination({
           p === '…' ? (
             <span
               key={`ellipsis-${i}`}
-              className="flex h-7 w-7 items-center justify-center text-xs text-slate-400 dark:text-slate-500"
+              className="text-content-tertiary flex h-7 w-7 items-center justify-center text-xs"
             >
               …
             </span>
@@ -77,10 +77,10 @@ export function Pagination({
               type="button"
               onClick={() => onPageChange(p)}
               className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-lg text-xs font-medium transition-colors',
+                'flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-xs font-semibold transition-colors',
                 p === page
-                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+                  ? 'bg-brand text-brand-fg'
+                  : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary',
               )}
             >
               {p}
@@ -92,7 +92,7 @@ export function Pagination({
           type="button"
           disabled={page === totalPages}
           onClick={() => onPageChange(page + 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors disabled:pointer-events-none disabled:opacity-40"
           aria-label="Next page"
         >
           <ChevronRight className="h-3.5 w-3.5" />

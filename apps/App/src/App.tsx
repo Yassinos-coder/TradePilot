@@ -17,7 +17,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { RefundPage } from './pages/RefundPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TermsPage } from './pages/TermsPage';
-import { TradeCopierPage } from './pages/TradeCopierPage';
+import { CopierPage } from './pages/CopierPage';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -47,9 +47,9 @@ function ProtectedLayout() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-slate-950">
-        <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-slate-400">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      <div className="bg-canvas flex min-h-screen items-center justify-center">
+        <div className="text-content-secondary flex items-center gap-3 text-sm">
+          <span className="border-brand h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
           Loading workspace…
         </div>
       </div>
@@ -62,9 +62,9 @@ function ProtectedLayout() {
 
   if (!user && profileQuery.isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-slate-950">
-        <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-slate-400">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      <div className="bg-canvas flex min-h-screen items-center justify-center">
+        <div className="text-content-secondary flex items-center gap-3 text-sm">
+          <span className="border-brand h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
           Syncing account…
         </div>
       </div>
@@ -99,10 +99,11 @@ export default function App() {
         <Route element={<ProtectedLayout />}>
           <Route path="/app" element={<DashboardPage />} />
           <Route path="/app/analytics" element={<AnalyticsPage />} />
-          <Route path="/app/trade-copier" element={<TradeCopierPage />} />
+          <Route path="/app/copier" element={<CopierPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
           <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>
+        <Route path="/app/trade-copier" element={<Navigate to="/app/copier" replace />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </BrowserRouter>

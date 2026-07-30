@@ -1,15 +1,12 @@
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 
-import { cn } from '../../lib/utils';
-import { useToastStore, type ToastTone } from '../../store/toast-store';
+import { cn } from '@/lib/utils';
+import { useToastStore, type ToastTone } from '@/store/toast-store';
 
 const toneStyles: Record<ToastTone, string> = {
-  success:
-    'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100',
-  error:
-    'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100',
-  info:
-    'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-100',
+  success: 'border-positive/25 bg-positive-subtle text-positive-content',
+  error: 'border-negative/25 bg-negative-subtle text-negative-content',
+  info: 'border-info/25 bg-info-subtle text-info-content',
 };
 
 function ToneIcon({ tone }: { tone: ToastTone }) {
@@ -51,7 +48,7 @@ export function ToastViewport() {
             <button
               type="button"
               onClick={() => dismiss(toast.id)}
-              className="shrink-0 rounded-md p-1 opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+              className="shrink-0 cursor-pointer rounded-md p-1 opacity-70 transition hover:opacity-100"
               aria-label="Dismiss notification"
             >
               <X className="h-4 w-4" />

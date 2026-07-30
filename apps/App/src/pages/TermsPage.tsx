@@ -16,11 +16,11 @@ export function TermsPage() {
       title="Terms of Service"
       subtitle="These terms govern your access to and use of TradePilot automation software."
     >
-      <article className="rounded-3xl border border-slate-200/80 bg-white/90 p-6 dark:border-slate-800 dark:bg-slate-900/90">
-        <ol className="space-y-3 text-sm leading-7 text-slate-700 dark:text-slate-300">
+      <article className="rounded-3xl border border-line bg-surface p-6">
+        <ol className="space-y-3 text-sm leading-7 text-content-secondary">
           {CLAUSES.map((clause, index) => (
             <li key={clause}>
-              <span className="font-semibold text-slate-950 dark:text-white">{index + 1}. </span>
+              <span className="font-semibold text-content-primary">{index + 1}. </span>
               {clause}
             </li>
           ))}

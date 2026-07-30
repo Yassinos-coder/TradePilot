@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-30
+
+TradePilot is now a multi-account trade copier. The Telegram signal-routing half
+of the product is gone; the copy source is the master account's own trade feed.
+
+### Added
+
+- **Master to slave trade copying** — each user marks one connected MetaTrader account as `MASTER`; every open, close, partial close and SL/TP change on it is mirrored to the accounts linked as slaves. The master EA's `trade_event` is the trigger, so nothing is parsed or guessed. Copies are deduped per master ticket and action, so a resent transaction cannot double-fire.
+- **Per-link risk parameters** — every master → slave route carries its own configuration, so two slaves off one master can run completely different risk: sizing mode (`MULTIPLIER`, `FIXED_LOT`, `BALANCE_RATIO`, `RISK_PERCENT`), min/max lot clamp, max open positions, daily loss and drawdown ceilings, equity floor, max spread and slippage, staleness cutoff, reverse copy, per-action copy toggles, and symbol allowlist/blocklist with broker prefix/suffix override.
+- **Risk gate that blocks rather than warns** — limits are enforced before a copy is dispatched, and every rejection is recorded on the copy order with its reason. Closes are deliberately never blocked, so a limit can't strand a slave holding a position the master has already exited.
+- **Master ↔ slave ticket map** — the slave writes the server's execution key into its order comment, which the backend reads back to link the fill to its copy order. That mapping is how a later close or modify on the master targets the exact mirrored position.
+- **API keys with two kinds and real rotation** — `api_keys` stores EA keys (MetaTrader terminals) and REST keys (HTTP trade API) as SHA-256 hashes with a display prefix; the secret is shown once and is not recoverable. Rotation issues a successor and leaves the predecessor valid for a grace window (24h default) so a live EA session isn't cut off mid-trade. Revocation is immediate.
+- **Allow trade opening through API** — a per-user setting gating `POST /v1/trades/open`. Closing and modifying are intentionally not gated by it, so withdrawing the permission can never leave a caller unable to shut down exposure it already has.
+- **Optional HMAC request signing per REST key** — timestamp, single-use nonce and a signature over the canonical body, which stops a captured request being replayed.
+- **Trade Copier page** — master selector, one card per slave link with its risk summary and a full parameter drawer, and a live feed showing each master action alongside how every link handled it.
+- **Design token layer** — `styles.css` now defines the whole palette as CSS variables consumed through Tailwind v4 `@theme inline`, so light and dark both resolve from one source and a palette change is a single edit. Recolored to the product reference: charcoal sidebar, light canvas, white cards, teal accent. Light is now the default theme.
+
+### Changed
+
+- **Settings rebuilt** into five tabs — My Account, Security & Sign-in, API & Keys, Copier Defaults, Notifications — with a hero band, an underlined tab strip and segmented sub-sections.
+- **Analytics endpoints moved** from `/api/execution/*` to `/api/analytics/*`. The calculations are unchanged; the read side was lifted out of the old `ExecutionService` (2235 lines, half of which was the signal dispatcher) into its own module.
+- **EA authentication** resolves `{ type: "auth", apiKey }` by hash lookup against `api_keys` instead of a plaintext column comparison, and honours expiry and revocation.
+- **Account reconnects no longer clobber role** — the EA upsert leaves `role` alone, so a master stays a master across restarts.
+- **Trade-type analytics breakdown** is now by side only (`Market Buy` / `Market Sell`). The requested entry type came from the signals table and is no longer persisted.
+- MetaTrader EAs write the execution key as the order comment when the server supplies one, falling back to the previous `TradePilot-N` label otherwise. **`.ex5` / `.ex4` must be recompiled in MetaEditor** — until then, copying opens positions correctly but close mirroring falls back to symbol-and-side matching.
+
+### Removed
+
+- **Telegram, end to end** — the MTProto session, phone/OTP login flow, channel sync, the 30-second backfill loop, the encrypted session store, the log-only bot notification provider, and all five `TELEGRAM_*` environment variables.
+- **The signal pipeline** — regex parser, OpenAI parsing fallback, signal classifier, the BullMQ queue and worker, and the `signals` table. `OPENAI_API_KEY` is retained but now powers only the analytics AI coach.
+- **Bull Board** at `/admin/queues`, which had no authentication and was publicly proxied by the frontend nginx config.
+- **The cross-user copier** — `copier_programs`, `copier_invite_codes`, `follower_devices`, invite codes, anonymous `tpfd_` device tokens and the unauthenticated `POST /trade-copier/followers/join` endpoint. Copying is now scoped to a single user's own accounts.
+- **`position-proxy`** and its global env-based API key, superseded by the REST trade API with per-user keys.
+- `users.api_key`, `POST /users/api-key/regenerate`, and the signal-era `settings` columns (`mode`, `allowed_symbols`, and the global per-trade risk fields now owned by each link).
+- Dependencies: `telegram` (gramjs), `bullmq`, `@nestjs/bullmq`, `@bull-board/api`, `@bull-board/express`.
+
+### Fixed
+
+- **Follower token binding never rejected a mismatch** — `validateFollowerTokenBinding` returns an object, so `if (!matchesBinding)` was always false. Moot now that the follower system is removed, but it was a live auth bypass in the unreleased path.
+- **Drawer backdrop was `lg:hidden`**, so clicking outside a drawer did nothing on desktop. Escape now closes drawers and modals too.
+
+### Security
+
+- API keys are no longer readable from the database — only a SHA-256 hash and an 11-character display prefix are stored.
+- The unauthenticated Bull Board queue dashboard is no longer exposed.
+
+### Migration
+
+Apply `supabase/tradepilot-schema-v2.sql` in the Supabase SQL editor. It is
+re-runnable and works on both a fresh database and an existing v1 one.
+
+It **drops** `signals`, `telegram_connections`, `telegram_channels`,
+`copier_programs`, `copier_invite_codes` and `follower_devices`. Analytics data
+(`trade_executions`, `ea_account_status_snapshots`, `trade_history_files`,
+`user_symbols`) is preserved, and existing `users.api_key` values are hashed into
+`api_keys` rows first so terminals already in the field keep authenticating.
+
 ## [0.7.0] - 2026-07-26
 
 ### Added

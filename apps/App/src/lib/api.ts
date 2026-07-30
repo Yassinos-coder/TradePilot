@@ -5,36 +5,29 @@ import {
   AccountDTO,
   AccountStatusDTO,
   AnalyticsSummaryDTO,
+  ApiKeyDTO,
+  ApiKeySecretResult,
   ChangePasswordInput,
-  CopierProgramDTO,
+  CopierLinkDTO,
+  CopierOverviewDTO,
+  CopyEventDTO,
   CreateAccountInput,
-  CreateCopierProgramInput,
+  CreateApiKeyInput,
+  CreateCopierLinkInput,
   DailyTradeSummaryDTO,
   DashboardOverviewDTO,
   ExecutionLogDTO,
-  FollowerDeviceDTO,
   NotificationPreferencesDTO,
   RequestEmailChangeInput,
   SettingsDTO,
-  SignalHistoryFilter,
-  SignalRecordDTO,
-  SoftDeleteSignalsInput,
-  TelegramChannelDTO,
-  TelegramChannelSyncResult,
-  TelegramConnectCodeInput,
-  TelegramConnectPasswordInput,
-  TelegramConnectStartInput,
-  TelegramConnectStartResult,
-  TelegramConnectionDTO,
   TradeExecutionDTO,
   TradeHistoryFileDTO,
-  UpdateCopierProgramInput,
+  UpdateCopierLinkInput,
   UpdateProfileInput,
   UserDTO,
   UserSessionDTO,
   VerifyEmailChangeInput,
 } from '@tradepilot/shared';
-
 
 const env = parseClientEnv(import.meta.env as Record<string, unknown>);
 
@@ -46,120 +39,9 @@ export const api = axios.create({
 export const clientEnv = env;
 
 export const apiClient = {
+  /* ── profile & auth ────────────────────────────────────────────────────── */
   async profile() {
     const { data } = await api.get<UserDTO>('/auth/me');
-    return data;
-  },
-  async regenerateApiKey() {
-    const { data } = await api.post<UserDTO>('/users/api-key/regenerate');
-    return data;
-  },
-  async overview() {
-    const { data } = await api.get<DashboardOverviewDTO>('/dashboard/overview');
-    return data;
-  },
-  async settings() {
-    const { data } = await api.get<SettingsDTO>('/settings');
-    return data;
-  },
-  async updateSettings(payload: SettingsDTO) {
-    const { data } = await api.put<SettingsDTO>('/settings', payload);
-    return data;
-  },
-  async telegramConnection() {
-    const { data } = await api.get<TelegramConnectionDTO>('/telegram/connection');
-    return data;
-  },
-  async startTelegramConnection(payload: TelegramConnectStartInput) {
-    const { data } = await api.post<TelegramConnectStartResult>(
-      '/telegram/connect/start',
-      payload,
-    );
-    return data;
-  },
-  async verifyTelegramCode(payload: TelegramConnectCodeInput) {
-    const { data } = await api.post<TelegramConnectionDTO>(
-      '/telegram/connect/verify-code',
-      payload,
-    );
-    return data;
-  },
-  async verifyTelegramPassword(payload: TelegramConnectPasswordInput) {
-    const { data } = await api.post<TelegramConnectionDTO>(
-      '/telegram/connect/verify-password',
-      payload,
-    );
-    return data;
-  },
-  async disconnectTelegramConnection() {
-    const { data } = await api.post<TelegramConnectionDTO>('/telegram/connect/disconnect');
-    return data;
-  },
-  async syncTelegramChannels() {
-    const { data } = await api.post<TelegramChannelSyncResult>('/telegram/channels/sync');
-    return data;
-  },
-  async channels() {
-    const { data } = await api.get<TelegramChannelDTO[]>('/telegram/channels');
-    return data;
-  },
-  async toggleChannel(channelId: string) {
-    const { data } = await api.post<TelegramChannelDTO>(`/telegram/channels/${channelId}/toggle`);
-    return data;
-  },
-  async accounts() {
-    const { data } = await api.get<AccountDTO[]>('/accounts');
-    return data;
-  },
-  async accountStatus(accountId?: string) {
-    const { data } = await api.get<AccountStatusDTO | null>('/accounts/status', {
-      params: accountId ? { accountId } : undefined,
-    });
-    return data;
-  },
-  async accountStatusHistory(accountId?: string, limit = 50) {
-    const { data } = await api.get<AccountStatusDTO[]>('/accounts/status/history', {
-      params: {
-        limit,
-        ...(accountId ? { accountId } : {}),
-      },
-    });
-    return data;
-  },
-  async createAccount(payload: CreateAccountInput) {
-    const { data } = await api.post<AccountDTO>('/accounts', payload);
-    return data;
-  },
-  async deleteAccount(id: string) {
-    await api.delete(`/accounts/${id}`);
-  },
-  async hideAccount(id: string) {
-    const { data } = await api.post<AccountDTO>(`/accounts/${id}/hide`);
-    return data;
-  },
-  async deleteAccountRecords(id: string) {
-    await api.delete(`/accounts/${id}/records`);
-  },
-  async signals(options?: {
-    limit?: number;
-    filter?: SignalHistoryFilter;
-    includeNoise?: boolean;
-  }) {
-    const { data } = await api.get<SignalRecordDTO[]>('/signals', {
-      params: {
-        limit: options?.limit,
-        filter: options?.filter,
-        includeNoise: options?.includeNoise ? 'true' : undefined,
-      },
-    });
-    return data;
-  },
-  async softDeleteSignals(payload: SoftDeleteSignalsInput) {
-    const { data } = await api.post<{ deletedCount: number }>('/signals/history/delete', payload);
-    return data;
-  },
-  async updateAutoCopy(enabled: boolean) {
-    const { data } = await api.put<SettingsDTO>('/settings/auto-copy', { enabled });
     return data;
   },
   async updateProfile(payload: UpdateProfileInput) {
@@ -186,6 +68,44 @@ export const apiClient = {
     const { data } = await api.post<{ success: boolean }>('/users/sessions/logout-all');
     return data;
   },
+
+  /* ── api keys ──────────────────────────────────────────────────────────── */
+  async apiKeys() {
+    const { data } = await api.get<ApiKeyDTO[]>('/api-keys');
+    return data;
+  },
+  async createApiKey(payload: CreateApiKeyInput) {
+    const { data } = await api.post<ApiKeySecretResult>('/api-keys', payload);
+    return data;
+  },
+  async rotateApiKey(keyId: string, graceHours: number) {
+    const { data } = await api.post<ApiKeySecretResult>(`/api-keys/${keyId}/rotate`, {
+      graceHours,
+    });
+    return data;
+  },
+  async revokeApiKey(keyId: string) {
+    const { data } = await api.delete<{ success: boolean }>(`/api-keys/${keyId}`);
+    return data;
+  },
+
+  /* ── settings ──────────────────────────────────────────────────────────── */
+  async settings() {
+    const { data } = await api.get<SettingsDTO>('/settings');
+    return data;
+  },
+  async updateSettings(payload: SettingsDTO) {
+    const { data } = await api.put<SettingsDTO>('/settings', payload);
+    return data;
+  },
+  async updateAutoCopy(enabled: boolean) {
+    const { data } = await api.put<SettingsDTO>('/settings/auto-copy', { enabled });
+    return data;
+  },
+  async updateApiTradeOpening(enabled: boolean) {
+    const { data } = await api.put<SettingsDTO>('/settings/api-trade-opening', { enabled });
+    return data;
+  },
   async notificationPreferences() {
     const { data } = await api.get<NotificationPreferencesDTO>('/notifications/preferences');
     return data;
@@ -197,88 +117,134 @@ export const apiClient = {
     );
     return data;
   },
-  async executionLogs(accountId?: string) {
-    const { data } = await api.get<ExecutionLogDTO[]>('/execution/logs', {
+
+  /* ── accounts ──────────────────────────────────────────────────────────── */
+  async accounts() {
+    const { data } = await api.get<AccountDTO[]>('/accounts');
+    return data;
+  },
+  async accountsIncludingHidden() {
+    const { data } = await api.get<AccountDTO[]>('/accounts', {
+      params: { includeHidden: 'true' },
+    });
+    return data;
+  },
+  async accountStatus(accountId?: string) {
+    const { data } = await api.get<AccountStatusDTO | null>('/accounts/status', {
       params: accountId ? { accountId } : undefined,
     });
     return data;
   },
-  async executionTrades(accountId?: string, limit = 10) {
-    const { data } = await api.get<TradeExecutionDTO[]>('/execution/trades', {
+  async accountStatusHistory(accountId?: string, limit = 50) {
+    const { data } = await api.get<AccountStatusDTO[]>('/accounts/status/history', {
       params: { limit, ...(accountId ? { accountId } : {}) },
     });
     return data;
   },
+  async createAccount(payload: CreateAccountInput) {
+    const { data } = await api.post<AccountDTO>('/accounts', payload);
+    return data;
+  },
+  async deleteAccount(id: string) {
+    await api.delete(`/accounts/${id}`);
+  },
+  async hideAccount(id: string) {
+    const { data } = await api.post<AccountDTO>(`/accounts/${id}/hide`);
+    return data;
+  },
+  async promoteToMaster(id: string) {
+    const { data } = await api.post<AccountDTO[]>(`/accounts/${id}/promote-master`);
+    return data;
+  },
+  async deleteAccountRecords(id: string) {
+    await api.delete(`/accounts/${id}/records`);
+  },
+
+  /* ── copier ────────────────────────────────────────────────────────────── */
+  async copierOverview() {
+    const { data } = await api.get<CopierOverviewDTO>('/copier/overview');
+    return data;
+  },
+  async copierLinks() {
+    const { data } = await api.get<CopierLinkDTO[]>('/copier/links');
+    return data;
+  },
+  async createCopierLink(payload: CreateCopierLinkInput) {
+    const { data } = await api.post<CopierLinkDTO>('/copier/links', payload);
+    return data;
+  },
+  async updateCopierLink(linkId: string, payload: UpdateCopierLinkInput) {
+    const { data } = await api.put<CopierLinkDTO>(`/copier/links/${linkId}`, payload);
+    return data;
+  },
+  async deleteCopierLink(linkId: string) {
+    await api.delete(`/copier/links/${linkId}`);
+  },
+  async setMasterAccount(accountId: string | null) {
+    const { data } = await api.put<{ success: boolean }>('/copier/master', { accountId });
+    return data;
+  },
+  async copyEvents(limit = 25) {
+    const { data } = await api.get<CopyEventDTO[]>('/copier/events', { params: { limit } });
+    return data;
+  },
+
+  /* ── dashboard & analytics ─────────────────────────────────────────────── */
+  async overview() {
+    const { data } = await api.get<DashboardOverviewDTO>('/dashboard/overview');
+    return data;
+  },
   async executionAnalytics(accountId?: string, startDate?: string, endDate?: string) {
-    const { data } = await api.get<AnalyticsSummaryDTO>('/execution/analytics', {
-      params: { ...(accountId ? { accountId } : {}), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) },
+    const { data } = await api.get<AnalyticsSummaryDTO>('/analytics/summary', {
+      params: {
+        ...(accountId ? { accountId } : {}),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+      },
     });
     return data;
   },
   async aiAnalysis(accountId?: string, startDate?: string, endDate?: string) {
-    const { data } = await api.get<string>('/execution/ai-analysis', {
-      params: { ...(accountId ? { accountId } : {}), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) },
+    const { data } = await api.get<string>('/analytics/ai-analysis', {
+      params: {
+        ...(accountId ? { accountId } : {}),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+      },
     });
     return data;
   },
   async dailySummary(startDate: string, endDate: string, accountId?: string) {
-    const { data } = await api.get<DailyTradeSummaryDTO>('/execution/daily-summary', {
+    const { data } = await api.get<DailyTradeSummaryDTO>('/analytics/daily-summary', {
       params: { startDate, endDate, ...(accountId ? { accountId } : {}) },
     });
     return data;
   },
+  async executionTrades(accountId?: string, limit = 10) {
+    const { data } = await api.get<TradeExecutionDTO[]>('/analytics/trades', {
+      params: { limit, ...(accountId ? { accountId } : {}) },
+    });
+    return data;
+  },
+  async executionLogs(accountId?: string, limit = 10) {
+    const { data } = await api.get<ExecutionLogDTO[]>('/analytics/logs', {
+      params: { limit, ...(accountId ? { accountId } : {}) },
+    });
+    return data;
+  },
   async tradeHistoryFiles() {
-    const { data } = await api.get<TradeHistoryFileDTO[]>('/execution/history-files');
+    const { data } = await api.get<TradeHistoryFileDTO[]>('/analytics/history-files');
     return data;
   },
   async uploadTradeHistoryFile(file: File) {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await api.post<TradeHistoryFileDTO>('/execution/history-files', formData, {
+    const { data } = await api.post<TradeHistoryFileDTO>('/analytics/history-files', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return data;
   },
   async deleteTradeHistoryFile(fileId: string) {
-    await api.delete(`/execution/history-files/${fileId}`);
-  },
-  async dispatchManual(signalId: string, accountId: string) {
-    await api.post(`/execution/${signalId}/dispatch-manual`, { accountId });
-  },
-  async copierPrograms() {
-    const { data } = await api.get<CopierProgramDTO[]>('/trade-copier/programs');
-    return data;
-  },
-  async createCopierProgram(payload: CreateCopierProgramInput) {
-    const { data } = await api.post<CopierProgramDTO>('/trade-copier/programs', payload);
-    return data;
-  },
-  async updateCopierProgram(programId: string, payload: UpdateCopierProgramInput) {
-    const { data } = await api.put<CopierProgramDTO>(`/trade-copier/programs/${programId}`, payload);
-    return data;
-  },
-  async rotateCopierInviteCode(programId: string) {
-    const { data } = await api.post<CopierProgramDTO>(
-      `/trade-copier/programs/${programId}/invite-code/rotate`,
-    );
-    return data;
-  },
-  async copierFollowers(programId: string) {
-    const { data } = await api.get<FollowerDeviceDTO[]>(
-      `/trade-copier/programs/${programId}/followers`,
-    );
-    return data;
-  },
-  async approveCopierFollower(programId: string, deviceId: string) {
-    const { data } = await api.post<FollowerDeviceDTO>(
-      `/trade-copier/programs/${programId}/followers/${deviceId}/approve`,
-    );
-    return data;
-  },
-  async revokeCopierFollower(programId: string, deviceId: string) {
-    const { data } = await api.post<FollowerDeviceDTO>(
-      `/trade-copier/programs/${programId}/followers/${deviceId}/revoke`,
-    );
-    return data;
+    await api.delete(`/analytics/history-files/${fileId}`);
   },
 };

@@ -44,7 +44,7 @@ interface TimeFilterProps {
 
 export function TimeFilter({ value, onChange }: TimeFilterProps) {
   return (
-    <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex flex-wrap gap-1 rounded-xl border border-line bg-surface-muted p-1">
       {OPTIONS.map((opt) => (
         <button
           key={opt.value}
@@ -53,8 +53,8 @@ export function TimeFilter({ value, onChange }: TimeFilterProps) {
           className={cn(
             'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
             value === opt.value
-              ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
-              : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
+              ? 'bg-surface text-content-primary shadow-sm'
+              : 'text-content-tertiary hover:text-content-secondary',
           )}
         >
           {opt.label}

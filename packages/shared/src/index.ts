@@ -1,12 +1,9 @@
 import { z } from 'zod';
 
-export const signalActionSchema = z.enum([
-  'OPEN',
-  'PARTIAL_CLOSE',
-  'CLOSE_ALL',
-  'MOVE_SL',
-]);
-export const signalSideSchema = z.enum(['BUY', 'SELL']);
+/* ─── primitives ─────────────────────────────────────────────────────────── */
+
+export const orderSideSchema = z.enum(['BUY', 'SELL']);
+export const orderEntrySchema = z.enum(['MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT']);
 export const positionDirectionSchema = z.enum(['LONG', 'SHORT']);
 export const tradeCloseReasonSchema = z.enum([
   'TP',
@@ -16,117 +13,212 @@ export const tradeCloseReasonSchema = z.enum([
   'BREAKEVEN',
   'UNKNOWN',
 ]);
-export const executionModeSchema = z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']);
-export const signalEntrySchema = z.enum(['MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT']);
-export const parserProviderSchema = z.enum(['REGEX', 'OPENAI']);
 export const tradeLifecycleStatusSchema = z.enum(['OPEN', 'CLOSED', 'REJECTED']);
 export const accountSourceSchema = z.enum(['MANUAL', 'EA']);
-export const signalClassificationSchema = z.enum(['SIGNAL', 'MANAGEMENT', 'NOISE']);
-export const signalIngestionSourceSchema = z.enum([
-  'MANUAL',
-  'TELEGRAM_REALTIME',
-  'TELEGRAM_BACKFILL',
-]);
+export const accountRoleSchema = z.enum(['MASTER', 'SLAVE', 'UNASSIGNED']);
+export const platformSchema = z.enum(['MT4', 'MT5']);
 export const commandResultStatusSchema = z.enum(['SUCCESS', 'ERROR']);
-export const positionProxyDeliveryStatusSchema = z.enum(['DELIVERED', 'ERROR']);
 
+const symbolSchema = z
+  .string()
+  .min(2)
+  .max(32)
+  .transform((value) => value.toUpperCase());
 
-export const copierProgramStatusSchema = z.enum(['ACTIVE', 'PAUSED', 'DISABLED']);
-export const followerDeviceStatusSchema = z.enum(['PENDING_APPROVAL', 'ACTIVE', 'REVOKED']);
+const ticketSchema = z
+  .union([z.string(), z.number(), z.bigint()])
+  .transform((value) => String(value));
 
-export const createCopierProgramSchema = z.object({
-  name: z.string().min(2).max(80),
-  description: z.string().max(500).nullable().default(null),
-  maxFollowerDevices: z.number().int().min(1).max(500).default(10),
-  requiresApproval: z.boolean().default(false),
+/* ─── copier ─────────────────────────────────────────────────────────────── */
+
+export const sizingModeSchema = z.enum([
+  'FIXED_LOT',
+  'MULTIPLIER',
+  'RISK_PERCENT',
+  'BALANCE_RATIO',
+]);
+export const symbolFilterModeSchema = z.enum(['ALL', 'ALLOWLIST', 'BLOCKLIST']);
+export const copyActionSchema = z.enum(['OPEN', 'CLOSE', 'PARTIAL_CLOSE', 'MODIFY']);
+export const copyOrderStatusSchema = z.enum([
+  'PENDING',
+  'SENT',
+  'FILLED',
+  'SKIPPED',
+  'REJECTED',
+  'FAILED',
+]);
+
+/**
+ * The risk-aware parameter set applied to one master → slave route.
+ * Every field is user-configurable; nothing here is global.
+ */
+export const copierRiskParamsSchema = z.object({
+  sizingMode: sizingModeSchema.default('MULTIPLIER'),
+  fixedLot: z.number().positive().max(100).nullable().default(null),
+  lotMultiplier: z.number().positive().max(100).default(1),
+  riskPercent: z.number().min(0.01).max(100).nullable().default(null),
+  minLot: z.number().positive().max(100).default(0.01),
+  maxLot: z.number().positive().max(1000).default(5),
+
+  maxOpenPositions: z.number().int().min(1).max(500).default(10),
+  maxDailyLossPercent: z.number().min(0.1).max(100).default(5),
+  maxDrawdownPercent: z.number().min(0.1).max(100).default(20),
+  equityFloor: z.number().min(0).nullable().default(null),
+  maxSpreadPoints: z.number().int().min(0).max(100_000).nullable().default(null),
+  maxSlippagePoints: z.number().int().min(0).max(10_000).default(20),
+  maxCopyDelayMs: z.number().int().min(0).max(600_000).default(5_000),
+
+  copyStopLoss: z.boolean().default(true),
+  copyTakeProfit: z.boolean().default(true),
+  copyModifications: z.boolean().default(true),
+  copyPartialCloses: z.boolean().default(true),
+  copyCloses: z.boolean().default(true),
+  reverseCopy: z.boolean().default(false),
+
+  symbolFilterMode: symbolFilterModeSchema.default('ALL'),
+  symbolFilter: z.array(symbolSchema).default([]),
+  symbolPrefix: z.string().max(16).nullable().default(null),
+  symbolSuffix: z.string().max(16).nullable().default(null),
 });
 
-export const updateCopierProgramSchema = createCopierProgramSchema.partial().extend({
-  status: copierProgramStatusSchema.optional(),
-});
+export const createCopierLinkSchema = copierRiskParamsSchema
+  .extend({
+    slaveAccountId: z.string().uuid(),
+    enabled: z.boolean().default(true),
+  })
+  .refine((value) => value.sizingMode !== 'FIXED_LOT' || value.fixedLot !== null, {
+    message: 'FIXED_LOT sizing requires a fixed lot',
+    path: ['fixedLot'],
+  })
+  .refine((value) => value.sizingMode !== 'RISK_PERCENT' || value.riskPercent !== null, {
+    message: 'RISK_PERCENT sizing requires a risk percent',
+    path: ['riskPercent'],
+  })
+  .refine((value) => value.maxLot >= value.minLot, {
+    message: 'Max lot must be greater than or equal to min lot',
+    path: ['maxLot'],
+  });
 
-export const copierProgramSchema = z.object({
+export const updateCopierLinkSchema = copierRiskParamsSchema
+  .partial()
+  .extend({ enabled: z.boolean().optional() });
+
+export const copierLinkSchema = copierRiskParamsSchema.extend({
   id: z.string().min(1),
-  providerUserId: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().nullable(),
-  status: copierProgramStatusSchema,
-  maxFollowerDevices: z.number().int().positive(),
-  requiresApproval: z.boolean(),
-  activeInviteCode: z.string().nullable(),
-  followerCount: z.number().int().nonnegative(),
-  onlineFollowerCount: z.number().int().nonnegative(),
+  masterAccountId: z.string().min(1),
+  slaveAccountId: z.string().min(1),
+  slaveAccountName: z.string().nullable(),
+  slaveAccountOnline: z.boolean().default(false),
+  enabled: z.boolean(),
+  copiesToday: z.number().int().nonnegative().default(0),
+  lastCopyAt: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
-export const followerDeviceSchema = z.object({
+export const setMasterAccountSchema = z.object({
+  accountId: z.string().uuid().nullable(),
+});
+
+export const copyOrderSchema = z.object({
   id: z.string().min(1),
-  programId: z.string().min(1),
-  nickname: z.string().nullable(),
-  accountLoginMasked: z.string().nullable(),
-  brokerServer: z.string().nullable(),
-  platform: z.enum(['MT4', 'MT5']).nullable(),
-  status: followerDeviceStatusSchema,
-  lastSeenAt: z.string().nullable(),
+  copierLinkId: z.string().min(1),
+  slaveAccountId: z.string().min(1),
+  slaveAccountName: z.string().nullable().optional(),
+  masterTicket: z.string().min(1),
+  slaveTicket: z.string().nullable(),
+  requestedSymbol: z.string(),
+  resolvedSymbol: z.string().nullable(),
+  side: orderSideSchema.nullable(),
+  requestedVolume: z.number().nullable(),
+  filledVolume: z.number().nullable(),
+  status: copyOrderStatusSchema,
+  skipReason: z.string().nullable(),
   createdAt: z.string(),
 });
 
-export const anonymousFollowerJoinSchema = z.object({
-  inviteCode: z.string().min(6).max(40),
-  nickname: z.string().min(1).max(80).nullable().optional(),
-  accountLoginHash: z.string().min(16).max(256),
-  brokerServer: z.string().min(1).max(120),
-  platform: z.enum(['MT4', 'MT5']),
-  terminalFingerprintHash: z.string().min(16).max(256),
+export const copyEventSchema = z.object({
+  id: z.string().min(1),
+  masterAccountId: z.string().min(1),
+  masterAccountName: z.string().nullable().optional(),
+  masterTicket: z.string().min(1),
+  action: copyActionSchema,
+  symbol: z.string(),
+  side: orderSideSchema.nullable(),
+  volume: z.number().nullable(),
+  entryPrice: z.number().nullable(),
+  stopLoss: z.number().nullable(),
+  takeProfit: z.number().nullable(),
+  closePercent: z.number().nullable(),
+  masterEventAt: z.string(),
+  createdAt: z.string(),
+  orders: z.array(copyOrderSchema).default([]),
 });
 
-export const anonymousFollowerJoinResultSchema = z.object({
-  deviceId: z.string().min(1),
-  programId: z.string().min(1),
-  providerName: z.string().min(1),
-  status: followerDeviceStatusSchema,
-  token: z.string().min(32),
+/* ─── api keys ───────────────────────────────────────────────────────────── */
+
+export const apiKeyKindSchema = z.enum(['EA', 'REST']);
+
+export const apiKeySchema = z.object({
+  id: z.string().min(1),
+  kind: apiKeyKindSchema,
+  name: z.string().min(1),
+  prefix: z.string().min(1),
+  scopes: z.array(z.string()).default([]),
+  lastUsedAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+  rotatedFromId: z.string().nullable(),
+  createdAt: z.string(),
 });
 
-export const signalDtoSchema = z.object({
-  action: signalActionSchema,
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
-  type: signalSideSchema.nullable(),
-  entry: signalEntrySchema.nullable(),
-  entryPrice: z.number().positive().nullable(),
-  stopLoss: z.number().positive().nullable(),
-  takeProfits: z.array(z.number().positive()),
-  closePercent: z.number().min(1).max(100).nullable(),
-  newStopLoss: z.number().positive().nullable(),
-  sourceChannel: z.string().min(1).optional(),
-  confidence: z.number().min(0).max(1),
-  parser: parserProviderSchema,
+export const createApiKeySchema = z.object({
+  kind: apiKeyKindSchema,
+  name: z.string().min(1).max(80),
+  /** Require an HMAC signature on every REST call made with this key. */
+  requireHmac: z.boolean().default(false),
 });
+
+export const rotateApiKeySchema = z.object({
+  /** Hours the superseded key keeps working. 0 revokes it immediately. */
+  graceHours: z.number().int().min(0).max(720).default(24),
+});
+
+/** The plaintext secret is returned exactly once, at creation or rotation. */
+export const apiKeySecretResultSchema = z.object({
+  key: apiKeySchema,
+  secret: z.string().min(16),
+  hmacSecret: z.string().nullable().default(null),
+});
+
+/* ─── users, sessions, settings ──────────────────────────────────────────── */
 
 export const userDtoSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),
   fullName: z.string().nullable().default(null),
+  nickname: z.string().nullable().default(null),
   phoneNumber: z.string().nullable().default(null),
+  country: z.string().nullable().default(null),
+  city: z.string().nullable().default(null),
+  street: z.string().nullable().default(null),
+  postalCode: z.string().nullable().default(null),
   pendingEmail: z.string().email().nullable().default(null),
-  apiKey: z.string().min(16),
   createdAt: z.string(),
 });
 
 export const updateProfileSchema = z.object({
   fullName: z.string().min(1).max(120).nullable(),
+  nickname: z.string().min(1).max(40).nullable().optional(),
   phoneNumber: z.string().min(4).max(40).nullable(),
+  country: z.string().min(2).max(2).nullable().optional(),
+  city: z.string().min(1).max(80).nullable().optional(),
+  street: z.string().min(1).max(160).nullable().optional(),
+  postalCode: z.string().min(2).max(20).nullable().optional(),
 });
 
-export const requestEmailChangeSchema = z.object({
-  newEmail: z.string().email(),
-});
-
-export const verifyEmailChangeSchema = z.object({
-  token: z.string().min(20),
-});
-
+export const requestEmailChangeSchema = z.object({ newEmail: z.string().email() });
+export const verifyEmailChangeSchema = z.object({ token: z.string().min(20) });
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(8),
   newPassword: z.string().min(8),
@@ -146,53 +238,43 @@ export const sessionSettingsSchema = z.object({
   newYork: z.boolean(),
 });
 
+export const notificationChannelPreferencesSchema = z.object({
+  email: z.boolean(),
+  whatsapp: z.boolean(),
+});
+
+export const notificationEventPreferencesSchema = z.object({
+  newTradeOpened: z.boolean(),
+  tpHit: z.boolean(),
+  slHit: z.boolean(),
+  lowMargin: z.boolean(),
+  eaDisconnected: z.boolean(),
+  masterOffline: z.boolean(),
+  copyFailed: z.boolean(),
+  executionFailed: z.boolean(),
+  dailySummary: z.boolean(),
+});
+
+export const notificationPreferencesSchema = z.object({
+  channels: notificationChannelPreferencesSchema,
+  events: notificationEventPreferencesSchema,
+});
+
 export const settingsDtoSchema = z.object({
-  riskPercent: z.number().min(0.1).max(10),
-  maxTrades: z.number().int().min(1).max(20),
-  maxSimultaneousTrades: z.number().int().min(1).max(50),
-  maxDailyLossPercent: z.number().min(0.1).max(100),
-  maxTradesPerDay: z.number().int().min(1).max(200),
-  lowMarginThresholdPercent: z.number().min(1).max(100),
   autoCopyEnabled: z.boolean().default(true),
   executionPaused: z.boolean().default(false),
   executionPauseReason: z.string().nullable().default(null),
   executionPausedAt: z.string().nullable().default(null),
-  excludedSymbols: z.array(z.string().min(2)).default([]),
+  allowApiTradeOpening: z.boolean().default(false),
+  excludedSymbols: z.array(symbolSchema).default([]),
   sessions: sessionSettingsSchema,
-  mode: executionModeSchema,
-  notificationChannels: z
-    .object({
-      email: z.boolean().default(true),
-      telegram: z.boolean().default(true),
-      whatsapp: z.boolean().default(false),
-    })
-    .default({
-      email: true,
-      telegram: true,
-      whatsapp: false,
-    }),
-  notificationEvents: z
-    .object({
-      newTradeOpened: z.boolean().default(true),
-      tpHit: z.boolean().default(true),
-      slHit: z.boolean().default(true),
-      lowMargin: z.boolean().default(true),
-      eaDisconnected: z.boolean().default(true),
-      telegramDisconnected: z.boolean().default(true),
-      executionFailed: z.boolean().default(true),
-      dailySummary: z.boolean().default(false),
-    })
-    .default({
-      newTradeOpened: true,
-      tpHit: true,
-      slHit: true,
-      lowMargin: true,
-      eaDisconnected: true,
-      telegramDisconnected: true,
-      executionFailed: true,
-      dailySummary: false,
-    }),
+  /** Prefilled into every new copier link. */
+  copierDefaults: copierRiskParamsSchema,
+  notificationChannels: notificationChannelPreferencesSchema,
+  notificationEvents: notificationEventPreferencesSchema,
 });
+
+/* ─── accounts ───────────────────────────────────────────────────────────── */
 
 export const accountStatusDtoSchema = z.object({
   accountId: z.string().min(1),
@@ -206,34 +288,16 @@ export const accountStatusDtoSchema = z.object({
   reportedAt: z.string(),
 });
 
-export const notificationChannelPreferencesSchema = z.object({
-  email: z.boolean(),
-  telegram: z.boolean(),
-  whatsapp: z.boolean(),
-});
-
-export const notificationEventPreferencesSchema = z.object({
-  newTradeOpened: z.boolean(),
-  tpHit: z.boolean(),
-  slHit: z.boolean(),
-  lowMargin: z.boolean(),
-  eaDisconnected: z.boolean(),
-  telegramDisconnected: z.boolean(),
-  executionFailed: z.boolean(),
-  dailySummary: z.boolean(),
-});
-
-export const notificationPreferencesSchema = z.object({
-  channels: notificationChannelPreferencesSchema,
-  events: notificationEventPreferencesSchema,
-});
-
 export const accountDtoSchema = z.object({
   id: z.string().min(1),
   externalAccountId: z.string().nullable().optional(),
   name: z.string().min(1),
   broker: z.string().nullable().optional(),
   source: accountSourceSchema.default('EA'),
+  role: accountRoleSchema.default('UNASSIGNED'),
+  platform: platformSchema.nullable().optional(),
+  currency: z.string().nullable().optional(),
+  leverage: z.number().int().nullable().optional(),
   hidden: z.boolean().default(false),
   online: z.boolean().default(false),
   latencyMs: z.number().int().nonnegative().nullable().optional(),
@@ -249,47 +313,56 @@ export const createAccountSchema = z.object({
 
 export const accountStatusHistorySchema = z.array(accountStatusDtoSchema);
 
-export const positionProxyOpenSchema = z.object({
+/* ─── trade api (HTTP, gated by allowApiTradeOpening) ────────────────────── */
+
+export const tradeApiOpenSchema = z.object({
   accountId: z.string().min(1),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
-  side: signalSideSchema,
+  symbol: symbolSchema,
+  side: orderSideSchema,
   volume: z.number().positive(),
-  entry: signalEntrySchema.default('MARKET'),
+  entry: orderEntrySchema.default('MARKET'),
   entryPrice: z.number().positive().nullable().optional(),
   stopLoss: z.number().positive().nullable().optional(),
   takeProfit: z.number().positive().nullable().optional(),
 });
 
-export const positionProxyCloseSchema = z.object({
-  accountId: z.string().min(1),
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
-  percent: z.number().min(1).max(100).default(100),
-}).refine((value) => Boolean(value.ticket || value.symbol), {
-  message: 'Provide either ticket or symbol',
-  path: ['ticket'],
-});
+export const tradeApiCloseSchema = z
+  .object({
+    accountId: z.string().min(1),
+    ticket: ticketSchema.optional(),
+    symbol: symbolSchema.optional(),
+    percent: z.number().min(1).max(100).default(100),
+  })
+  .refine((value) => Boolean(value.ticket || value.symbol), {
+    message: 'Provide either ticket or symbol',
+    path: ['ticket'],
+  });
 
-export const positionProxyModifySchema = z.object({
-  accountId: z.string().min(1),
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
-  stopLoss: z.number().positive().nullable().optional(),
-  takeProfit: z.number().positive().nullable().optional(),
-}).refine((value) => Boolean(value.ticket || value.symbol), {
-  message: 'Provide either ticket or symbol',
-  path: ['ticket'],
-}).refine((value) => value.stopLoss !== undefined || value.takeProfit !== undefined, {
-  message: 'Provide stopLoss or takeProfit',
-  path: ['stopLoss'],
-});
+export const tradeApiModifySchema = z
+  .object({
+    accountId: z.string().min(1),
+    ticket: ticketSchema.optional(),
+    symbol: symbolSchema.optional(),
+    stopLoss: z.number().positive().nullable().optional(),
+    takeProfit: z.number().positive().nullable().optional(),
+  })
+  .refine((value) => Boolean(value.ticket || value.symbol), {
+    message: 'Provide either ticket or symbol',
+    path: ['ticket'],
+  })
+  .refine((value) => value.stopLoss !== undefined || value.takeProfit !== undefined, {
+    message: 'Provide stopLoss or takeProfit',
+    path: ['stopLoss'],
+  });
 
-export const positionProxyCommandResultSchema = z.object({
+export const tradeApiCommandResultSchema = z.object({
   requestId: z.string().min(1),
   accountId: z.string().min(1),
-  status: positionProxyDeliveryStatusSchema,
+  status: z.enum(['DELIVERED', 'ERROR']),
   message: z.string().min(1),
 });
+
+/* ─── trade history import ───────────────────────────────────────────────── */
 
 export const tradeHistoryFileStatusSchema = z.enum(['UPLOADED', 'PARSED', 'FAILED']);
 export const tradeHistoryPlatformSchema = z.enum(['MT4', 'MT5', 'GENERIC']);
@@ -313,12 +386,12 @@ export const tradeHistoryFileDtoSchema = z.object({
 
 export const tradeExecutionDtoSchema = z.object({
   id: z.string().min(1),
-  signalId: z.string().nullable(),
+  copyEventId: z.string().nullable(),
   accountId: z.string().min(1),
   accountName: z.string().nullable().optional(),
   ticket: z.string().min(1),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
-  type: signalSideSchema,
+  symbol: symbolSchema,
+  type: orderSideSchema,
   volume: z.number().positive(),
   entryPrice: z.number(),
   exitPrice: z.number().nullable(),
@@ -326,7 +399,8 @@ export const tradeExecutionDtoSchema = z.object({
   takeProfit: z.number().nullable(),
   profit: z.number(),
   status: tradeLifecycleStatusSchema,
-  openingOrderType: signalSideSchema.nullable().optional(),
+  entryType: orderEntrySchema.default('MARKET'),
+  openingOrderType: orderSideSchema.nullable().optional(),
   detectedTradeType: z.string().nullable().optional(),
   positionDirection: positionDirectionSchema.nullable().optional(),
   closeReason: tradeCloseReasonSchema.nullable().optional(),
@@ -336,6 +410,8 @@ export const tradeExecutionDtoSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+
+/* ─── analytics (unchanged) ──────────────────────────────────────────────── */
 
 export const symbolBreakdownSchema = z.object({
   symbol: z.string(),
@@ -527,12 +603,17 @@ export const analyticsSummarySchema = z.object({
   correlationToBenchmark: z.number().nullable(),
   trackingError: z.number().nullable(),
 
-  metricAvailability: z.record(z.string(), z.object({
-    available: z.boolean(),
-    reason: z.string().nullable(),
-    formula: z.string(),
-    source: z.string(),
-  })).optional(),
+  metricAvailability: z
+    .record(
+      z.string(),
+      z.object({
+        available: z.boolean(),
+        reason: z.string().nullable(),
+        formula: z.string(),
+        source: z.string(),
+      }),
+    )
+    .optional(),
   assumptions: z.array(z.string()),
   dataSufficiency: z.object({
     sufficient: z.boolean(),
@@ -542,115 +623,34 @@ export const analyticsSummarySchema = z.object({
   }),
 });
 
-export const telegramConnectionStatusSchema = z.enum([
-  'DISCONNECTED',
-  'PENDING_CODE',
-  'PENDING_PASSWORD',
-  'CONNECTED',
-  'ERROR',
-]);
-
-export const telegramChannelKindSchema = z.enum(['CHANNEL', 'GROUP']);
-
-export const telegramConnectionSchema = z.object({
-  status: telegramConnectionStatusSchema,
-  phoneNumber: z.string().nullable(),
-  displayName: z.string().nullable(),
-  username: z.string().nullable(),
-  telegramUserId: z.string().nullable(),
-  lastConnectedAt: z.string().nullable(),
-  lastSyncedAt: z.string().nullable(),
-  lastError: z.string().nullable(),
+export const dailyTradeSummaryItemSchema = z.object({
+  date: z.string(),
+  netProfit: z.number(),
+  tradeCount: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  winRate: z.number(),
+  bestTrade: z.number().nullable(),
+  worstTrade: z.number().nullable(),
+  symbols: z.array(z.string()),
 });
 
-export const telegramChannelSchema = z.object({
-  id: z.string().min(1),
-  externalId: z.string().min(1),
-  name: z.string().min(1),
-  username: z.string().nullable().optional(),
-  kind: telegramChannelKindSchema,
-  enabled: z.boolean(),
-});
+export const dailyTradeSummarySchema = z.array(dailyTradeSummaryItemSchema);
 
-export const telegramConnectStartSchema = z.object({
-  phoneNumber: z
-    .string()
-    .min(7)
-    .max(32)
-    .regex(/^\+?[0-9()\-.\s]+$/, 'Use an international phone number format'),
-});
-
-export const telegramConnectCodeSchema = z.object({
-  phoneCode: z
-    .string()
-    .min(3)
-    .max(12)
-    .regex(/^[0-9]+$/, 'Code must contain only numbers'),
-});
-
-export const telegramConnectPasswordSchema = z.object({
-  password: z.string().min(1),
-});
-
-export const telegramCodeDeliverySchema = z.enum(['APP', 'SMS']);
-
-export const telegramConnectStartResultSchema = z.object({
-  connection: telegramConnectionSchema,
-  codeDelivery: telegramCodeDeliverySchema,
-});
-
-export const telegramChannelSyncResultSchema = z.object({
-  connection: telegramConnectionSchema,
-  channels: z.array(telegramChannelSchema),
-  syncedCount: z.number().int().nonnegative(),
-});
-
-export const signalStatusSchema = z.enum([
-  'PENDING',
-  'PARSED',
-  'VALIDATED',
-  'DISPATCHED',
-  'EXECUTED',
-  'PARSE_FAILED',
-  'VALIDATION_FAILED',
-  'EA_OFFLINE',
-  'DISPATCH_TIMEOUT',
-  'EXECUTION_REJECTED',
-  'IGNORED',
-  'BLOCKED',
-  'AUTO_COPY_DISABLED',
-  'SYMBOL_UNRESOLVED',
-]);
-
-export const signalRecordSchema = z.object({
-  id: z.string().min(1),
-  rawMessage: z.string().min(1),
-  rawMessageHash: z.string().min(16).nullable().optional(),
-  sourceChannel: z.string().nullable().optional(),
-  telegramMessageId: z.string().nullable().optional(),
-  telegramChannelId: z.string().nullable().optional(),
-  messageTimestamp: z.string().nullable().optional(),
-  ingestionSource: signalIngestionSourceSchema.optional(),
-  classification: signalClassificationSchema.default('SIGNAL'),
-  deletedAt: z.string().nullable().optional(),
-  parsedData: signalDtoSchema.nullable().catch(null),
-  status: signalStatusSchema,
-  confidence: z.number().min(0).max(1).nullable().optional(),
-  createdAt: z.string(),
-});
+/* ─── execution logs ─────────────────────────────────────────────────────── */
 
 export const executionStatusSchema = z.enum([
   'RECEIVED',
   'RETRYING',
   'DISPATCHED',
-  'PARSE_FAILED',
-  'PARSING_COMPLETED',
-  'VALIDATION_FAILED',
-  'VALIDATION_COMPLETED',
-  'TELEGRAM_MESSAGE_RECEIVED',
+  'COPY_SENT',
+  'COPY_SKIPPED',
+  'COPY_FILLED',
+  'COPY_REJECTED',
   'SYMBOL_MAPPED',
   'SYMBOL_MAPPING_FAILED',
   'EA_OFFLINE',
+  'MASTER_OFFLINE',
   'DISPATCH_TIMEOUT',
   'EXECUTION_REJECTED',
   'AUTO_COPY_DISABLED',
@@ -664,11 +664,13 @@ export const executionStatusSchema = z.enum([
   'TRADE_REJECTED',
   'COMMAND_SUCCEEDED',
   'COMMAND_FAILED',
+  'API_TRADE_REQUESTED',
+  'API_TRADE_BLOCKED',
 ]);
 
 export const executionLogSchema = z.object({
   id: z.string().min(1),
-  signalId: z.string().nullable(),
+  copyEventId: z.string().nullable(),
   accountId: z.string().nullable().optional(),
   accountName: z.string().nullable().optional(),
   executionKey: z.string().nullable().optional(),
@@ -679,15 +681,31 @@ export const executionLogSchema = z.object({
   createdAt: z.string(),
 });
 
+/* ─── dashboard ──────────────────────────────────────────────────────────── */
+
+export const copierOverviewSchema = z.object({
+  masterAccountId: z.string().nullable(),
+  masterAccountName: z.string().nullable(),
+  masterOnline: z.boolean(),
+  totalLinks: z.number().int().nonnegative(),
+  activeLinks: z.number().int().nonnegative(),
+  slavesOnline: z.number().int().nonnegative(),
+  copyEventsToday: z.number().int().nonnegative(),
+  copiesFilledToday: z.number().int().nonnegative(),
+  copiesSkippedToday: z.number().int().nonnegative(),
+  copiesFailedToday: z.number().int().nonnegative(),
+  copySuccessRate: z.number().min(0).max(100).nullable(),
+  lastCopyAt: z.string().nullable(),
+});
+
 export const dashboardOverviewSchema = z.object({
   eaOnline: z.boolean(),
   eaLatencyMs: z.number().int().nonnegative().nullable(),
   eaLastSeenAt: z.string().nullable(),
-  signalCount: z.number().int().nonnegative(),
   accountStatus: accountStatusDtoSchema.nullable(),
   connectedAccounts: z.array(accountDtoSchema),
-  lastTelegramMessage: signalRecordSchema.nullable(),
-  recentSignals: z.array(signalRecordSchema),
+  copier: copierOverviewSchema,
+  recentCopyEvents: z.array(copyEventSchema),
   recentExecutionLogs: z.array(executionLogSchema),
   recentTrades: z.array(tradeExecutionDtoSchema),
   analytics: analyticsSummarySchema,
@@ -695,27 +713,28 @@ export const dashboardOverviewSchema = z.object({
     autoCopyEnabled: z.boolean(),
     executionPaused: z.boolean(),
     executionPauseReason: z.string().nullable(),
-    telegramConnected: z.boolean(),
+    allowApiTradeOpening: z.boolean(),
     riskStatus: z.enum(['OK', 'LIMIT_HIT', 'PAUSED']),
     connectedAccounts: z.number().int().nonnegative(),
-    lastSignalAt: z.string().nullable(),
     lastTradeAt: z.string().nullable(),
   }),
 });
+
+/* ─── EA websocket protocol ──────────────────────────────────────────────── */
+/*
+  Wire field names are frozen: they are parsed by the compiled MQL4/MQL5
+  advisors in the field. `signal_id` now carries a copy event id, and
+  `execution_key` correlates a fill back to its copy_orders row.
+*/
 
 export const eaAuthMessageSchema = z.object({
   type: z.literal('auth'),
   apiKey: z.string().min(16),
   accountId: z.string().min(1),
   accountName: z.string().min(1),
-});
-
-export const eaFollowerAuthMessageSchema = z.object({
-  type: z.literal('auth_follower'),
-  token: z.string().min(32),
-  deviceId: z.string().min(1),
-  accountLoginHash: z.string().min(16),
-  terminalFingerprintHash: z.string().min(16),
+  platform: platformSchema.optional(),
+  currency: z.string().max(8).optional(),
+  leverage: z.number().int().positive().optional(),
 });
 
 export const eaPingMessageSchema = z.object({
@@ -750,11 +769,11 @@ export const eaAccountStatusMessageSchema = z.object({
 });
 
 export const eaTradeEventPayloadSchema = z.object({
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)),
+  ticket: ticketSchema,
   signal_id: z.string().optional().nullable(),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()),
-  type: signalSideSchema,
-  opening_order_type: signalSideSchema.nullable().optional(),
+  symbol: symbolSchema,
+  type: orderSideSchema,
+  opening_order_type: orderSideSchema.nullable().optional(),
   position_direction: positionDirectionSchema.nullable().optional(),
   close_reason: tradeCloseReasonSchema.nullable().optional(),
   volume: z.number().positive(),
@@ -778,10 +797,11 @@ export const eaTradeEventMessageSchema = z.object({
 export const eaCommandResultMessageSchema = z.object({
   type: z.literal('command_result'),
   accountId: z.string().min(1),
-  action: signalActionSchema,
-  symbol: z.string().max(32).transform((value) => value.toUpperCase()).nullable().optional(),
+  action: z.enum(['OPEN', 'PARTIAL_CLOSE', 'CLOSE_ALL', 'MOVE_SL']),
+  symbol: symbolSchema.nullable().optional(),
   status: commandResultStatusSchema,
   message: z.string().min(1),
+  ticket: ticketSchema.nullable().optional(),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
   details: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -800,16 +820,7 @@ export const eaSyncStateCompleteMessageSchema = z.object({
   synced_trades: z.number().int().nonnegative().optional(),
 });
 
-export const eaCopyTradeEventMessageSchema = z.object({
-  type: z.literal('copy_trade_event'),
-  providerProgramId: z.string().min(1),
-  providerTradeId: z.string().min(1),
-  data: eaTradeEventPayloadSchema,
-});
-
-export const eaAuthSuccessMessageSchema = z.object({
-  type: z.literal('auth_success'),
-});
+export const eaAuthSuccessMessageSchema = z.object({ type: z.literal('auth_success') });
 
 export const eaErrorMessageSchema = z.object({
   type: z.literal('error'),
@@ -818,8 +829,8 @@ export const eaErrorMessageSchema = z.object({
 
 export const eaTradePayloadSchema = z.object({
   symbol: z.string().min(2),
-  type: signalSideSchema,
-  entry: signalEntrySchema,
+  type: orderSideSchema,
+  entry: orderEntrySchema,
   volume: z.number().positive().optional(),
   entry_price: z.number().positive().nullable(),
   stop_loss: z.number().positive().nullable(),
@@ -835,8 +846,8 @@ export const eaSignalMessageSchema = z.object({
 
 export const eaPartialCloseMessageSchema = z.object({
   type: z.literal('partial_close'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  symbol: symbolSchema.optional(),
+  ticket: ticketSchema.optional(),
   percent: z.number().min(1).max(100),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
@@ -844,16 +855,16 @@ export const eaPartialCloseMessageSchema = z.object({
 
 export const eaCloseAllMessageSchema = z.object({
   type: z.literal('close_all'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  symbol: symbolSchema.optional(),
+  ticket: ticketSchema.optional(),
   signal_id: z.string().nullable().optional(),
   execution_key: z.string().nullable().optional(),
 });
 
 export const eaMoveSlMessageSchema = z.object({
   type: z.literal('move_sl'),
-  symbol: z.string().min(2).max(32).transform((value) => value.toUpperCase()).optional(),
-  ticket: z.union([z.string(), z.number(), z.bigint()]).transform((value) => String(value)).optional(),
+  symbol: symbolSchema.optional(),
+  ticket: ticketSchema.optional(),
   new_stop_loss: z.number().positive().nullable().optional(),
   new_take_profit: z.number().positive().nullable().optional(),
   signal_id: z.string().nullable().optional(),
@@ -862,7 +873,6 @@ export const eaMoveSlMessageSchema = z.object({
 
 export const eaInboundMessageSchema = z.discriminatedUnion('type', [
   eaAuthMessageSchema,
-  eaFollowerAuthMessageSchema,
   eaPingMessageSchema,
   eaPongMessageSchema,
   eaSymbolsMessageSchema,
@@ -878,23 +888,40 @@ export const eaOutboundMessageSchema = z.discriminatedUnion('type', [
   eaPongMessageSchema,
   eaErrorMessageSchema,
   eaSyncStateMessageSchema,
-  eaCopyTradeEventMessageSchema,
   eaSignalMessageSchema,
   eaPartialCloseMessageSchema,
   eaCloseAllMessageSchema,
   eaMoveSlMessageSchema,
 ]);
 
-export type SignalAction = z.infer<typeof signalActionSchema>;
-export type CopierProgramStatus = z.infer<typeof copierProgramStatusSchema>;
-export type FollowerDeviceStatus = z.infer<typeof followerDeviceStatusSchema>;
-export type CreateCopierProgramInput = z.infer<typeof createCopierProgramSchema>;
-export type UpdateCopierProgramInput = z.infer<typeof updateCopierProgramSchema>;
-export type CopierProgramDTO = z.infer<typeof copierProgramSchema>;
-export type FollowerDeviceDTO = z.infer<typeof followerDeviceSchema>;
-export type AnonymousFollowerJoinInput = z.infer<typeof anonymousFollowerJoinSchema>;
-export type AnonymousFollowerJoinResult = z.infer<typeof anonymousFollowerJoinResultSchema>;
-export type SignalDTO = z.infer<typeof signalDtoSchema>;
+/* ─── types ──────────────────────────────────────────────────────────────── */
+
+export type OrderSide = z.infer<typeof orderSideSchema>;
+export type OrderEntry = z.infer<typeof orderEntrySchema>;
+export type PositionDirection = z.infer<typeof positionDirectionSchema>;
+export type TradeCloseReason = z.infer<typeof tradeCloseReasonSchema>;
+export type AccountRole = z.infer<typeof accountRoleSchema>;
+export type Platform = z.infer<typeof platformSchema>;
+
+export type SizingMode = z.infer<typeof sizingModeSchema>;
+export type SymbolFilterMode = z.infer<typeof symbolFilterModeSchema>;
+export type CopyAction = z.infer<typeof copyActionSchema>;
+export type CopyOrderStatus = z.infer<typeof copyOrderStatusSchema>;
+export type CopierRiskParams = z.infer<typeof copierRiskParamsSchema>;
+export type CopierLinkDTO = z.infer<typeof copierLinkSchema>;
+export type CreateCopierLinkInput = z.infer<typeof createCopierLinkSchema>;
+export type UpdateCopierLinkInput = z.infer<typeof updateCopierLinkSchema>;
+export type SetMasterAccountInput = z.infer<typeof setMasterAccountSchema>;
+export type CopyEventDTO = z.infer<typeof copyEventSchema>;
+export type CopyOrderDTO = z.infer<typeof copyOrderSchema>;
+export type CopierOverviewDTO = z.infer<typeof copierOverviewSchema>;
+
+export type ApiKeyKind = z.infer<typeof apiKeyKindSchema>;
+export type ApiKeyDTO = z.infer<typeof apiKeySchema>;
+export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
+export type RotateApiKeyInput = z.infer<typeof rotateApiKeySchema>;
+export type ApiKeySecretResult = z.infer<typeof apiKeySecretResultSchema>;
+
 export type UserDTO = z.infer<typeof userDtoSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type RequestEmailChangeInput = z.infer<typeof requestEmailChangeSchema>;
@@ -902,13 +929,17 @@ export type VerifyEmailChangeInput = z.infer<typeof verifyEmailChangeSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type UserSessionDTO = z.infer<typeof sessionDtoSchema>;
 export type SettingsDTO = z.infer<typeof settingsDtoSchema>;
-export type ExecutionMode = z.infer<typeof executionModeSchema>;
-export type PositionDirection = z.infer<typeof positionDirectionSchema>;
-export type TradeCloseReason = z.infer<typeof tradeCloseReasonSchema>;
+export type NotificationPreferencesDTO = z.infer<typeof notificationPreferencesSchema>;
+
 export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
-export type NotificationPreferencesDTO = z.infer<typeof notificationPreferencesSchema>;
+
+export type TradeApiOpenInput = z.infer<typeof tradeApiOpenSchema>;
+export type TradeApiCloseInput = z.infer<typeof tradeApiCloseSchema>;
+export type TradeApiModifyInput = z.infer<typeof tradeApiModifySchema>;
+export type TradeApiCommandResult = z.infer<typeof tradeApiCommandResultSchema>;
+
 export type TradeHistoryFileDTO = z.infer<typeof tradeHistoryFileDtoSchema>;
 export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
 export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
@@ -918,69 +949,16 @@ export type PeriodBreakdownDTO = z.infer<typeof periodBreakdownSchema>;
 export type TradeTypeBreakdownDTO = z.infer<typeof tradeTypeBreakdownSchema>;
 export type BestWorstPeriodDTO = z.infer<typeof bestWorstPeriodSchema>;
 export type EquityCurvePointDTO = z.infer<typeof equityCurvePointSchema>;
-export type TelegramConnectionStatus = z.infer<typeof telegramConnectionStatusSchema>;
-export type TelegramChannelKind = z.infer<typeof telegramChannelKindSchema>;
-export type TelegramConnectionDTO = z.infer<typeof telegramConnectionSchema>;
-export type TelegramChannelDTO = z.infer<typeof telegramChannelSchema>;
-export type TelegramConnectStartInput = z.infer<typeof telegramConnectStartSchema>;
-export type TelegramConnectCodeInput = z.infer<typeof telegramConnectCodeSchema>;
-export type TelegramConnectPasswordInput = z.infer<typeof telegramConnectPasswordSchema>;
-export type TelegramCodeDelivery = z.infer<typeof telegramCodeDeliverySchema>;
-export type TelegramConnectStartResult = z.infer<typeof telegramConnectStartResultSchema>;
-export type TelegramChannelSyncResult = z.infer<typeof telegramChannelSyncResultSchema>;
-export type SignalStatus = z.infer<typeof signalStatusSchema>;
-export type SignalClassification = z.infer<typeof signalClassificationSchema>;
-export type SignalRecordDTO = z.infer<typeof signalRecordSchema>;
-export type SignalIngestionSource = z.infer<typeof signalIngestionSourceSchema>;
+export type DailyTradeSummaryItem = z.infer<typeof dailyTradeSummaryItemSchema>;
+export type DailyTradeSummaryDTO = z.infer<typeof dailyTradeSummarySchema>;
+
 export type ExecutionStatus = z.infer<typeof executionStatusSchema>;
 export type ExecutionLogDTO = z.infer<typeof executionLogSchema>;
 export type DashboardOverviewDTO = z.infer<typeof dashboardOverviewSchema>;
+
 export type WebSocketInboundMessage = z.infer<typeof eaInboundMessageSchema>;
 export type WebSocketOutboundMessage = z.infer<typeof eaOutboundMessageSchema>;
-export type EaFollowerAuthMessage = z.infer<typeof eaFollowerAuthMessageSchema>;
-export type EaCopyTradeEventMessage = z.infer<typeof eaCopyTradeEventMessageSchema>;
 export type EaAccountStatusPayload = z.infer<typeof eaAccountStatusPayloadSchema>;
 export type EaTradeEventPayload = z.infer<typeof eaTradeEventPayloadSchema>;
 export type EaTradePayload = z.infer<typeof eaTradePayloadSchema>;
 export type EaCommandResultStatus = z.infer<typeof commandResultStatusSchema>;
-export type PositionProxyOpenInput = z.infer<typeof positionProxyOpenSchema>;
-export type PositionProxyCloseInput = z.infer<typeof positionProxyCloseSchema>;
-export type PositionProxyModifyInput = z.infer<typeof positionProxyModifySchema>;
-export type PositionProxyCommandResult = z.infer<typeof positionProxyCommandResultSchema>;
-
-export const manualDispatchSchema = z.object({
-  accountId: z.string().uuid(),
-});
-
-export const signalHistoryFilterSchema = z.enum([
-  'ALL',
-  'SIGNALS',
-  'MANAGEMENT',
-  'NOISE',
-]);
-
-export const softDeleteSignalsSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).optional(),
-  clearAll: z.boolean().optional(),
-});
-
-export type ManualDispatchInput = z.infer<typeof manualDispatchSchema>;
-export type SignalHistoryFilter = z.infer<typeof signalHistoryFilterSchema>;
-export type SoftDeleteSignalsInput = z.infer<typeof softDeleteSignalsSchema>;
-
-export const dailyTradeSummaryItemSchema = z.object({
-  date: z.string(),
-  netProfit: z.number(),
-  tradeCount: z.number().int(),
-  wins: z.number().int(),
-  losses: z.number().int(),
-  winRate: z.number(),
-  bestTrade: z.number().nullable(),
-  worstTrade: z.number().nullable(),
-  symbols: z.array(z.string()),
-});
-
-export const dailyTradeSummarySchema = z.array(dailyTradeSummaryItemSchema);
-
-export type DailyTradeSummaryItem = z.infer<typeof dailyTradeSummaryItemSchema>;
-export type DailyTradeSummaryDTO = z.infer<typeof dailyTradeSummarySchema>;

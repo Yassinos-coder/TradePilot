@@ -484,7 +484,10 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
    double price;
    color clr;
    bool isBuy = side == "BUY";
-   string comment = "TradePilot-" + IntegerToString(tradeIndex);
+   // The execution key goes in the order comment so the server can trace this
+   // fill back to the copy order that requested it, which is how a later close
+   // or SL/TP change on the master finds the right position here.
+   string comment = (executionKey != "") ? executionKey : "TradePilot-" + IntegerToString(tradeIndex);
 
    if (entryKind == "LIMIT" && entryPrice > 0.0) {
       cmd = isBuy ? OP_BUYLIMIT : OP_SELLLIMIT;

@@ -76,7 +76,7 @@ export function ExportButton({ analytics }: ExportButtonProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+        className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium text-content-secondary shadow-sm transition-colors hover:bg-surface-muted"
       >
         <Download className="h-3.5 w-3.5" />
         Export
@@ -90,14 +90,14 @@ export function ExportButton({ analytics }: ExportButtonProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border border-line bg-surface shadow-lg"
           >
             {options.map((opt) => (
               <button
                 key={opt.label}
                 type="button"
                 onClick={() => handle(opt.action)}
-                className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="w-full px-4 py-2.5 text-left text-xs font-medium text-content-secondary transition-colors hover:bg-surface-muted"
               >
                 {opt.label}
               </button>

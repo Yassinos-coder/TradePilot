@@ -8,12 +8,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { ExecutionService } from '../execution/execution.service';
+import { AnalyticsService } from '../analytics/services/analytics.service';
 
 @Controller('assistant/analytics')
 export class AssistantAnalyticsController {
   constructor(
-    private readonly executionService: ExecutionService,
+    private readonly analyticsService: AnalyticsService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -35,9 +35,9 @@ export class AssistantAnalyticsController {
 
     const normalizedAccountId = this.normalizeAccountSelector(accountId);
     const [analytics, recentTrades, latestAccountStatus] = await Promise.all([
-      this.executionService.getAnalytics(userId, normalizedAccountId),
-      this.executionService.listRecentTrades(userId, 25, normalizedAccountId),
-      this.executionService.getLatestAccountStatus(userId, normalizedAccountId),
+      this.analyticsService.getAnalytics(userId, normalizedAccountId),
+      this.analyticsService.listRecentTrades(userId, 25, normalizedAccountId),
+      this.analyticsService.getLatestAccountStatus(userId, normalizedAccountId),
     ]);
 
     return {

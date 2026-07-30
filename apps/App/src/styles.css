@@ -3,6 +3,164 @@
 /* Class-based dark mode for Tailwind v4 */
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Design tokens.
+
+  Every colour in the app resolves through one of these variables, so a palette
+  change is a single edit here instead of a find-and-replace across components.
+  The light values match the product reference: light canvas, white cards,
+  dark charcoal sidebar, teal accent.
+*/
+:root,
+html.light {
+  --canvas: #f7f8fa;
+  --surface: #ffffff;
+  --surface-muted: #f2f4f7;
+  --surface-inset: #fafbfc;
+
+  --sidebar: #191919;
+  --sidebar-fg: #a3a8ae;
+  --sidebar-fg-strong: #ffffff;
+  --sidebar-line: #2a2a2a;
+
+  --brand: #199a8e;
+  --brand-hover: #147d73;
+  --brand-active: #106b62;
+  --brand-subtle: #e6f4f2;
+  --brand-fg: #ffffff;
+
+  --content-primary: #0e1116;
+  --content-secondary: #5c6470;
+  --content-tertiary: #98a0ab;
+  --content-inverse: #ffffff;
+
+  --line: #e9ecf1;
+  --line-strong: #d7dce4;
+  --line-subtle: #f1f3f6;
+
+  --positive: #22a06b;
+  --positive-subtle: #e7f6ee;
+  --positive-content: #167a51;
+
+  --negative: #e5484d;
+  --negative-subtle: #fdeced;
+  --negative-content: #c22a2f;
+
+  --warning: #f5a524;
+  --warning-subtle: #fef5e6;
+  --warning-content: #96620f;
+
+  --info: #3b82f6;
+  --info-subtle: #eaf1fe;
+  --info-content: #1d4ed8;
+
+  --focus-ring: rgb(25 154 142 / 0.28);
+  --card-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.06);
+  --overlay: rgb(14 17 22 / 0.45);
+}
+
+html.dark {
+  --canvas: #0b0d0f;
+  --surface: #14171b;
+  --surface-muted: #1b1f24;
+  --surface-inset: #101317;
+
+  --sidebar: #08090b;
+  --sidebar-fg: #8b929b;
+  --sidebar-fg-strong: #ffffff;
+  --sidebar-line: #1e2227;
+
+  --brand: #2cb5a6;
+  --brand-hover: #3ac6b7;
+  --brand-active: #24a094;
+  --brand-subtle: rgb(44 181 166 / 0.14);
+  --brand-fg: #06231f;
+
+  --content-primary: #f1f5f9;
+  --content-secondary: #9aa3ae;
+  --content-tertiary: #6b7481;
+  --content-inverse: #0e1116;
+
+  --line: #242a31;
+  --line-strong: #313941;
+  --line-subtle: #1b2027;
+
+  --positive: #34c98a;
+  --positive-subtle: rgb(52 201 138 / 0.14);
+  --positive-content: #5fdaa5;
+
+  --negative: #f16a6e;
+  --negative-subtle: rgb(241 106 110 / 0.14);
+  --negative-content: #f78e91;
+
+  --warning: #f7b955;
+  --warning-subtle: rgb(247 185 85 / 0.14);
+  --warning-content: #f9cd84;
+
+  --info: #5b9bff;
+  --info-subtle: rgb(91 155 255 / 0.14);
+  --info-content: #8ab8ff;
+
+  --focus-ring: rgb(44 181 166 / 0.32);
+  --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.32), 0 1px 3px 0 rgb(0 0 0 / 0.24);
+  --overlay: rgb(0 0 0 / 0.6);
+}
+
+/*
+  `inline` keeps the generated utilities pointing at var(--token) instead of
+  baking in a literal, so the html.dark overrides above retarget every utility
+  without needing a dark: variant on each element.
+*/
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-fg-strong: var(--sidebar-fg-strong);
+  --color-sidebar-line: var(--sidebar-line);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-fg: var(--brand-fg);
+
+  --color-content-primary: var(--content-primary);
+  --color-content-secondary: var(--content-secondary);
+  --color-content-tertiary: var(--content-tertiary);
+  --color-content-inverse: var(--content-inverse);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-subtle: var(--line-subtle);
+
+  --color-positive: var(--positive);
+  --color-positive-subtle: var(--positive-subtle);
+  --color-positive-content: var(--positive-content);
+
+  --color-negative: var(--negative);
+  --color-negative-subtle: var(--negative-subtle);
+  --color-negative-content: var(--negative-content);
+
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-content: var(--warning-content);
+
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-content: var(--info-content);
+
+  --color-overlay: var(--overlay);
+
+  --radius-card: 0.875rem;
+  --shadow-card: var(--card-shadow);
+
+  --font-sans: "Manrope", "Segoe UI", system-ui, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -16,7 +174,9 @@ body,
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Manrope", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
+  background-color: var(--canvas);
+  color: var(--content-primary);
 }
 
 button,
@@ -26,25 +186,8 @@ select {
   font: inherit;
 }
 
-/* Dark theme */
-html.dark body {
-  background-color: #020617;
-  color: #f1f5f9;
-}
-
-/* Light theme */
-html.light body {
-  background-color: #f8fafc;
-  color: #0f172a;
-}
-
-/* Selection highlight */
-html.dark ::selection {
-  background: rgba(59, 130, 246, 0.3);
-}
-
-html.light ::selection {
-  background: rgba(59, 130, 246, 0.2);
+::selection {
+  background: var(--brand-subtle);
 }
 
 html.dark {
@@ -53,4 +196,9 @@ html.dark {
 
 html.light {
   color-scheme: light;
+}
+
+/* Numeric columns line up when digits share a width */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }

@@ -8,15 +8,13 @@ import {
 import { randomBytes } from 'node:crypto';
 
 import {
+  DEFAULT_ALLOW_API_TRADE_OPENING,
   DEFAULT_AUTO_COPY_ENABLED,
+  DEFAULT_COPIER_RISK_PARAMS,
   DEFAULT_EXCLUDED_SYMBOLS,
-  DEFAULT_EXECUTION_MODE,
-  DEFAULT_LOW_MARGIN_THRESHOLD_PERCENT,
-  DEFAULT_MAX_DAILY_LOSS_PERCENT,
-  DEFAULT_MAX_SIMULTANEOUS_TRADES,
-  DEFAULT_MAX_TRADES_PER_DAY,
+  DEFAULT_NOTIFICATION_CHANNELS,
+  DEFAULT_NOTIFICATION_EVENTS,
   DEFAULT_SESSIONS,
-  SUPPORTED_SYMBOLS,
 } from '@tradepilot/config';
 import {
   UpdateProfileInput,
@@ -70,7 +68,6 @@ export class UsersService {
       .insert({
         auth_user_id: authUserId,
         email,
-        api_key: this.generateApiKey(),
       })
       .select('*')
       .single();
@@ -129,21 +126,6 @@ export class UsersService {
     return data as UserRecord | null;
   }
 
-  async findByApiKey(apiKey: string) {
-    const { data, error } = await this.databaseService
-      .getClient()
-      .from('users')
-      .select('*')
-      .eq('api_key', apiKey)
-      .maybeSingle();
-
-    if (error) {
-      throw new InternalServerErrorException(error.message);
-    }
-
-    return data as UserRecord | null;
-  }
-
   async getProfile(userId: string): Promise<UserDTO> {
     const user = await this.findById(userId);
 
@@ -161,6 +143,11 @@ export class UsersService {
       .update({
         full_name: payload.fullName,
         phone_number: payload.phoneNumber,
+        ...(payload.nickname === undefined ? {} : { nickname: payload.nickname }),
+        ...(payload.country === undefined ? {} : { country: payload.country }),
+        ...(payload.city === undefined ? {} : { city: payload.city }),
+        ...(payload.street === undefined ? {} : { street: payload.street }),
+        ...(payload.postalCode === undefined ? {} : { postal_code: payload.postalCode }),
       })
       .eq('id', userId)
       .select('*')
@@ -171,22 +158,6 @@ export class UsersService {
     }
 
     return this.toUserDto(data as UserRecord);
-  }
-
-  async rotateApiKey(userId: string): Promise<UserDTO> {
-    const { data: user, error } = await this.databaseService
-      .getClient()
-      .from('users')
-      .update({ api_key: this.generateApiKey() })
-      .eq('id', userId)
-      .select('*')
-      .single();
-
-    if (error || !user) {
-      throw new InternalServerErrorException(error?.message ?? 'Failed to rotate API key');
-    }
-
-    return this.toUserDto(user as UserRecord);
   }
 
   async requestEmailChange(userId: string, newEmail: string) {
@@ -380,66 +351,36 @@ export class UsersService {
     await this.clearSessions(userId);
   }
 
-  toUserDto(
-    user: Pick<
-      UserRecord,
-      | 'id'
-      | 'email'
-      | 'api_key'
-      | 'full_name'
-      | 'phone_number'
-      | 'pending_email'
-      | 'created_at'
-    >,
-  ): UserDTO {
+  toUserDto(user: UserRecord): UserDTO {
     return userDtoSchema.parse({
       id: user.id,
       email: user.email,
       fullName: user.full_name ?? null,
+      nickname: user.nickname ?? null,
       phoneNumber: user.phone_number ?? null,
+      country: user.country ?? null,
+      city: user.city ?? null,
+      street: user.street ?? null,
+      postalCode: user.postal_code ?? null,
       pendingEmail: user.pending_email ?? null,
-      apiKey: user.api_key,
       createdAt: user.created_at,
     });
-  }
-
-  private generateApiKey() {
-    return `tp_${randomBytes(24).toString('hex')}`;
   }
 
   private async ensureDefaultSettings(userId: string) {
     const { error } = await this.databaseService.getClient().from('settings').upsert(
       {
         user_id: userId,
-        risk_percent: 1,
-        max_trades: 3,
-        max_simultaneous_trades: DEFAULT_MAX_SIMULTANEOUS_TRADES,
-        max_daily_loss_percent: DEFAULT_MAX_DAILY_LOSS_PERCENT,
-        max_trades_per_day: DEFAULT_MAX_TRADES_PER_DAY,
-        low_margin_threshold_percent: DEFAULT_LOW_MARGIN_THRESHOLD_PERCENT,
         auto_copy_enabled: DEFAULT_AUTO_COPY_ENABLED,
         execution_paused: false,
         execution_pause_reason: null,
         execution_paused_at: null,
-        allowed_symbols: SUPPORTED_SYMBOLS,
+        allow_api_trade_opening: DEFAULT_ALLOW_API_TRADE_OPENING,
         excluded_symbols: DEFAULT_EXCLUDED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
-        mode: DEFAULT_EXECUTION_MODE,
-        notification_channels: {
-          email: true,
-          telegram: true,
-          whatsapp: false,
-        },
-        notification_events: {
-          newTradeOpened: true,
-          tpHit: true,
-          slHit: true,
-          lowMargin: true,
-          eaDisconnected: true,
-          telegramDisconnected: true,
-          executionFailed: true,
-          dailySummary: false,
-        },
+        copier_defaults: DEFAULT_COPIER_RISK_PARAMS,
+        notification_channels: DEFAULT_NOTIFICATION_CHANNELS,
+        notification_events: DEFAULT_NOTIFICATION_EVENTS,
       },
       {
         onConflict: 'user_id',

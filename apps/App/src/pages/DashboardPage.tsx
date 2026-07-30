@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { TrendingDown, TrendingUp, Activity } from 'lucide-react';
+import { Activity, Crown, TrendingDown, TrendingUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import type { DailyTradeSummaryItem, TradeExecutionDTO } from '@tradepilot/shared';
 
@@ -38,10 +39,10 @@ function WinRateRing({ value }: { value: number }) {
   return (
     <div className="relative flex h-16 w-16 items-center justify-center">
       <svg className="-rotate-90" width={64} height={64}>
-        <circle cx={32} cy={32} r={r} strokeWidth={5} className="stroke-slate-200 dark:stroke-slate-700" fill="none" />
-        <circle cx={32} cy={32} r={r} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="stroke-sky-500 transition-all duration-500" fill="none" />
+        <circle cx={32} cy={32} r={r} strokeWidth={5} className="stroke-line" fill="none" />
+        <circle cx={32} cy={32} r={r} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="stroke-brand transition-all duration-500" fill="none" />
       </svg>
-      <span className="absolute text-[11px] font-bold text-slate-900 dark:text-slate-100">{value.toFixed(0)}%</span>
+      <span className="absolute text-[11px] font-bold text-content-primary">{value.toFixed(0)}%</span>
     </div>
   );
 }
@@ -59,14 +60,14 @@ function FilterSelect({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 whitespace-nowrap">
+      <label className="text-[11px] font-semibold uppercase tracking-wider text-content-tertiary whitespace-nowrap">
         {label}
       </label>
       <select
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        className="h-8 rounded-lg border border-line bg-surface px-2 text-xs text-content-secondary outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
@@ -177,57 +178,105 @@ export function DashboardPage() {
     { label: 'Rejected', value: 'REJECTED' },
   ];
 
+  const copier = overviewQuery.data?.copier;
+
   return (
     <div className="space-y-6">
+      {copier ? (
+        <Link
+          to="/app/copier"
+          className="rounded-card border-line bg-surface hover:border-brand/40 block border p-4 shadow-card transition-colors"
+        >
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+            <div className="min-w-0">
+              <p className="text-content-tertiary text-xs font-medium">Copier</p>
+              <div className="mt-1 flex items-center gap-2">
+                <Crown className="text-brand h-4 w-4 shrink-0" />
+                <span className="text-content-primary truncate text-sm font-semibold">
+                  {copier.masterAccountName ?? 'No master set'}
+                </span>
+                <Badge tone={copier.masterOnline ? 'positive' : 'neutral'} dot pulse={copier.masterOnline}>
+                  {copier.masterOnline ? 'Online' : 'Offline'}
+                </Badge>
+              </div>
+            </div>
+            <div>
+              <p className="text-content-tertiary text-xs font-medium">Slaves online</p>
+              <p className="text-content-primary tabular mt-1 text-sm font-semibold">
+                {copier.slavesOnline} / {copier.totalLinks}
+              </p>
+            </div>
+            <div>
+              <p className="text-content-tertiary text-xs font-medium">Copies today</p>
+              <p className="text-content-primary tabular mt-1 text-sm font-semibold">
+                {copier.copyEventsToday}
+              </p>
+            </div>
+            <div>
+              <p className="text-content-tertiary text-xs font-medium">Success rate</p>
+              <p className="text-content-primary tabular mt-1 text-sm font-semibold">
+                {copier.copySuccessRate === null ? '--' : formatPercent(copier.copySuccessRate)}
+              </p>
+            </div>
+            {copier.copiesSkippedToday > 0 ? (
+              <Badge tone="warning">{copier.copiesSkippedToday} skipped today</Badge>
+            ) : null}
+            {copier.copiesFailedToday > 0 ? (
+              <Badge tone="danger">{copier.copiesFailedToday} failed today</Badge>
+            ) : null}
+          </div>
+        </Link>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-content-tertiary">
             Monthly Net Total
           </p>
           {monthSummaryQuery.isLoading ? (
             <Skeleton className="mt-3 h-9 w-32" />
           ) : (
             <div className="mt-3 flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${monthlyNet >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-red-50 dark:bg-red-500/10'}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${monthlyNet >= 0 ? 'bg-positive-subtle' : 'bg-negative-subtle'}`}>
                 {monthlyNet >= 0
-                  ? <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  : <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />}
+                  ? <TrendingUp className="h-5 w-5 text-positive" />
+                  : <TrendingDown className="h-5 w-5 text-negative" />}
               </div>
-              <p className={`text-3xl font-bold tracking-tight ${monthlyNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              <p className={`text-3xl font-bold tracking-tight ${monthlyNet >= 0 ? 'text-positive' : 'text-negative'}`}>
                 {formatCurrency(monthlyNet)}
               </p>
             </div>
           )}
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs text-content-tertiary">
             {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-content-tertiary">
             Annual Net Total
           </p>
           {yearSummaryQuery.isLoading ? (
             <Skeleton className="mt-3 h-9 w-32" />
           ) : (
             <div className="mt-3 flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${yearlyNet >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-red-50 dark:bg-red-500/10'}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${yearlyNet >= 0 ? 'bg-positive-subtle' : 'bg-negative-subtle'}`}>
                 {yearlyNet >= 0
-                  ? <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  : <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />}
+                  ? <TrendingUp className="h-5 w-5 text-positive" />
+                  : <TrendingDown className="h-5 w-5 text-negative" />}
               </div>
-              <p className={`text-3xl font-bold tracking-tight ${yearlyNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              <p className={`text-3xl font-bold tracking-tight ${yearlyNet >= 0 ? 'text-positive' : 'text-negative'}`}>
                 {formatCurrency(yearlyNet)}
               </p>
             </div>
           )}
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs text-content-tertiary">
             Year to date {now.getFullYear()}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-content-tertiary">
             Unrealized P&L
           </p>
           {overviewQuery.isLoading ? (
@@ -235,32 +284,32 @@ export function DashboardPage() {
           ) : (
             <div className="mt-3 flex items-center gap-3">
               <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                unrealizedPl === null ? 'bg-slate-50 dark:bg-slate-800' :
-                unrealizedPl >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-red-50 dark:bg-red-500/10'
+unrealizedPl === null ? 'bg-surface-muted' :
+                unrealizedPl >= 0 ? 'bg-positive-subtle' : 'bg-negative-subtle'
               }`}>
                 <Activity className={`h-5 w-5 ${
-                  unrealizedPl === null ? 'text-slate-400' :
-                  unrealizedPl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+unrealizedPl === null ? 'text-content-tertiary' :
+                  unrealizedPl >= 0 ? 'text-positive' : 'text-negative'
                 }`} />
               </div>
               <div>
                 <p className={`text-3xl font-bold tracking-tight ${
-                  unrealizedPl === null ? 'text-slate-400' :
-                  unrealizedPl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+unrealizedPl === null ? 'text-content-tertiary' :
+                  unrealizedPl >= 0 ? 'text-positive' : 'text-negative'
                 }`}>
                   {unrealizedPl !== null ? formatCurrency(unrealizedPl) : '--'}
                 </p>
               </div>
             </div>
           )}
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-xs text-content-tertiary">
             {openPositions !== null ? `${openPositions} open position${openPositions !== 1 ? 's' : ''}` : 'Awaiting account telemetry'}
           </p>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">
           {calendarQuery.isLoading ? (
             <Skeleton className="h-72 w-full" />
           ) : (
@@ -274,8 +323,8 @@ export function DashboardPage() {
           )}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">
+          <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-content-tertiary">
             Month Statistics
           </h3>
 
@@ -288,38 +337,38 @@ export function DashboardPage() {
               <div className="flex flex-col items-center gap-2">
                 <WinRateRing value={winRate} />
                 <div className="text-center">
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Win Rate</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500">{totalWins}W / {totalTrades - totalWins}L</p>
+                  <p className="text-xs font-medium text-content-tertiary">Win Rate</p>
+                  <p className="text-xs text-content-tertiary">{totalWins}W / {totalTrades - totalWins}L</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Daily Performance</p>
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/5">
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Best day</p>
-                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{bestDay ? formatCurrency(bestDay.netProfit) : '--'}</p>
-                  {bestDay && <p className="text-[10px] text-slate-400">{bestDay.date}</p>}
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">Daily Performance</p>
+                <div className="rounded-lg border border-positive-subtle bg-positive-subtle px-3 py-2">
+                  <p className="text-[10px] text-content-tertiary">Best day</p>
+                  <p className="text-sm font-semibold text-positive">{bestDay ? formatCurrency(bestDay.netProfit) : '--'}</p>
+                  {bestDay && <p className="text-[10px] text-content-tertiary">{bestDay.date}</p>}
                 </div>
-                <div className="rounded-lg border border-red-100 bg-red-50/60 px-3 py-2 dark:border-red-500/20 dark:bg-red-500/5">
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Worst day</p>
-                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">{worstDay ? formatCurrency(worstDay.netProfit) : '--'}</p>
-                  {worstDay && <p className="text-[10px] text-slate-400">{worstDay.date}</p>}
+                <div className="rounded-lg border border-negative-subtle bg-negative-subtle px-3 py-2">
+                  <p className="text-[10px] text-content-tertiary">Worst day</p>
+                  <p className="text-sm font-semibold text-negative">{worstDay ? formatCurrency(worstDay.netProfit) : '--'}</p>
+                  {worstDay && <p className="text-[10px] text-content-tertiary">{worstDay.date}</p>}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Trade Performance</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">Trade Performance</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Best trade</span>
-                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{bestTrade !== null ? formatCurrency(bestTrade) : '--'}</span>
+                  <span className="text-xs text-content-tertiary">Best trade</span>
+                  <span className="text-xs font-semibold text-positive">{bestTrade !== null ? formatCurrency(bestTrade) : '--'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Worst trade</span>
-                  <span className="text-xs font-semibold text-red-600 dark:text-red-400">{worstTrade !== null ? formatCurrency(worstTrade) : '--'}</span>
+                  <span className="text-xs text-content-tertiary">Worst trade</span>
+                  <span className="text-xs font-semibold text-negative">{worstTrade !== null ? formatCurrency(worstTrade) : '--'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Total trades</span>
-                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">{totalTrades}</span>
+                  <span className="text-xs text-content-tertiary">Total trades</span>
+                  <span className="text-xs font-semibold text-content-primary">{totalTrades}</span>
                 </div>
               </div>
             </div>
@@ -327,14 +376,14 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+      <div className="rounded-xl border border-line bg-surface shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle px-5 py-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">Trade History</p>
-            <h2 className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <p className="text-xs font-semibold uppercase tracking-wider text-brand">Trade History</p>
+            <h2 className="mt-0.5 text-sm font-semibold text-content-primary">
               All Trades
               {filteredTrades.length !== allTrades.length && (
-                <span className="ml-2 text-xs font-normal text-slate-400">({filteredTrades.length} of {allTrades.length})</span>
+                <span className="ml-2 text-xs font-normal text-content-tertiary">({filteredTrades.length} of {allTrades.length})</span>
               )}
             </h2>
           </div>
@@ -351,8 +400,8 @@ export function DashboardPage() {
           </div>
         ) : filteredTrades.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">No trades found</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm font-medium text-content-primary">No trades found</p>
+            <p className="mt-1 text-sm text-content-tertiary">
               {allTrades.length === 0 ? 'No trade history available yet.' : 'Try adjusting the filters above.'}
             </p>
           </div>
@@ -360,7 +409,7 @@ export function DashboardPage() {
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                <thead className="border-b border-line-subtle text-xs uppercase tracking-[0.22em] text-content-tertiary">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Symbol</th>
                     <th className="px-5 py-3 font-semibold">Side</th>
@@ -376,32 +425,32 @@ export function DashboardPage() {
                 </thead>
                 <tbody>
                   {tradesPagination.pageItems.map((trade) => (
-                    <tr key={trade.id} className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
-                      <td className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                    <tr key={trade.id} className="border-b border-line-subtle last:border-b-0">
+                      <td className="px-5 py-3 font-semibold text-content-primary">
                         {trade.symbol}
                       </td>
                       <td className="px-5 py-3">
                         <span className={cn(
                           'text-xs font-semibold',
-                          trade.type === 'BUY' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+                          trade.type === 'BUY' ? 'text-positive' : 'text-negative',
                         )}>
                           {trade.type}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-content-secondary">
                         {trade.volume?.toFixed(2) ?? '--'}
                       </td>
-                      <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-content-secondary">
                         {trade.entryPrice?.toFixed(5) ?? '--'}
                       </td>
-                      <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-content-secondary">
                         {trade.exitPrice?.toFixed(5) ?? '--'}
                       </td>
                       <td className="px-5 py-3">
                         <span className={cn(
                           'font-semibold',
-                          trade.status === 'OPEN' ? 'text-sky-600 dark:text-sky-400' :
-                          trade.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+                          trade.status === 'OPEN' ? 'text-brand' :
+                          trade.profit >= 0 ? 'text-positive' : 'text-negative',
                         )}>
                           {trade.status === 'OPEN' ? '—' : formatCurrency(trade.profit)}
                         </span>
@@ -411,13 +460,13 @@ export function DashboardPage() {
                           {trade.status}
                         </Badge>
                       </td>
-                      <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400">
+                      <td className="px-5 py-3 text-xs text-content-tertiary">
                         {trade.accountName ?? trade.accountId ?? '--'}
                       </td>
-                      <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400">
+                      <td className="px-5 py-3 text-xs text-content-tertiary">
                         {formatTimestamp(trade.openedAt)}
                       </td>
-                      <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400">
+                      <td className="px-5 py-3 text-xs text-content-tertiary">
                         {trade.closedAt ? formatTimestamp(trade.closedAt) : '--'}
                       </td>
                     </tr>

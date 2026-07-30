@@ -95,9 +95,4 @@ export class UsersController {
     await this.usersService.logoutAllDevices(user.userId, user.accessToken);
     return { success: true };
   }
-
-  @Post('api-key/regenerate')
-  rotateApiKey(@CurrentUser() user: RequestUser) {
-    return this.usersService.rotateApiKey(user.userId);
-  }
 }

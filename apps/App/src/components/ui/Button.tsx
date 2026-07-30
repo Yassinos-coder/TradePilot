@@ -1,26 +1,24 @@
 import { ButtonHTMLAttributes } from 'react';
 import { Loader2 } from 'lucide-react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   isLoading?: boolean;
+  fullWidth?: boolean;
 }
 
 const variants: Record<ButtonVariant, string> = {
-  primary:
-    'bg-blue-600 text-white shadow-sm hover:bg-blue-500 focus-visible:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500',
-  secondary:
-    'bg-gray-100 text-gray-900 hover:bg-gray-200 focus-visible:ring-gray-400 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:focus-visible:ring-slate-600',
-  ghost:
-    'bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-gray-400 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100',
-  danger:
-    'bg-red-600 text-white shadow-sm hover:bg-red-500 focus-visible:ring-red-500 dark:bg-red-600 dark:hover:bg-red-500',
+  primary: 'bg-brand text-brand-fg shadow-sm hover:bg-brand-hover active:bg-brand-active',
+  secondary: 'bg-surface-muted text-content-primary hover:bg-line',
+  outline: 'border border-line-strong bg-surface text-content-primary hover:bg-surface-muted',
+  ghost: 'bg-transparent text-content-secondary hover:bg-surface-muted hover:text-content-primary',
+  danger: 'bg-negative text-white shadow-sm hover:brightness-110 active:brightness-95',
 };
 
 const sizes: Record<ButtonSize, string> = {
@@ -34,6 +32,7 @@ export function Button({
   variant = 'primary',
   size = 'md',
   isLoading = false,
+  fullWidth = false,
   children,
   disabled,
   type = 'button',
@@ -43,12 +42,12 @@ export function Button({
     <button
       type={type}
       className={cn(
-        'inline-flex items-center justify-center rounded-lg font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-        'focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900',
+        'inline-flex shrink-0 items-center justify-center rounded-lg font-semibold transition-colors',
+        'focus-visible:ring-brand focus-visible:ring-offset-canvas focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
         'disabled:pointer-events-none disabled:opacity-50',
         variants[variant],
         sizes[size],
+        fullWidth && 'w-full',
         className,
       )}
       disabled={isLoading || disabled}

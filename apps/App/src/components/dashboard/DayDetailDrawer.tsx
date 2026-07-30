@@ -12,14 +12,14 @@ interface DayDetailDrawerProps {
 
 function StatItem({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' | 'neutral' }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-slate-100 last:border-b-0 dark:border-slate-800">
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-line-subtle last:border-b-0">
+      <span className="text-xs text-content-tertiary">{label}</span>
       <span
         className={cn(
           'text-sm font-semibold',
-          tone === 'positive' && 'text-emerald-600 dark:text-emerald-400',
-          tone === 'negative' && 'text-red-600 dark:text-red-400',
-          (!tone || tone === 'neutral') && 'text-slate-900 dark:text-slate-100',
+          tone === 'positive' && 'text-positive',
+          tone === 'negative' && 'text-negative',
+          (!tone || tone === 'neutral') && 'text-content-primary',
         )}
       >
         {value}
@@ -47,10 +47,10 @@ export function DayDetailDrawer({ date, summary, trades, onClose }: DayDetailDra
       {summary ? (
         <div className="space-y-6">
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-tertiary">
               Daily Statistics
             </h3>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950/60">
+            <div className="rounded-xl border border-line bg-surface-muted px-4">
               <StatItem
                 label="Net P&L"
                 value={formatCurrency(summary.netProfit)}
@@ -82,12 +82,12 @@ export function DayDetailDrawer({ date, summary, trades, onClose }: DayDetailDra
 
           {dayTrades.length > 0 && (
             <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-tertiary">
                 Trade History
               </h3>
               <div className="-mx-5 overflow-x-auto">
                 <table className="min-w-full text-left text-xs">
-                  <thead className="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  <thead className="border-b border-line-subtle text-[10px] uppercase tracking-wider text-content-tertiary">
                     <tr>
                       <th className="px-5 py-2 font-semibold">Pair</th>
                       <th className="px-5 py-2 font-semibold">Side</th>
@@ -99,25 +99,25 @@ export function DayDetailDrawer({ date, summary, trades, onClose }: DayDetailDra
                     {dayTrades.map((trade) => (
                       <tr
                         key={trade.id}
-                        className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                        className="border-b border-line-subtle last:border-b-0"
                       >
-                        <td className="px-5 py-3 font-medium text-slate-900 dark:text-slate-100">
+                        <td className="px-5 py-3 font-medium text-content-primary">
                           {trade.symbol}
                         </td>
-                        <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
+                        <td className="px-5 py-3 text-content-secondary">
                           {trade.type}
                         </td>
                         <td
                           className={cn(
                             'px-5 py-3 font-semibold',
                             trade.profit >= 0
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-red-600 dark:text-red-400',
+                              ? 'text-positive'
+                              : 'text-negative',
                           )}
                         >
                           {formatCurrency(trade.profit)}
                         </td>
-                        <td className="px-5 py-3 text-slate-500 dark:text-slate-400">
+                        <td className="px-5 py-3 text-content-tertiary">
                           {trade.closedAt ? formatTimestamp(trade.closedAt) : '--'}
                         </td>
                       </tr>
@@ -130,7 +130,7 @@ export function DayDetailDrawer({ date, summary, trades, onClose }: DayDetailDra
         </div>
       ) : (
         <div className="flex h-40 items-center justify-center">
-          <p className="text-sm text-slate-500 dark:text-slate-400">No trade data for this day.</p>
+          <p className="text-sm text-content-tertiary">No trade data for this day.</p>
         </div>
       )}
     </Drawer>

@@ -8,7 +8,7 @@ const PLANS = [
     name: 'FREE',
     price: '$0',
     subtitle: 'Starter',
-    features: ['1 trading account', 'Basic dashboard', 'Manual signal ingest', 'Community support'],
+    features: ['2 trading accounts', '1 master → 1 slave link', 'Basic dashboard', 'Community support'],
   },
   {
     name: 'PRO',
@@ -17,10 +17,10 @@ const PLANS = [
     featured: true,
     features: [
       'Up to 5 trading accounts',
-      'Telegram realtime + backfill',
-      'Execution guardrails',
-      'Advanced analytics + history filters',
-      'Email + Telegram notifications',
+      'Unlimited master → slave links',
+      'Full per-link risk parameters',
+      'Advanced analytics + history import',
+      'Email notifications',
     ],
   },
   {
@@ -29,9 +29,9 @@ const PLANS = [
     subtitle: 'Per month',
     features: [
       'Unlimited connected accounts',
-      'Priority execution queue',
-      'Premium risk/failsafe controls',
-      'API key rotation + security controls',
+      'Priority copy dispatch',
+      'REST trade API access',
+      'API key rotation + request signing',
       'Priority support',
     ],
   },
@@ -50,22 +50,22 @@ export function PricingPage() {
             className={[
               'rounded-3xl border p-6 shadow-sm',
               plan.featured
-                ? 'border-sky-300 bg-sky-50/70 dark:border-sky-500/40 dark:bg-sky-500/10'
-                : 'border-slate-200/80 bg-white/90 dark:border-slate-800 dark:bg-slate-900/90',
+                ? 'border-brand/40 bg-brand-subtle'
+                : 'border-line bg-surface',
             ].join(' ')}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-content-tertiary">
               {plan.name}
             </p>
-            <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            <p className="mt-3 text-4xl font-semibold tracking-tight text-content-primary">
               {plan.price}
             </p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{plan.subtitle}</p>
+            <p className="mt-1 text-sm text-content-tertiary">{plan.subtitle}</p>
 
             <ul className="mt-6 space-y-2">
               {plan.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <li key={feature} className="flex items-start gap-2 text-sm text-content-secondary">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-positive" />
                   {feature}
                 </li>
               ))}
@@ -76,8 +76,8 @@ export function PricingPage() {
               className={[
                 'mt-6 inline-flex w-full items-center justify-center rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors',
                 plan.featured
-                  ? 'bg-sky-600 text-white hover:bg-sky-700'
-                  : 'bg-slate-900 text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white',
+                  ? 'bg-brand text-content-inverse hover:bg-brand'
+                  : 'bg-surface text-content-inverse hover:bg-line-strong',
               ].join(' ')}
             >
               Choose {plan.name}

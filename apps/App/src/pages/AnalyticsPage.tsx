@@ -37,11 +37,11 @@ import { Skeleton } from '../components/ui/Skeleton';
 type Tone = 'positive' | 'danger' | 'warning' | 'neutral' | 'info';
 
 const ICON_TONE: Record<Tone, string> = {
-  positive: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-  danger: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300',
-  warning: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
-  info: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-  neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+  positive: 'bg-positive-subtle text-positive',
+  danger: 'bg-negative-subtle text-negative',
+  warning: 'bg-warning-subtle text-warning',
+  info: 'bg-brand-subtle text-brand',
+  neutral: 'bg-surface-muted text-content-secondary',
 };
 
 function formatNumber(value: number | null | undefined, digits = 2) {
@@ -112,8 +112,8 @@ function StatCard({
   icon: LucideIcon;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/88">
-      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+    <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm backdrop-blur">
+      <span className="text-xs font-semibold uppercase tracking-[0.22em] text-content-tertiary">
         {label}
       </span>
       <div className="mt-4 flex items-center gap-3">
@@ -126,8 +126,8 @@ function StatCard({
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <p className="text-xl font-semibold text-slate-950 dark:text-slate-100">{value}</p>
-          {sub && <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-500">{sub}</p>}
+          <p className="text-xl font-semibold text-content-primary">{value}</p>
+          {sub && <p className="mt-0.5 truncate text-xs text-content-tertiary">{sub}</p>}
         </div>
       </div>
     </div>
@@ -136,7 +136,7 @@ function StatCard({
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-content-tertiary">
       {children}
     </p>
   );
@@ -159,10 +159,10 @@ function MetricMatrixCard({
         {items.map((item) => (
           <div
             key={item.label}
-            className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
+            className="flex items-center justify-between rounded-2xl border border-line-subtle bg-surface-muted px-4 py-3"
           >
-            <p className="text-sm text-slate-600 dark:text-slate-300">{item.label}</p>
-            <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">{item.value}</p>
+            <p className="text-sm text-content-secondary">{item.label}</p>
+            <p className="text-sm font-semibold text-content-primary">{item.value}</p>
           </div>
         ))}
       </div>
@@ -173,34 +173,34 @@ function MetricMatrixCard({
 function DirectionPanel({ label, data }: { label: string; data: DirectionBreakdownDTO }) {
   const isPositive = data.netProfit >= 0;
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+    <div className="rounded-2xl border border-line-subtle bg-surface-muted p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-content-tertiary">
         {label}
       </p>
       <p
         className={cn(
           'mt-3 text-2xl font-semibold',
-          isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+          isPositive ? 'text-positive' : 'text-negative',
         )}
       >
         {formatCurrency(data.netProfit)}
       </p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
         <div>
-          <p className="text-base font-semibold text-slate-950 dark:text-slate-100">{data.trades}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-500">Trades</p>
+          <p className="text-base font-semibold text-content-primary">{data.trades}</p>
+          <p className="text-xs text-content-tertiary">Trades</p>
         </div>
         <div>
-          <p className="text-base font-semibold text-slate-950 dark:text-slate-100">
+          <p className="text-base font-semibold text-content-primary">
             {formatPercent(data.winRate)}
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-500">Win rate</p>
+          <p className="text-xs text-content-tertiary">Win rate</p>
         </div>
         <div>
-          <p className="text-base font-semibold text-slate-950 dark:text-slate-100">
+          <p className="text-base font-semibold text-content-primary">
             {data.wins}/{data.losses}
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-500">W/L</p>
+          <p className="text-xs text-content-tertiary">W/L</p>
         </div>
       </div>
     </div>
@@ -215,7 +215,7 @@ function EquitySparkline({
   const recent = points.slice(-180);
   if (recent.length < 2) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+      <div className="rounded-2xl border border-dashed border-line bg-surface-muted px-4 py-6 text-sm text-content-tertiary">
         Not enough points to render the equity curve.
       </div>
     );
@@ -247,7 +247,7 @@ function EquitySparkline({
   const gain = last - first;
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+    <div className="rounded-2xl border border-line-subtle bg-surface-muted p-4">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-44 w-full">
         <polyline
           fill="none"
@@ -258,7 +258,7 @@ function EquitySparkline({
           strokeLinejoin="round"
         />
       </svg>
-      <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-3 flex items-center justify-between text-xs text-content-tertiary">
         <span>Start {formatCurrency(first)}</span>
         <span>End {formatCurrency(last)}</span>
       </div>
@@ -283,7 +283,7 @@ function PeriodBreakdownCard({
     <Card title={title} eyebrow={eyebrow} description={description}>
       <div className="-mx-5 overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+          <thead className="border-b border-line-subtle text-xs uppercase tracking-[0.22em] text-content-tertiary">
             <tr>
               <th className="px-5 py-3 font-semibold">{firstColumnLabel}</th>
               <th className="px-5 py-3 font-semibold">Trades</th>
@@ -301,36 +301,36 @@ function PeriodBreakdownCard({
             {rows.map((row) => (
               <tr
                 key={row.key}
-                className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                className="border-b border-line-subtle last:border-b-0"
               >
-                <td className="px-5 py-3 font-semibold text-slate-950 dark:text-slate-100">
+                <td className="px-5 py-3 font-semibold text-content-primary">
                   {row.label}
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{row.trades}</td>
+                <td className="px-5 py-3 text-content-secondary">{row.trades}</td>
                 <td className="px-5 py-3">
                   <Badge tone={(row.winRate >= 50 ? 'positive' : 'warning') as BadgeTone}>
                     {formatPercent(row.winRate)}
                   </Badge>
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                <td className="px-5 py-3 text-content-secondary">
                   {row.wins} / {row.losses}
                 </td>
                 <td className="px-5 py-3">
                   <span
                     className={
                       row.netProfit >= 0
-                        ? 'font-semibold text-emerald-600 dark:text-emerald-400'
-                        : 'font-semibold text-red-600 dark:text-red-400'
+                        ? 'font-semibold text-positive'
+                        : 'font-semibold text-negative'
                     }
                   >
                     {formatCurrency(row.netProfit)}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageTrade)}</td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageWin)}</td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.averageLoss)}</td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatNumber(row.profitFactor, 2)}</td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{formatCurrency(row.expectancy)}</td>
+                <td className="px-5 py-3 text-content-secondary">{formatCurrency(row.averageTrade)}</td>
+                <td className="px-5 py-3 text-content-secondary">{formatCurrency(row.averageWin)}</td>
+                <td className="px-5 py-3 text-content-secondary">{formatCurrency(row.averageLoss)}</td>
+                <td className="px-5 py-3 text-content-secondary">{formatNumber(row.profitFactor, 2)}</td>
+                <td className="px-5 py-3 text-content-secondary">{formatCurrency(row.expectancy)}</td>
               </tr>
             ))}
           </tbody>
@@ -349,7 +349,7 @@ function TradeTypeBreakdownCard({ rows }: { rows: TradeTypeBreakdownDTO[] }) {
     >
       <div className="-mx-5 overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+          <thead className="border-b border-line-subtle text-xs uppercase tracking-[0.22em] text-content-tertiary">
             <tr>
               <th className="px-5 py-3 font-semibold">Trade Type</th>
               <th className="px-5 py-3 font-semibold">Trades</th>
@@ -362,26 +362,26 @@ function TradeTypeBreakdownCard({ rows }: { rows: TradeTypeBreakdownDTO[] }) {
             {rows.map((row) => (
               <tr
                 key={row.tradeType}
-                className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                className="border-b border-line-subtle last:border-b-0"
               >
-                <td className="px-5 py-3 font-semibold text-slate-950 dark:text-slate-100">
+                <td className="px-5 py-3 font-semibold text-content-primary">
                   {row.tradeType}
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{row.trades}</td>
+                <td className="px-5 py-3 text-content-secondary">{row.trades}</td>
                 <td className="px-5 py-3">
                   <Badge tone={(row.winRate >= 50 ? 'positive' : 'warning') as BadgeTone}>
                     {formatPercent(row.winRate)}
                   </Badge>
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                <td className="px-5 py-3 text-content-secondary">
                   {row.wins} / {row.losses}
                 </td>
                 <td className="px-5 py-3">
                   <span
                     className={
                       row.netProfit >= 0
-                        ? 'font-semibold text-emerald-600 dark:text-emerald-400'
-                        : 'font-semibold text-red-600 dark:text-red-400'
+                        ? 'font-semibold text-positive'
+                        : 'font-semibold text-negative'
                     }
                   >
                     {formatCurrency(row.netProfit)}
@@ -592,7 +592,7 @@ export function AnalyticsPage() {
   if (!a) {
     return (
       <Card title="Analytics unavailable" eyebrow="Performance">
-        <p className="text-sm text-gray-500 dark:text-slate-400">
+        <p className="text-sm text-content-tertiary">
           TradePilot could not compute account analytics yet.
         </p>
       </Card>
@@ -823,10 +823,10 @@ export function AnalyticsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-content-tertiary">
             Performance
           </p>
-          <h1 className="mt-0.5 text-xl font-semibold text-slate-950 dark:text-slate-100">
+          <h1 className="mt-0.5 text-xl font-semibold text-content-primary">
             Analytics
           </h1>
         </div>
@@ -834,12 +834,12 @@ export function AnalyticsPage() {
           <TimeFilter value={dateRange} onChange={setDateRange} />
           {a && <ExportButton analytics={a} />}
           {lastRefreshedAt && !isRefreshing && (
-            <p className="hidden text-xs text-slate-400 dark:text-slate-500 sm:block">
+            <p className="hidden text-xs text-content-tertiary sm:block">
               Updated {formatRelativeTime(lastRefreshedAt)}
             </p>
           )}
           {isRefreshing && (
-            <p className="hidden text-xs text-sky-500 dark:text-sky-400 sm:block">
+            <p className="hidden text-xs text-brand sm:block">
               Syncing…
             </p>
           )}
@@ -847,7 +847,7 @@ export function AnalyticsPage() {
             type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-content-secondary shadow-sm transition-all hover:bg-surface-muted active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <motion.span
               animate={{ rotate: isRefreshing ? 360 : 0 }}
@@ -865,24 +865,24 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-600 dark:text-sky-400">AI Coach</p>
-            <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">Performance Analysis</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand">AI Coach</p>
+            <p className="mt-0.5 text-sm font-semibold text-content-primary">Performance Analysis</p>
           </div>
           {aiAnalysisQuery.isFetching && (
-            <span className="text-xs text-slate-400 dark:text-slate-500">Analyzing…</span>
+            <span className="text-xs text-content-tertiary">Analyzing…</span>
           )}
         </div>
 
         {aiAnalysisQuery.isLoading ? (
           <div className="space-y-2">
             {(['w-4/5', 'w-3/4', 'w-2/3', 'w-3/5', 'w-1/2'] as const).map((w) => (
-              <div key={w} className={`h-4 animate-pulse rounded bg-slate-100 dark:bg-slate-800 ${w}`} />
+              <div key={w} className={`h-4 animate-pulse rounded bg-surface-muted ${w}`} />
             ))}</div>
         ) : aiAnalysisQuery.isError ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <div className="rounded-xl border border-warning bg-warning-subtle px-4 py-3 text-sm text-warning">
             {(() => {
               const err = aiAnalysisQuery.error as { response?: { data?: { message?: string } }; message?: string } | null;
               const msg = err?.response?.data?.message ?? err?.message ?? 'Unknown error';
@@ -892,7 +892,7 @@ export function AnalyticsPage() {
         ) : aiAnalysisQuery.data ? (
           <div className="space-y-2.5">
             {aiAnalysisQuery.data.split('\n').filter(Boolean).slice(0, 5).map((line, i) => (
-              <p key={i} className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">{line}</p>
+              <p key={i} className="text-sm leading-relaxed text-content-secondary">{line}</p>
             ))}
           </div>
         ) : null}
@@ -908,7 +908,7 @@ export function AnalyticsPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <label
                 htmlFor="analytics-account"
-                className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400"
+                className="text-xs font-semibold uppercase tracking-[0.24em] text-content-tertiary"
               >
                 Account
               </label>
@@ -916,7 +916,7 @@ export function AnalyticsPage() {
                 id="analytics-account"
                 value={selectedAccountId}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition-colors focus:border-sky-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                className="h-11 rounded-2xl border border-line bg-surface px-4 text-sm text-content-secondary outline-none transition-colors focus:border-brand"
               >
                 {accountOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -939,7 +939,7 @@ export function AnalyticsPage() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadHistoryMutation.isPending}
-                className="flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-medium text-sky-700 transition-all hover:bg-sky-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                className="flex items-center gap-2 rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-2.5 text-sm font-medium text-brand transition-all hover:bg-brand-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <UploadCloud className="h-4 w-4" />
                 {uploadHistoryMutation.isPending ? 'Importing…' : 'Upload history'}
@@ -948,13 +948,13 @@ export function AnalyticsPage() {
           </div>
 
           {selectedLiveAccount ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+            <div className="rounded-2xl border border-line bg-surface-muted px-4 py-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <p className="text-sm font-semibold text-content-primary">
                     Manage {selectedLiveAccount.name} ({selectedLiveAccount.externalAccountId})
                   </p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs leading-relaxed text-content-tertiary">
                     Hide keeps the records but excludes this account from the selector and All accounts analytics. Delete records permanently removes stored trades, snapshots, logs, and symbols for this account.
                   </p>
                 </div>
@@ -963,7 +963,7 @@ export function AnalyticsPage() {
                     type="button"
                     onClick={() => handleHideAccount(selectedLiveAccount)}
                     disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
-                    className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-all hover:bg-amber-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                    className="flex items-center gap-2 rounded-2xl border border-warning bg-warning-subtle px-4 py-2.5 text-sm font-medium text-warning transition-all hover:bg-warning-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <EyeOff className="h-4 w-4" />
                     {hideAccountMutation.isPending ? 'Hiding…' : 'Hide account'}
@@ -972,7 +972,7 @@ export function AnalyticsPage() {
                     type="button"
                     onClick={() => handleDeleteAccountRecords(selectedLiveAccount)}
                     disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
-                    className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 transition-all hover:bg-red-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20"
+                    className="flex items-center gap-2 rounded-2xl border border-negative bg-negative-subtle px-4 py-2.5 text-sm font-medium text-negative transition-all hover:bg-negative-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Trash2 className="h-4 w-4" />
                     {deleteAccountRecordsMutation.isPending ? 'Deleting…' : 'Delete records'}
@@ -983,19 +983,19 @@ export function AnalyticsPage() {
           ) : null}
 
           {accountActionError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            <div className="rounded-2xl border border-negative bg-negative-subtle px-4 py-3 text-sm text-negative">
               {accountActionError}
             </div>
           ) : null}
 
           {historyUploadError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            <div className="rounded-2xl border border-negative bg-negative-subtle px-4 py-3 text-sm text-negative">
               {historyUploadError}
             </div>
           ) : null}
 
           {selectedHistoryFile ? (
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
+            <div className="rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-3 text-sm text-brand">
               Showing imported {selectedHistoryFile.platform} history: {selectedHistoryFile.parsedTradeCount} parsed trades from {selectedHistoryFile.originalFilename}.
             </div>
           ) : null}
@@ -1005,21 +1005,21 @@ export function AnalyticsPage() {
               {historyFiles.map((file) => (
                 <div
                   key={file.id}
-                  className="group flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
+                  className="group flex items-center justify-between gap-3 rounded-2xl border border-line-subtle bg-surface-muted px-4 py-3"
                 >
                   <button
                     type="button"
                     onClick={() => setSelectedAccountId(`upload:${file.id}`)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-surface text-content-tertiary">
                       <FileText className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                      <span className="block truncate text-sm font-semibold text-content-primary">
                         {file.displayName}
                       </span>
-                      <span className="block truncate text-xs text-slate-500 dark:text-slate-500">
+                      <span className="block truncate text-xs text-content-tertiary">
                         {file.platform} · {file.parsedTradeCount} trades · {file.skippedRowCount} skipped
                       </span>
                     </span>
@@ -1029,7 +1029,7 @@ export function AnalyticsPage() {
                     aria-label={`Delete ${file.displayName}`}
                     onClick={() => handleDeleteHistoryFile(file.id)}
                     disabled={deleteHistoryMutation.isPending}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 opacity-0 transition-all hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-content-tertiary opacity-0 transition-all hover:bg-negative-subtle hover:text-negative disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -1152,7 +1152,7 @@ export function AnalyticsPage() {
         >
           <div className="-mx-5 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+              <thead className="border-b border-line-subtle text-xs uppercase tracking-[0.22em] text-content-tertiary">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Symbol</th>
                   <th className="px-5 py-3 font-semibold">Trades</th>
@@ -1169,38 +1169,38 @@ export function AnalyticsPage() {
                 {symbolsPagination.pageItems.map((row) => (
                   <tr
                     key={row.symbol}
-                    className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                    className="border-b border-line-subtle last:border-b-0"
                   >
-                    <td className="px-5 py-3 font-semibold text-slate-950 dark:text-slate-100">
+                    <td className="px-5 py-3 font-semibold text-content-primary">
                       {row.symbol}
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{row.trades}</td>
+                    <td className="px-5 py-3 text-content-secondary">{row.trades}</td>
                     <td className="px-5 py-3">
                       <Badge tone={(row.winRate >= 50 ? 'positive' : 'warning') as BadgeTone}>
                         {formatPercent(row.winRate)}
                       </Badge>
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                    <td className="px-5 py-3 text-content-secondary">
                       {row.wins} / {row.losses}
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                    <td className="px-5 py-3 text-content-secondary">
                       {formatNumber(row.profitFactor, 2)}
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                    <td className="px-5 py-3 text-content-secondary">
                       {formatCurrency(row.avgWin)}
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                    <td className="px-5 py-3 text-content-secondary">
                       {formatCurrency(-row.avgLoss)}
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-slate-300">
+                    <td className="px-5 py-3 text-content-secondary">
                       {formatCurrency(row.expectancy)}
                     </td>
                     <td className="px-5 py-3">
                       <span
                         className={
                           row.netProfit >= 0
-                            ? 'font-semibold text-emerald-600 dark:text-emerald-400'
-                            : 'font-semibold text-red-600 dark:text-red-400'
+                            ? 'font-semibold text-positive'
+                            : 'font-semibold text-negative'
                         }
                       >
                         {formatCurrency(row.netProfit)}
@@ -1255,10 +1255,10 @@ export function AnalyticsPage() {
             {equityCurveItems.map((item) => (
               <div
                 key={item.label}
-                className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60"
+                className="flex items-center justify-between rounded-2xl border border-line-subtle bg-surface-muted px-4 py-3"
               >
-                <p className="text-sm text-slate-600 dark:text-slate-300">{item.label}</p>
-                <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">{item.value}</p>
+                <p className="text-sm text-content-secondary">{item.label}</p>
+                <p className="text-sm font-semibold text-content-primary">{item.value}</p>
               </div>
             ))}
           </div>
@@ -1280,11 +1280,11 @@ export function AnalyticsPage() {
         }
       >
         {trades.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center dark:border-slate-800 dark:bg-slate-950/60">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+          <div className="rounded-2xl border border-dashed border-line bg-surface-muted px-4 py-10 text-center">
+            <p className="text-sm font-medium text-content-primary">
               No trade history yet
             </p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-500">
+            <p className="mt-1 text-sm text-content-tertiary">
               Once the EA reports executed trades, they will appear here with realized PnL.
             </p>
           </div>
@@ -1292,7 +1292,7 @@ export function AnalyticsPage() {
           <>
             <div className="-mx-5 overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-slate-100 text-xs uppercase tracking-[0.22em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                <thead className="border-b border-line-subtle text-xs uppercase tracking-[0.22em] text-content-tertiary">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Account</th>
                     <th className="px-5 py-3 font-semibold">Instrument</th>
@@ -1308,19 +1308,19 @@ export function AnalyticsPage() {
                   {tradesPagination.pageItems.map((trade) => (
                     <tr
                       key={trade.id}
-                      className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                      className="border-b border-line-subtle last:border-b-0"
                     >
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      <td className="px-5 py-4 text-content-secondary">
                         <div>
-                          <p className="font-medium text-slate-950 dark:text-slate-100">
+                          <p className="font-medium text-content-primary">
                             {trade.accountName ?? trade.accountId}
                           </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-500">
+                          <p className="text-xs text-content-tertiary">
                             {trade.accountId}
                           </p>
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      <td className="px-5 py-4 text-content-secondary">
                         {trade.symbol} {displayTradeSide(trade)}
                       </td>
                       <td className="px-5 py-4">
@@ -1336,27 +1336,27 @@ export function AnalyticsPage() {
                           {trade.status}
                         </Badge>
                       </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      <td className="px-5 py-4 text-content-secondary">
                         {trade.volume.toFixed(2)}
                       </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      <td className="px-5 py-4 text-content-secondary">
                         {trade.entryPrice.toFixed(2)}
                       </td>
-                      <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      <td className="px-5 py-4 text-content-secondary">
                         {typeof trade.exitPrice === 'number' ? trade.exitPrice.toFixed(2) : '--'}
                       </td>
                       <td className="px-5 py-4">
                         <span
                           className={
                             trade.profit >= 0
-                              ? 'font-semibold text-emerald-600 dark:text-emerald-400'
-                              : 'font-semibold text-red-600 dark:text-red-400'
+                              ? 'font-semibold text-positive'
+                              : 'font-semibold text-negative'
                           }
                         >
                           {formatCurrency(trade.profit)}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-slate-500 dark:text-slate-400">
+                      <td className="px-5 py-4 text-content-tertiary">
                         {formatTimestamp(trade.closedAt ?? trade.updatedAt)}
                       </td>
                     </tr>
@@ -1378,9 +1378,9 @@ export function AnalyticsPage() {
         eyebrow="Data Availability"
         description="Important notes about how metrics are computed from available telemetry."
       >
-        <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+        <ul className="space-y-2 text-sm text-content-secondary">
           {a.assumptions.map((item, idx) => (
-            <li key={`${idx}-${item}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+            <li key={`${idx}-${item}`} className="rounded-2xl border border-line-subtle bg-surface-muted px-4 py-3">
               {item}
             </li>
           ))}

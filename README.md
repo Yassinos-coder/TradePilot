@@ -1,22 +1,22 @@
 # TradePilot
 
-TradePilot is a production SaaS monorepo that routes trading signals from Telegram channels into MetaTrader 4/5 EAs in real time.
+TradePilot is a production SaaS monorepo that copies trades from one MetaTrader account to your other MetaTrader accounts in real time, sizing each copy to the risk parameters you set per account.
 
 Live at: `https://tradepilot.yassinecastro.com`
 
 ## Stack
 
-- `apps/server`: NestJS + Supabase + BullMQ + Redis + raw WebSocket EA gateway
-- `apps/App`: React + Vite + Tailwind CSS + React Query + Zustand
+- `apps/server`: NestJS + Supabase + Redis + raw WebSocket EA gateway
+- `apps/App`: React + Vite + Tailwind CSS v4 + React Query + Zustand
 - `apps/Metatrader-eas`: MT5 and MT4 Expert Advisors (MQL5/MQL4)
 - `packages/shared`: Zod schemas and DTO contracts
 - `packages/config`: shared runtime env parsing and constants
-- `packages/trading`: regex-first signal parser with OpenAI fallback
+- `packages/trading`: broker symbol resolution and EA command builders
 
 ## Quick start (local)
 
 1. Copy `.env.example` to `.env` and fill in all values
-2. Create the Supabase schema: paste `supabase/tradepilot-schema.sql` into the Supabase SQL editor
+2. Create the Supabase schema: paste `supabase/tradepilot-schema-v2.sql` into the Supabase SQL editor
 3. In Supabase → API settings → Exposed schemas: add `tradepilot`
 4. In Supabase Auth, add `http://localhost:5173/auth/callback` as a redirect URL
 5. `npm install`
@@ -35,15 +35,13 @@ SUPABASE_SCHEMA=tradepilot
 VITE_SUPABASE_URL=https://<ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
 
-# Telegram MTProto (from https://my.telegram.org → API development tools)
-TELEGRAM_API_ID=<integer>
-TELEGRAM_API_HASH=<hex string>
-TELEGRAM_SESSION_SECRET=<random string, min 32 chars>
+# API keys (rotation grace window for a live EA session)
+API_KEY_ROTATION_GRACE_HOURS=24
 
-# OpenAI (for AI signal parsing fallback)
+# OpenAI — optional, only powers the analytics AI coach
 OPENAI_API_KEY=sk-...
 LLM_MODEL=gpt-4.1
-LLM_TEMPERATURE=0.3
+LLM_TEMPERATURE=0.1
 
 # Redis
 REDIS_URL=redis://localhost:6379
@@ -85,7 +83,7 @@ Note: `docker compose` (v2 plugin) requires buildx 0.17+. Use `docker-compose` (
 
 - Forward `tradepilot.yassinecastro.com` → `tradepilot-frontend:80`
 - Enable WebSocket support in NPM
-- The frontend nginx proxies `/api/*`, `/ws/ea`, and `/admin/queues` to the backend internally
+- The frontend nginx proxies `/api/*` and `/ws/ea` to the backend internally
 - Supabase Auth redirect URL: `https://tradepilot.yassinecastro.com/auth/callback`
 
 ### EC2 security group (required inbound rules)
@@ -118,8 +116,9 @@ MT5's built-in TLS stack is incompatible with Let's Encrypt/ECDSA certificates, 
    - `ServerHost`: `tradepilot.yassinecastro.com`
    - `ServerPort`: `4000`
    - `UseSSL`: `false`
-   - `ApiKey`: your `tp_xxx` key from the dashboard
+   - `ApiKey`: an **EA key** created in Settings → API & Keys (`tp_ea_…`, shown once)
 5. Check **Experts tab** — should show `Auth success, ready for signals`
+6. In Settings → Trade Copier, set this account as the master, or link it as a slave
 
 ### MT4
 
@@ -129,30 +128,47 @@ MT5's built-in TLS stack is incompatible with Let's Encrypt/ECDSA certificates, 
 
 ## Architecture
 
+Each user marks one connected account as `MASTER`; the rest can be linked as slaves.
+A `copier_links` row holds the risk parameters for one master → slave route.
+
 ```text
-Telegram (live MTProto session)
+Master EA (MT4/MT5)
+    │  trade_event  (OnTradeTransaction)
+    ▼
+EaGatewayService               ← account role = MASTER?
     │
     ▼
-TelegramService (gramjs)       ← listens to enabled channels
+CopierService.onMasterTradeEvent()
+    │   copy_events row (deduped on ticket + action)
+    │
+    ├── per enabled copier_link:
+    │     CopyEventValidators.isCopyable()   ← action flags, symbol filter, staleness
+    │     CopierGuardService.evaluate()      ← positions, daily loss, drawdown, equity floor
+    │     CopySizingService.resolveVolume()  ← sizing mode → lot, clamped to min/max
+    │     resolveBrokerSymbol()              ← broker's own spelling, or prefix/suffix
+    │     copy_orders row (execution_key)
     │
     ▼
-POST /api/signals/ingest
+Redis PUBLISH tradepilot:ea:dispatch
     │
     ▼
-SignalsService.ingest()        ← PENDING in DB + BullMQ job
-    │
+Slave EA                       ← opens the position, comment = execution_key
+    │  trade_event / command_result
     ▼
-SignalsProcessor.process()     ← regex parse → OpenAI fallback → VALIDATED
-    │
-    ▼
-ExecutionService.dispatch()    ← retry × 3, exponential backoff
-    │
-    ▼
-EaGatewayService               ← Redis pub/sub fan-out → WebSocket
-    │
-    ▼
-MetaTrader EA                  ← executes trade (CTrade / OrderSend)
+copy_orders.slave_ticket       ← the master ↔ slave ticket map
+
+A later CLOSE / PARTIAL_CLOSE / MODIFY on the master resolves the slave ticket
+from that map and reuses the EA's existing close_all / partial_close / move_sl
+commands.
 ```
+
+### Trade API
+
+`POST /api/v1/trades/open|close|modify` and `GET /api/v1/trades/positions`,
+authenticated with a REST key (`x-api-key: tp_sk_…`). Opening additionally
+requires **Allow trade opening through API** to be on in Settings → API & Keys;
+closing and modifying are never gated by it, so revoking the permission can't
+strand open exposure.
 
 ## Docker services
 
@@ -160,7 +176,6 @@ MetaTrader EA                  ← executes trade (CTrade / OrderSend)
 |-----------------------|----------------------|-------|--------------------------------|
 | NestJS backend        | tradepilot-backend   | 4000  | Also exposes EA WS directly    |
 | React frontend (nginx)| tradepilot-frontend  | 8083  | Proxied by NPM                 |
-| Redis                 | tradepilot-redis     | 6379  | BullMQ + EA presence/pub-sub   |
+| Redis                 | tradepilot-redis     | 6379  | EA presence + dispatch pub/sub |
 
-- Bull Board: `http://localhost:4000/admin/queues`
 - Health check: `GET /api/health` → `{status, api, database, redis}`

@@ -80,12 +80,12 @@ export function AuthCallbackPage() {
   if (isAuthenticated && !error) return <Navigate to={redirectTo} replace />;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-slate-950 p-6">
+    <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
       <div className="w-full max-w-sm space-y-6 text-center">
         {/* Logo */}
         <div className="flex justify-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
-            <Activity className="h-5 w-5 text-white" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand">
+            <Activity className="h-5 w-5 text-content-inverse" />
           </div>
         </div>
 
@@ -94,22 +94,22 @@ export function AuthCallbackPage() {
           <div className={[
             'flex h-14 w-14 items-center justify-center rounded-full border',
             error
-              ? 'border-red-200 bg-red-50 dark:border-red-500/20 dark:bg-red-500/10'
-              : 'border-blue-200 bg-blue-50 dark:border-blue-500/20 dark:bg-blue-500/10',
+              ? 'border-negative bg-negative-subtle'
+              : 'border-brand/30 bg-brand-subtle',
           ].join(' ')}>
             {error ? (
-              <AlertCircle className="h-6 w-6 text-red-500 dark:text-red-400" />
+              <AlertCircle className="h-6 w-6 text-negative" />
             ) : (
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-brand" />
             )}
           </div>
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h1 className="text-lg font-semibold text-content-primary">
             {error ? 'Sign-in failed' : 'Completing sign-in…'}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
+          <p className="text-sm text-content-tertiary">
             {error ?? 'Verifying your magic link and loading your workspace.'}
           </p>
         </div>

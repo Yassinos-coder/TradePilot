@@ -30,7 +30,7 @@ export function Tooltip({ content, children, className, side = 'top' }: TooltipP
             exit={{ opacity: 0, y: side === 'top' ? 4 : -4 }}
             transition={{ duration: 0.12 }}
             className={cn(
-              'pointer-events-none absolute z-50 w-max max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200',
+              'border-line bg-surface text-content-secondary pointer-events-none absolute z-50 w-max max-w-xs rounded-lg border px-3 py-2 text-xs shadow-lg',
               side === 'top' ? 'bottom-full mb-2 left-1/2 -translate-x-1/2' : 'top-full mt-2 left-1/2 -translate-x-1/2',
               className,
             )}

@@ -13,9 +13,9 @@ const storedTheme = (() => {
   try {
     const raw = localStorage.getItem('tradepilot-theme');
     const parsed = raw ? (JSON.parse(raw) as { state?: { theme?: string } }) : null;
-    return parsed?.state?.theme ?? 'dark';
+    return parsed?.state?.theme ?? 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 })();
 

@@ -4,7 +4,8 @@ export const NOTIFICATION_EVENT_KEYS = [
   'slHit',
   'lowMargin',
   'eaDisconnected',
-  'telegramDisconnected',
+  'masterOffline',
+  'copyFailed',
   'executionFailed',
   'dailySummary',
 ] as const;
@@ -13,7 +14,6 @@ export type NotificationEventKey = (typeof NOTIFICATION_EVENT_KEYS)[number];
 
 export interface NotificationChannels {
   email: boolean;
-  telegram: boolean;
   whatsapp: boolean;
 }
 
@@ -23,7 +23,8 @@ export interface NotificationEvents {
   slHit: boolean;
   lowMargin: boolean;
   eaDisconnected: boolean;
-  telegramDisconnected: boolean;
+  masterOffline: boolean;
+  copyFailed: boolean;
   executionFailed: boolean;
   dailySummary: boolean;
 }
@@ -48,7 +49,7 @@ export interface NotificationDeliveryPayload {
 }
 
 export interface NotificationProvider {
-  readonly channel: 'email' | 'telegram' | 'whatsapp';
+  readonly channel: 'email' | 'whatsapp';
   isEnabled(): boolean;
   send(payload: NotificationDeliveryPayload): Promise<void>;
 }

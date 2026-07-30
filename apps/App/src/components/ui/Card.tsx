@@ -1,43 +1,51 @@
 import { ReactNode } from 'react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
 interface CardProps {
   title?: string;
   eyebrow?: string;
   description?: string;
   className?: string;
+  bodyClassName?: string;
   children: ReactNode;
   actions?: ReactNode;
 }
 
-export function Card({ title, eyebrow, description, className, children, actions }: CardProps) {
+export function Card({
+  title,
+  eyebrow,
+  description,
+  className,
+  bodyClassName,
+  children,
+  actions,
+}: CardProps) {
+  const hasHeader = Boolean(eyebrow || title || description || actions);
+
   return (
     <section
-      className={cn(
-        'rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900',
-        className,
-      )}
+      className={cn('border-line bg-surface rounded-card border shadow-card', className)}
     >
-      {(eyebrow || title || description || actions) && (
-        <header className="flex items-start justify-between gap-4 border-b border-gray-100 dark:border-slate-800 px-5 py-4">
-          <div className="space-y-0.5">
-            {eyebrow && (
-              <p className="text-xs font-medium uppercase tracking-widest text-blue-600 dark:text-blue-400">
+      {hasHeader ? (
+        <header className="border-line-subtle flex items-start justify-between gap-4 border-b px-5 py-4">
+          <div className="min-w-0 space-y-0.5">
+            {eyebrow ? (
+              <p className="text-brand text-[11px] font-semibold tracking-widest uppercase">
                 {eyebrow}
               </p>
-            )}
-            {title && (
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
-            )}
-            {description && (
-              <p className="text-xs text-gray-500 dark:text-slate-500">{description}</p>
-            )}
+            ) : null}
+            {title ? (
+              <h2 className="text-content-primary text-sm font-semibold">{title}</h2>
+            ) : null}
+            {description ? (
+              <p className="text-content-tertiary text-xs leading-5">{description}</p>
+            ) : null}
           </div>
-          {actions && <div className="shrink-0">{actions}</div>}
+          {actions ? <div className="shrink-0">{actions}</div> : null}
         </header>
-      )}
-      <div className="p-5">{children}</div>
+      ) : null}
+      <div className={cn('p-5', bodyClassName)}>{children}</div>
     </section>
   );
 }

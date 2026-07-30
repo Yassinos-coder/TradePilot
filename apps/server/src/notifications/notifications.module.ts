@@ -7,7 +7,6 @@ import { NotificationDispatcherService } from './notification-dispatcher.service
 import { NotificationEventBusService } from './notification-event-bus.service';
 import { NotificationsService } from './notifications.service';
 import { EmailProvider } from './providers/email.provider';
-import { TelegramProvider } from './providers/telegram.provider';
 import { WhatsAppProvider } from './providers/whatsapp.provider';
 
 @Module({
@@ -17,7 +16,6 @@ import { WhatsAppProvider } from './providers/whatsapp.provider';
     NotificationEventBusService,
     NotificationDispatcherService,
     EmailProvider,
-    TelegramProvider,
     WhatsAppProvider,
   ],
   controllers: [NotificationsController],

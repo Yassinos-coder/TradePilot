@@ -1,31 +1,15 @@
-export type SignalStatus =
-  | 'PENDING'
-  | 'PARSED'
-  | 'VALIDATED'
-  | 'DISPATCHED'
-  | 'EXECUTED'
-  | 'PARSE_FAILED'
-  | 'VALIDATION_FAILED'
-  | 'EA_OFFLINE'
-  | 'DISPATCH_TIMEOUT'
-  | 'EXECUTION_REJECTED'
-  | 'IGNORED'
-  | 'BLOCKED'
-  | 'AUTO_COPY_DISABLED'
-  | 'SYMBOL_UNRESOLVED';
-
 export type ExecutionStatus =
   | 'RECEIVED'
   | 'RETRYING'
   | 'DISPATCHED'
-  | 'PARSE_FAILED'
-  | 'PARSING_COMPLETED'
-  | 'VALIDATION_FAILED'
-  | 'VALIDATION_COMPLETED'
-  | 'TELEGRAM_MESSAGE_RECEIVED'
+  | 'COPY_SENT'
+  | 'COPY_SKIPPED'
+  | 'COPY_FILLED'
+  | 'COPY_REJECTED'
   | 'SYMBOL_MAPPED'
   | 'SYMBOL_MAPPING_FAILED'
   | 'EA_OFFLINE'
+  | 'MASTER_OFFLINE'
   | 'DISPATCH_TIMEOUT'
   | 'EXECUTION_REJECTED'
   | 'AUTO_COPY_DISABLED'
@@ -38,29 +22,62 @@ export type ExecutionStatus =
   | 'TRADE_CLOSED'
   | 'TRADE_REJECTED'
   | 'COMMAND_SUCCEEDED'
-  | 'COMMAND_FAILED';
+  | 'COMMAND_FAILED'
+  | 'API_TRADE_REQUESTED'
+  | 'API_TRADE_BLOCKED';
 
 export type TradeLifecycleStatus = 'OPEN' | 'CLOSED' | 'REJECTED';
 export type AccountSource = 'MANUAL' | 'EA';
+export type AccountRole = 'MASTER' | 'SLAVE' | 'UNASSIGNED';
+export type Platform = 'MT4' | 'MT5';
 export type TradeHistoryFileStatus = 'UPLOADED' | 'PARSED' | 'FAILED';
 export type TradeHistoryPlatform = 'MT4' | 'MT5' | 'GENERIC';
-export type SignalClassification = 'SIGNAL' | 'MANAGEMENT' | 'NOISE';
 export type PositionDirection = 'LONG' | 'SHORT';
 export type CloseReason = 'TP' | 'SL' | 'MANUAL' | 'PARTIAL' | 'BREAKEVEN' | 'UNKNOWN';
-export type CopierProgramStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
-export type FollowerDeviceStatus = 'PENDING_APPROVAL' | 'ACTIVE' | 'REVOKED';
+
+export type ApiKeyKind = 'EA' | 'REST';
+export type SizingMode = 'FIXED_LOT' | 'MULTIPLIER' | 'RISK_PERCENT' | 'BALANCE_RATIO';
+export type SymbolFilterMode = 'ALL' | 'ALLOWLIST' | 'BLOCKLIST';
+export type CopyAction = 'OPEN' | 'CLOSE' | 'PARTIAL_CLOSE' | 'MODIFY';
+export type CopyOrderStatus =
+  | 'PENDING'
+  | 'SENT'
+  | 'FILLED'
+  | 'SKIPPED'
+  | 'REJECTED'
+  | 'FAILED';
 
 export interface UserRecord {
   id: string;
   auth_user_id: string | null;
   email: string;
   password: string | null;
-  api_key: string;
   full_name: string | null;
+  nickname: string | null;
   phone_number: string | null;
+  country: string | null;
+  city: string | null;
+  street: string | null;
+  postal_code: string | null;
   pending_email: string | null;
   pending_email_token: string | null;
   pending_email_requested_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  user_id: string;
+  kind: ApiKeyKind;
+  name: string;
+  prefix: string;
+  key_hash: string;
+  scopes: string[];
+  hmac_secret: string | null;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  rotated_from_id: string | null;
   created_at: string;
 }
 
@@ -71,6 +88,11 @@ export interface AccountRecord {
   name: string;
   broker: string | null;
   source: AccountSource;
+  role: AccountRole;
+  platform: Platform | null;
+  account_login: string | null;
+  currency: string | null;
+  leverage: number | null;
   last_seen_at: string | null;
   latency_ms: number | null;
   created_at: string;
@@ -79,26 +101,19 @@ export interface AccountRecord {
 export interface SettingsRecord {
   id: string;
   user_id: string;
-  risk_percent: number;
-  max_trades: number;
-  max_simultaneous_trades: number;
-  max_daily_loss_percent: number;
-  max_trades_per_day: number;
-  low_margin_threshold_percent: number;
   auto_copy_enabled: boolean;
   execution_paused: boolean;
   execution_pause_reason: string | null;
   execution_paused_at: string | null;
-  allowed_symbols: string[];
+  allow_api_trade_opening: boolean;
   excluded_symbols: string[];
   sessions: {
     london: boolean;
     newYork: boolean;
   };
-  mode: 'AUTO' | 'SEMI_AUTO' | 'MANUAL';
+  copier_defaults: Record<string, unknown>;
   notification_channels: {
     email?: boolean;
-    telegram?: boolean;
     whatsapp?: boolean;
   };
   notification_events: {
@@ -107,7 +122,8 @@ export interface SettingsRecord {
     slHit?: boolean;
     lowMargin?: boolean;
     eaDisconnected?: boolean;
-    telegramDisconnected?: boolean;
+    masterOffline?: boolean;
+    copyFailed?: boolean;
     executionFailed?: boolean;
     dailySummary?: boolean;
   };
@@ -115,28 +131,86 @@ export interface SettingsRecord {
   updated_at: string;
 }
 
-export interface SignalRecord {
+export interface CopierLinkRecord {
   id: string;
   user_id: string;
-  raw_message: string;
-  raw_message_hash: string | null;
-  source_channel: string | null;
-  telegram_message_id: string | null;
-  telegram_channel_id: string | null;
-  message_timestamp: string | null;
-  ingestion_source: 'MANUAL' | 'TELEGRAM_REALTIME' | 'TELEGRAM_BACKFILL';
-  classification: SignalClassification;
-  deleted_at: string | null;
-  parsed_data: Record<string, unknown> | null;
-  confidence: number | null;
-  status: SignalStatus;
+  master_account_id: string;
+  slave_account_id: string;
+  enabled: boolean;
+
+  sizing_mode: SizingMode;
+  fixed_lot: number | null;
+  lot_multiplier: number;
+  risk_percent: number | null;
+  min_lot: number;
+  max_lot: number;
+
+  max_open_positions: number;
+  max_daily_loss_percent: number;
+  max_drawdown_percent: number;
+  equity_floor: number | null;
+  max_spread_points: number | null;
+  max_slippage_points: number;
+  max_copy_delay_ms: number;
+
+  copy_stop_loss: boolean;
+  copy_take_profit: boolean;
+  copy_modifications: boolean;
+  copy_partial_closes: boolean;
+  copy_closes: boolean;
+  reverse_copy: boolean;
+
+  symbol_filter_mode: SymbolFilterMode;
+  symbol_filter: string[];
+  symbol_prefix: string | null;
+  symbol_suffix: string | null;
+
   created_at: string;
+  updated_at: string;
+}
+
+export interface CopyEventRecord {
+  id: string;
+  user_id: string;
+  master_account_id: string;
+  master_ticket: string;
+  action: CopyAction;
+  symbol: string;
+  base_symbol: string;
+  side: 'BUY' | 'SELL' | null;
+  volume: number | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
+  close_percent: number | null;
+  master_event_at: string;
+  created_at: string;
+}
+
+export interface CopyOrderRecord {
+  id: string;
+  user_id: string;
+  copy_event_id: string;
+  copier_link_id: string;
+  slave_account_id: string;
+  master_ticket: string;
+  slave_ticket: string | null;
+  requested_symbol: string;
+  resolved_symbol: string | null;
+  side: 'BUY' | 'SELL' | null;
+  requested_volume: number | null;
+  filled_volume: number | null;
+  status: CopyOrderStatus;
+  skip_reason: string | null;
+  execution_key: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ExecutionLogRecord {
   id: string;
   user_id: string;
-  signal_id: string | null;
+  copy_event_id: string | null;
   account_id: string | null;
   account_name: string | null;
   execution_key: string | null;
@@ -145,43 +219,6 @@ export interface ExecutionLogRecord {
   message: string;
   details: Record<string, unknown> | null;
   created_at: string;
-}
-
-export interface TelegramChannelRecord {
-  id: string;
-  user_id: string;
-  telegram_connection_id: string;
-  external_id: string;
-  name: string;
-  username: string | null;
-  kind: 'CHANNEL' | 'GROUP';
-  enabled: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export type TelegramConnectionStatus =
-  | 'DISCONNECTED'
-  | 'PENDING_CODE'
-  | 'PENDING_PASSWORD'
-  | 'CONNECTED'
-  | 'ERROR';
-
-export interface TelegramConnectionRecord {
-  id: string;
-  user_id: string;
-  phone_number: string;
-  session_ciphertext: string | null;
-  status: TelegramConnectionStatus;
-  phone_code_hash: string | null;
-  telegram_user_id: string | null;
-  username: string | null;
-  display_name: string | null;
-  last_error: string | null;
-  last_connected_at: string | null;
-  last_synced_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface AccountStatusSnapshotRecord {
@@ -208,6 +245,7 @@ export interface TradeHistoryFileRecord {
   content_type: string | null;
   file_size: number;
   platform: TradeHistoryPlatform;
+  account_id: string;
   parsed_trade_count: number;
   skipped_row_count: number;
   status: TradeHistoryFileStatus;
@@ -218,7 +256,7 @@ export interface TradeHistoryFileRecord {
 export interface TradeExecutionRecord {
   id: string;
   user_id: string;
-  signal_id: string | null;
+  copy_event_id: string | null;
   account_id: string;
   account_name: string | null;
   ticket: string;
@@ -231,6 +269,7 @@ export interface TradeExecutionRecord {
   take_profit: number | null;
   profit: number;
   status: TradeLifecycleStatus;
+  entry_type: 'MARKET' | 'LIMIT' | 'STOP' | 'STOP_LIMIT';
   opening_order_type: 'BUY' | 'SELL' | null;
   position_direction: PositionDirection | null;
   close_reason: CloseReason | null;
@@ -255,14 +294,14 @@ export interface NotificationPreferencesRecord {
   id: string;
   user_id: string;
   email_enabled: boolean;
-  telegram_enabled: boolean;
   whatsapp_enabled: boolean;
   notify_new_trade_opened: boolean;
   notify_tp_hit: boolean;
   notify_sl_hit: boolean;
   notify_low_margin: boolean;
   notify_ea_disconnected: boolean;
-  notify_telegram_disconnected: boolean;
+  notify_master_offline: boolean;
+  notify_copy_failed: boolean;
   notify_execution_failed: boolean;
   notify_daily_summary: boolean;
   created_at: string;
@@ -276,43 +315,6 @@ export interface UserSessionRecord {
   user_agent: string | null;
   ip_address: string | null;
   last_seen_at: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CopierProgramRecord {
-  id: string;
-  provider_user_id: string;
-  name: string;
-  description: string | null;
-  status: CopierProgramStatus;
-  max_follower_devices: number;
-  requires_approval: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CopierInviteCodeRecord {
-  id: string;
-  program_id: string;
-  code: string;
-  active: boolean;
-  expires_at: string | null;
-  created_at: string;
-}
-
-export interface FollowerDeviceRecord {
-  id: string;
-  program_id: string;
-  nickname: string | null;
-  token_hash: string;
-  account_login_hash: string;
-  account_login_masked: string | null;
-  broker_server: string | null;
-  platform: 'MT4' | 'MT5' | null;
-  terminal_fingerprint_hash: string;
-  status: FollowerDeviceStatus;
-  last_seen_at: string | null;
   created_at: string;
   updated_at: string;
 }

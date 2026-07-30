@@ -1,6 +1,6 @@
 import { forwardRef, InputHTMLAttributes, ReactNode } from 'react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
 interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label?: string;
@@ -18,50 +18,37 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
   return (
     <div className="grid gap-1.5">
-      {label && (
-        <label
-          htmlFor={inputId}
-          className="text-xs font-medium text-gray-700 dark:text-slate-300"
-        >
+      {label ? (
+        <label htmlFor={inputId} className="text-content-secondary pl-0.5 text-xs font-medium">
           {label}
         </label>
-      )}
+      ) : null}
       <div className="relative flex items-center">
-        {prefix && (
-          <span className="pointer-events-none absolute left-3 text-gray-400 dark:text-slate-500">
-            {prefix}
-          </span>
-        )}
+        {prefix ? (
+          <span className="text-content-tertiary pointer-events-none absolute left-3">{prefix}</span>
+        ) : null}
         <input
           ref={ref}
           id={inputId}
           className={cn(
-            'h-9 w-full rounded-lg border bg-white text-sm text-gray-900 placeholder:text-gray-400 transition-colors',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-            error
-              ? 'border-red-400 focus:border-red-500 focus:ring-red-500/30'
-              : 'border-gray-300',
-            'dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:placeholder:text-slate-500',
-            error
-              ? 'dark:border-red-500 dark:focus:border-red-400'
-              : 'dark:focus:border-blue-500',
+            'bg-surface text-content-primary placeholder:text-content-tertiary h-10 w-full rounded-lg border text-sm transition-colors',
+            'focus:ring-brand/25 focus:border-brand focus:ring-2 focus:outline-none',
+            'disabled:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60',
+            error ? 'border-negative focus:border-negative focus:ring-negative/25' : 'border-line-strong',
             prefix ? 'pl-9' : 'pl-3',
             suffix ? 'pr-9' : 'pr-3',
             className,
           )}
           {...props}
         />
-        {suffix && (
-          <span className="pointer-events-none absolute right-3 text-gray-400 dark:text-slate-500">
-            {suffix}
-          </span>
-        )}
+        {suffix ? (
+          <span className="text-content-tertiary pointer-events-none absolute right-3">{suffix}</span>
+        ) : null}
       </div>
       {error ? (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-negative-content text-xs">{error}</p>
       ) : hint ? (
-        <p className="text-xs text-gray-500 dark:text-slate-500">{hint}</p>
+        <p className="text-content-tertiary text-xs">{hint}</p>
       ) : null}
     </div>
   );

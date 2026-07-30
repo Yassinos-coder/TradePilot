@@ -1,56 +1,9 @@
 # TradePilot MetaTrader EAs
 
-Expert Advisors for MT5 and MT4 that connect to TradePilot and auto-execute signals.
+Expert Advisors for MT5 and MT4 that connect to TradePilot. On a master account they report every trade; on a slave account they execute the copies the server sends.
 
 ---
 
-## MT5 — `MT5/TradePilot_EA.mq5`
-
-**Requirements:** MetaTrader 5 build 2265 or later (native socket support — no DLL needed).
-
-### Install
-
-1. Copy `TradePilot_EA.mq5` to:
-   ```
-   %APPDATA%\MetaQuotes\Terminal\<id>\MQL5\Experts\
-   ```
-2. Open MetaEditor (F4 in MT5) and compile the file — should show 0 errors.
-3. In MT5, open any chart (e.g. XAUUSD H1).
-4. Drag the EA onto the chart from the Navigator panel.
-5. In the Inputs tab, set:
-   - **ApiKey** — your key from the TradePilot dashboard (starts with `tp_`)
-   - **LotSize** — e.g. `0.01`
-   - **UseTpCount** — number of TPs to open orders for (1–3)
-   - **EnableTrading** — set to `false` for dry-run logging only
-6. Check **Allow Algo Trading** in the toolbar.
-7. Click OK.
-
-### Expected output (Experts tab)
-
-```
-[TradePilot] EA initialised — connecting...
-[TradePilot] Connecting to tradepilot.yassinecastro.com:443/ws/ea
-[TradePilot] -> auth
-[TradePilot] Auth success — ready for signals
-[TradePilot] <- ping (latency 42 ms)
-[TradePilot] <- signal: XAUUSD BUY @ MARKET SL=2010.00000 TP[0]=2030.00000
-[TradePilot] Trade opened: ticket #12345 XAUUSD BUY 0.01 SL=2010.00000 TP=2030.00000
-```
-
----
-
-## MT5 — `MT5/TradePilot_ORB_EA.mq5` (standalone ORB strategy)
-
-A fully-autonomous **Opening Range Breakout** EA — no server, no signals. It marks the New York 09:30 opening range, waits for a lower-timeframe candle to *close* outside it, and trades the breakout with an ATR stop and RR take-profit. Multi-symbol from a single chart.
-
-**Requirements:** MetaTrader 5. Native indicators only — no DLL.
-
-### Install
-
-1. Copy `TradePilot_ORB_EA.mq5` to `%APPDATA%\MetaQuotes\Terminal\<id>\MQL5\Experts\`.
-2. Open MetaEditor (F4) and compile — **0 errors, 0 warnings**.
-3. Attach to **any one chart** (it trades every symbol in `Symbols` regardless of the chart symbol).
-4. Enable **Allow Algo Trading**.
 
 ### How it works
 
@@ -131,7 +84,7 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 
 1. Log into TradePilot at `https://tradepilot.yassinecastro.com`
 2. On the Dashboard, click **Rotate API Key** to generate a fresh key.
-3. Copy the full `tp_xxxxxxxx...` string — it is shown only once after rotation.
+3. Copy the full `tp_ea_...` (an EA key from Settings > API & Keys)xxxxx...` string — it is shown only once after rotation.
 4. Paste it into the **ApiKey** input field of the EA.
 
 ---
@@ -162,7 +115,7 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 | `UseTpCount` | `1` | How many TP levels to open (1–3) |
 | `Slippage` | `10` / `3` | Max slippage in points |
 | `MagicNumber` | `20260413` | Order magic number for identification |
-| `EnableTrading` | `true` | `false` = log signals without trading |
+| `EnableTrading` | `true` | `false` = log incoming commands without trading |
 | `ReconnectDelaySec` | `5` | Base delay before reconnect attempt |
 
 ---
@@ -170,3 +123,18 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 ## Reconnection behaviour
 
 On disconnect the EA waits `ReconnectDelaySec × 2^attempt` seconds before retrying (capped at 10 minutes after 8 failed attempts). The counter resets on successful auth.
+
+## Recompile required (v0.8.0)
+
+The advisors now write the server-supplied `execution_key` into the order
+comment. That comment is what the backend uses to map a slave fill back to the
+copy order that requested it, so a later close, partial close or SL/TP change on
+the master can target the right position.
+
+Open each file in MetaEditor and press F7 to rebuild `.ex5` / `.ex4`:
+
+- `MT5/TradePilot_EA.mq5`
+- `MT4/TradePilot_EA.mq4`
+
+Until you do, copying still opens positions correctly, but mirroring a close
+falls back to matching on symbol and side rather than an exact ticket.

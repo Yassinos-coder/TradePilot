@@ -10,7 +10,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 import { SettingsService } from './settings.service';
 
-const autoCopyToggleSchema = z.object({
+const booleanToggleSchema = z.object({
   enabled: z.boolean(),
 });
 
@@ -35,9 +35,18 @@ export class SettingsController {
   @Put('auto-copy')
   updateAutoCopy(
     @CurrentUser() user: RequestUser,
-    @Body(new ZodValidationPipe(autoCopyToggleSchema))
-    body: z.infer<typeof autoCopyToggleSchema>,
+    @Body(new ZodValidationPipe(booleanToggleSchema))
+    body: z.infer<typeof booleanToggleSchema>,
   ) {
     return this.settingsService.updateAutoCopy(user.userId, body.enabled);
+  }
+
+  @Put('api-trade-opening')
+  updateApiTradeOpening(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(booleanToggleSchema))
+    body: z.infer<typeof booleanToggleSchema>,
+  ) {
+    return this.settingsService.updateAllowApiTradeOpening(user.userId, body.enabled);
   }
 }

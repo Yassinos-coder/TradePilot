@@ -10,8 +10,8 @@ import { Input } from '../components/ui/Input';
 type AuthMode = 'magic' | 'password';
 
 const FEATURES = [
-  { icon: Zap, text: 'Telegram ingestion with realtime backfill recovery' },
-  { icon: Radio, text: 'Multi-account EA routing with symbol remapping' },
+  { icon: Zap, text: 'Master to slave copying over a live MT4/MT5 bridge' },
+  { icon: Radio, text: 'Per-account risk sizing with broker symbol remapping' },
   { icon: Shield, text: 'Supabase auth with Google, Apple, and magic link access' },
 ];
 
@@ -54,39 +54,39 @@ export function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_38%),linear-gradient(180deg,#f6fbff_0%,#eef6ff_44%,#f8fafc_100%)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_28%),linear-gradient(180deg,#020617_0%,#071224_42%,#020617_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_38%),linear-gradient(180deg,#f6fbff_0%,#eef6ff_44%,#f8fafc_100%)]">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:flex-row">
         <motion.aside
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.35 }}
-          className="flex flex-col justify-between border-b border-sky-100/70 px-6 py-8 lg:w-[520px] lg:border-b-0 lg:border-r lg:border-slate-900/10 lg:px-10 lg:py-10 dark:border-slate-800"
+          className="flex flex-col justify-between border-b border-brand-subtle px-6 py-8 lg:w-[520px] lg:border-b-0 lg:border-r lg:border-line lg:px-10 lg:py-10"
         >
           <div className="space-y-10">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-600 shadow-[0_16px_36px_-18px_rgba(2,132,199,0.85)]">
-                <Activity className="h-5 w-5 text-white" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand shadow-[0_16px_36px_-18px_rgba(2,132,199,0.85)]">
+                <Activity className="h-5 w-5 text-content-inverse" />
               </div>
               <div>
-                <p className="text-sm font-semibold tracking-wide text-slate-900 dark:text-white">
+                <p className="text-sm font-semibold tracking-wide text-content-primary">
                   TradePilot
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-content-tertiary">
                   Production-grade signal execution
                 </p>
               </div>
             </div>
 
             <div className="space-y-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-sky-600 dark:text-sky-400">
-                Telegram to MetaTrader
+              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-brand">
+                Master to slave copying
               </p>
-              <h1 className="max-w-md text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
-                Wire your channels, accounts, and execution flow into one live control room.
+              <h1 className="max-w-md text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
+                Mirror one account across many, with the risk on each one under your control.
               </h1>
-              <p className="max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
-                TradePilot listens to Telegram in realtime, backfills missed messages, maps broker
-                symbols per account, and routes lifecycle commands through the EA gateway.
+              <p className="max-w-md text-sm leading-6 text-content-secondary">
+                TradePilot watches your master terminal, sizes each copy to the limits you set per
+                slave account, and maps broker symbols automatically through the EA gateway.
               </p>
             </div>
 
@@ -94,18 +94,18 @@ export function AuthPage() {
               {FEATURES.map(({ icon: Icon, text }) => (
                 <div
                   key={text}
-                  className="flex items-center gap-3 rounded-2xl border border-white/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/70"
+                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm backdrop-blur"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-subtle text-brand">
                     <Icon className="h-4 w-4" />
                   </div>
-                  <span className="text-sm text-slate-700 dark:text-slate-200">{text}</span>
+                  <span className="text-sm text-content-secondary">{text}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <p className="mt-10 text-xs text-slate-500 dark:text-slate-500">
+          <p className="mt-10 text-xs text-content-tertiary">
             Secure access is handled by Supabase. Your broker credentials stay in MetaTrader.
           </p>
         </motion.aside>
@@ -115,13 +115,13 @@ export function AuthPage() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.08 }}
-            className="w-full max-w-md rounded-[28px] border border-white/70 bg-white/88 p-6 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.35)] backdrop-blur md:p-8 dark:border-slate-800 dark:bg-slate-900/85"
+            className="w-full max-w-md rounded-[28px] border border-line bg-surface p-6 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.35)] backdrop-blur md:p-8"
           >
             <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+              <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
                 Sign in
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-sm text-content-tertiary">
                 Use OAuth for the fastest setup, or send yourself a passwordless magic link.
               </p>
             </div>
@@ -147,13 +147,13 @@ export function AuthPage() {
               </Button>
             </div>
 
-            <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-content-tertiary">
+              <span className="h-px flex-1 bg-line" />
               Or continue with email
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+              <span className="h-px flex-1 bg-line" />
             </div>
 
-            <div className="flex rounded-2xl border border-slate-200 bg-slate-100 p-1 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex rounded-2xl border border-line bg-surface-muted p-1">
               {(['magic', 'password'] as AuthMode[]).map((candidate) => (
                 <button
                   key={candidate}
@@ -162,8 +162,8 @@ export function AuthPage() {
                   className={[
                     'flex-1 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors',
                     mode === candidate
-                      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
-                      : 'text-slate-500 dark:text-slate-400',
+                      ? 'bg-surface text-content-primary shadow-sm'
+                      : 'text-content-tertiary',
                   ].join(' ')}
                 >
                   {candidate === 'magic' ? 'Magic link' : 'Password'}
@@ -201,13 +201,13 @@ export function AuthPage() {
               ) : null}
 
               {magicLinkSent ? (
-                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
+                <div className="rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-3 text-sm text-brand">
                   Magic link sent to <strong>{email}</strong>. Check your inbox to finish sign-in.
                 </div>
               ) : null}
 
               {error ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                <div className="rounded-2xl border border-negative bg-negative-subtle px-4 py-3 text-sm text-negative">
                   {error}
                 </div>
               ) : null}

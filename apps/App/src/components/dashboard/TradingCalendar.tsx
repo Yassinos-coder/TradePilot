@@ -59,16 +59,16 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
       <div className="flex items-center justify-between">
         <button
           onClick={prevMonth}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+          className="rounded-lg p-2 text-content-tertiary transition-colors hover:bg-surface-muted hover:text-content-secondary"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{monthLabel}</h3>
+        <h3 className="text-sm font-semibold text-content-primary">{monthLabel}</h3>
         <button
           onClick={nextMonth}
           disabled={isCurrentOrFuture}
           className={cn(
-            'rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300',
+            'rounded-lg p-2 text-content-tertiary transition-colors hover:bg-surface-muted hover:text-content-secondary',
             isCurrentOrFuture && 'pointer-events-none opacity-30',
           )}
         >
@@ -78,7 +78,7 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
 
       <div className="grid grid-cols-7 gap-1">
         {DAY_HEADERS.map((h) => (
-          <div key={h} className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div key={h} className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
             {h}
           </div>
         ))}
@@ -97,11 +97,11 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
             <div className="space-y-1">
               <p className="font-semibold">{cell.date}</p>
               <p>{summary.tradeCount} trade{summary.tradeCount !== 1 ? 's' : ''}</p>
-              <p className={summary.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              <p className={summary.netProfit >= 0 ? 'text-positive' : 'text-negative'}>
                 {formatCurrency(summary.netProfit)}
               </p>
               {summary.symbols.length > 0 && (
-                <p className="text-slate-400">{summary.symbols.join(', ')}</p>
+                <p className="text-content-tertiary">{summary.symbols.join(', ')}</p>
               )}
             </div>
           ) : null;
@@ -113,19 +113,19 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
               className={cn(
                 'flex aspect-square w-full flex-col items-center justify-center rounded-lg p-1 transition-all',
                 hasTrades ? 'cursor-pointer' : 'cursor-default',
-                isProfit && 'bg-emerald-500/15 hover:bg-emerald-500/25',
-                isLoss && 'bg-red-500/15 hover:bg-red-500/25',
-                !hasTrades && 'bg-slate-50 dark:bg-slate-800/30',
+                isProfit && 'bg-positive hover:bg-positive',
+                isLoss && 'bg-negative hover:bg-negative',
+                !hasTrades && 'bg-surface-muted',
               )}
             >
-              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+              <span className="text-[11px] font-medium text-content-secondary">
                 {cell.day}
               </span>
               {hasTrades && (
                 <span
                   className={cn(
                     'mt-0.5 text-[9px] font-semibold leading-none',
-                    isProfit ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+                    isProfit ? 'text-positive' : 'text-negative',
                   )}
                 >
                   {summary.netProfit >= 0 ? '+' : ''}

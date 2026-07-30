@@ -17,12 +17,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
+import { CopierLinksService } from '../copier/services/copier-links.service';
+
 import { AccountsService } from './accounts.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly accountsService: AccountsService) {}
+  constructor(
+    private readonly accountsService: AccountsService,
+    private readonly copierLinksService: CopierLinksService,
+  ) {}
 
   @Get('status')
   getLatestAccountStatus(
@@ -70,6 +75,13 @@ export class AccountsController {
   @Post(':id/hide')
   hideAccount(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.accountsService.hideAccount(user.userId, id);
+  }
+
+  /** Promotes this account to MASTER, demoting whichever account held the role. */
+  @Post(':id/promote-master')
+  async promoteToMaster(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    await this.copierLinksService.setMasterAccount(user.userId, id);
+    return this.accountsService.listAccounts(user.userId);
   }
 
   @Delete(':id/records')

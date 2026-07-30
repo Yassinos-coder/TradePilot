@@ -1,17 +1,15 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
 import {
+  DEFAULT_ALLOW_API_TRADE_OPENING,
   DEFAULT_AUTO_COPY_ENABLED,
+  DEFAULT_COPIER_RISK_PARAMS,
   DEFAULT_EXCLUDED_SYMBOLS,
-  DEFAULT_EXECUTION_MODE,
-  DEFAULT_LOW_MARGIN_THRESHOLD_PERCENT,
-  DEFAULT_MAX_DAILY_LOSS_PERCENT,
-  DEFAULT_MAX_SIMULTANEOUS_TRADES,
-  DEFAULT_MAX_TRADES_PER_DAY,
+  DEFAULT_NOTIFICATION_CHANNELS,
+  DEFAULT_NOTIFICATION_EVENTS,
   DEFAULT_SESSIONS,
-  SUPPORTED_SYMBOLS,
 } from '@tradepilot/config';
-import { SettingsDTO, settingsDtoSchema } from '@tradepilot/shared';
+import { SettingsDTO, copierRiskParamsSchema, settingsDtoSchema } from '@tradepilot/shared';
 
 import { DatabaseService } from '../database/database.service';
 import { SettingsRecord } from '../database/database.types';
@@ -40,35 +38,16 @@ export class SettingsService {
       .from('settings')
       .insert({
         user_id: userId,
-        risk_percent: 1,
-        max_trades: 3,
-        max_simultaneous_trades: DEFAULT_MAX_SIMULTANEOUS_TRADES,
-        max_daily_loss_percent: DEFAULT_MAX_DAILY_LOSS_PERCENT,
-        max_trades_per_day: DEFAULT_MAX_TRADES_PER_DAY,
-        low_margin_threshold_percent: DEFAULT_LOW_MARGIN_THRESHOLD_PERCENT,
         auto_copy_enabled: DEFAULT_AUTO_COPY_ENABLED,
         execution_paused: false,
         execution_pause_reason: null,
         execution_paused_at: null,
-        allowed_symbols: SUPPORTED_SYMBOLS,
+        allow_api_trade_opening: DEFAULT_ALLOW_API_TRADE_OPENING,
         excluded_symbols: DEFAULT_EXCLUDED_SYMBOLS,
         sessions: DEFAULT_SESSIONS,
-        mode: DEFAULT_EXECUTION_MODE,
-        notification_channels: {
-          email: true,
-          telegram: true,
-          whatsapp: false,
-        },
-        notification_events: {
-          newTradeOpened: true,
-          tpHit: true,
-          slHit: true,
-          lowMargin: true,
-          eaDisconnected: true,
-          telegramDisconnected: true,
-          executionFailed: true,
-          dailySummary: false,
-        },
+        copier_defaults: DEFAULT_COPIER_RISK_PARAMS,
+        notification_channels: DEFAULT_NOTIFICATION_CHANNELS,
+        notification_events: DEFAULT_NOTIFICATION_EVENTS,
       })
       .select('*')
       .single();
@@ -89,22 +68,14 @@ export class SettingsService {
       .upsert(
         {
           user_id: userId,
-          risk_percent: payload.riskPercent,
-          max_trades: payload.maxTrades,
-          max_simultaneous_trades: payload.maxSimultaneousTrades,
-          max_daily_loss_percent: payload.maxDailyLossPercent,
-          max_trades_per_day: payload.maxTradesPerDay,
-          low_margin_threshold_percent: payload.lowMarginThresholdPercent,
           auto_copy_enabled: payload.autoCopyEnabled,
           execution_paused: payload.executionPaused,
           execution_pause_reason: payload.executionPauseReason,
           execution_paused_at: payload.executionPausedAt,
-          allowed_symbols: SUPPORTED_SYMBOLS.filter(
-            (symbol) => !payload.excludedSymbols.includes(symbol),
-          ),
+          allow_api_trade_opening: payload.allowApiTradeOpening,
           excluded_symbols: payload.excludedSymbols,
           sessions: payload.sessions,
-          mode: payload.mode,
+          copier_defaults: payload.copierDefaults,
           notification_channels: payload.notificationChannels,
           notification_events: payload.notificationEvents,
         },
@@ -120,7 +91,10 @@ export class SettingsService {
     return this.toSettingsDto(settings as SettingsRecord);
   }
 
+  /** The global copier kill switch. Disabling also pauses execution. */
   async updateAutoCopy(userId: string, enabled: boolean): Promise<SettingsDTO> {
+    await this.getSettings(userId);
+
     const { data, error } = await this.databaseService
       .getClient()
       .from('settings')
@@ -143,6 +117,26 @@ export class SettingsService {
     return this.toSettingsDto(data as SettingsRecord);
   }
 
+  async updateAllowApiTradeOpening(userId: string, allowed: boolean): Promise<SettingsDTO> {
+    await this.getSettings(userId);
+
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('settings')
+      .update({ allow_api_trade_opening: allowed })
+      .eq('user_id', userId)
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new InternalServerErrorException(
+        error?.message ?? 'Failed to update API trade opening setting',
+      );
+    }
+
+    return this.toSettingsDto(data as SettingsRecord);
+  }
+
   async setExecutionPause(
     userId: string,
     paused: boolean,
@@ -155,7 +149,7 @@ export class SettingsService {
         execution_paused: paused,
         execution_pause_reason: paused ? reason : null,
         execution_paused_at: paused ? new Date().toISOString() : null,
-        auto_copy_enabled: paused ? false : true,
+        auto_copy_enabled: !paused,
       })
       .eq('user_id', userId)
       .select('*')
@@ -172,36 +166,23 @@ export class SettingsService {
 
   private toSettingsDto(settings: SettingsRecord): SettingsDTO {
     return settingsDtoSchema.parse({
-      riskPercent: settings.risk_percent,
-      maxTrades: settings.max_trades,
-      maxSimultaneousTrades:
-        settings.max_simultaneous_trades ?? settings.max_trades ?? DEFAULT_MAX_SIMULTANEOUS_TRADES,
-      maxDailyLossPercent:
-        settings.max_daily_loss_percent ?? DEFAULT_MAX_DAILY_LOSS_PERCENT,
-      maxTradesPerDay: settings.max_trades_per_day ?? DEFAULT_MAX_TRADES_PER_DAY,
-      lowMarginThresholdPercent:
-        settings.low_margin_threshold_percent ?? DEFAULT_LOW_MARGIN_THRESHOLD_PERCENT,
       autoCopyEnabled: settings.auto_copy_enabled ?? DEFAULT_AUTO_COPY_ENABLED,
       executionPaused: settings.execution_paused ?? false,
       executionPauseReason: settings.execution_pause_reason ?? null,
       executionPausedAt: settings.execution_paused_at ?? null,
-      excludedSymbols: settings.excluded_symbols ?? [],
-      sessions: settings.sessions,
-      mode: settings.mode ?? DEFAULT_EXECUTION_MODE,
-      notificationChannels: settings.notification_channels ?? {
-        email: true,
-        telegram: true,
-        whatsapp: false,
+      allowApiTradeOpening:
+        settings.allow_api_trade_opening ?? DEFAULT_ALLOW_API_TRADE_OPENING,
+      excludedSymbols: settings.excluded_symbols ?? DEFAULT_EXCLUDED_SYMBOLS,
+      sessions: settings.sessions ?? DEFAULT_SESSIONS,
+      // Older rows may hold a partial object; the schema fills the rest in.
+      copierDefaults: copierRiskParamsSchema.parse(settings.copier_defaults ?? {}),
+      notificationChannels: {
+        ...DEFAULT_NOTIFICATION_CHANNELS,
+        ...(settings.notification_channels ?? {}),
       },
-      notificationEvents: settings.notification_events ?? {
-        newTradeOpened: true,
-        tpHit: true,
-        slHit: true,
-        lowMargin: true,
-        eaDisconnected: true,
-        telegramDisconnected: true,
-        executionFailed: true,
-        dailySummary: false,
+      notificationEvents: {
+        ...DEFAULT_NOTIFICATION_EVENTS,
+        ...(settings.notification_events ?? {}),
       },
     });
   }

@@ -21,13 +21,11 @@ import {
   NotificationProvider,
 } from './notification.types';
 import { EmailProvider } from './providers/email.provider';
-import { TelegramProvider } from './providers/telegram.provider';
 import { WhatsAppProvider } from './providers/whatsapp.provider';
 
 const DEFAULT_PREFERENCES: NotificationPreferencesDTO = {
   channels: {
     email: true,
-    telegram: true,
     whatsapp: false,
   },
   events: {
@@ -36,7 +34,8 @@ const DEFAULT_PREFERENCES: NotificationPreferencesDTO = {
     slHit: true,
     lowMargin: true,
     eaDisconnected: true,
-    telegramDisconnected: true,
+    masterOffline: true,
+    copyFailed: true,
     executionFailed: true,
     dailySummary: false,
   },
@@ -50,10 +49,9 @@ export class NotificationsService {
     private readonly databaseService: DatabaseService,
     private readonly configService: ConfigService,
     emailProvider: EmailProvider,
-    telegramProvider: TelegramProvider,
     whatsappProvider: WhatsAppProvider,
   ) {
-    this.providers = [emailProvider, telegramProvider, whatsappProvider];
+    this.providers = [emailProvider, whatsappProvider];
   }
 
   async getPreferences(userId: string): Promise<NotificationPreferencesDTO> {
@@ -74,14 +72,14 @@ export class NotificationsService {
         {
           user_id: userId,
           email_enabled: parsed.channels.email,
-          telegram_enabled: parsed.channels.telegram,
           whatsapp_enabled: parsed.channels.whatsapp,
           notify_new_trade_opened: parsed.events.newTradeOpened,
           notify_tp_hit: parsed.events.tpHit,
           notify_sl_hit: parsed.events.slHit,
           notify_low_margin: parsed.events.lowMargin,
           notify_ea_disconnected: parsed.events.eaDisconnected,
-          notify_telegram_disconnected: parsed.events.telegramDisconnected,
+          notify_master_offline: parsed.events.masterOffline,
+          notify_copy_failed: parsed.events.copyFailed,
           notify_execution_failed: parsed.events.executionFailed,
           notify_daily_summary: parsed.events.dailySummary,
         },
@@ -217,14 +215,14 @@ export class NotificationsService {
       .insert({
         user_id: userId,
         email_enabled: DEFAULT_PREFERENCES.channels.email,
-        telegram_enabled: DEFAULT_PREFERENCES.channels.telegram,
         whatsapp_enabled: DEFAULT_PREFERENCES.channels.whatsapp,
         notify_new_trade_opened: DEFAULT_PREFERENCES.events.newTradeOpened,
         notify_tp_hit: DEFAULT_PREFERENCES.events.tpHit,
         notify_sl_hit: DEFAULT_PREFERENCES.events.slHit,
         notify_low_margin: DEFAULT_PREFERENCES.events.lowMargin,
         notify_ea_disconnected: DEFAULT_PREFERENCES.events.eaDisconnected,
-        notify_telegram_disconnected: DEFAULT_PREFERENCES.events.telegramDisconnected,
+        notify_master_offline: DEFAULT_PREFERENCES.events.masterOffline,
+        notify_copy_failed: DEFAULT_PREFERENCES.events.copyFailed,
         notify_execution_failed: DEFAULT_PREFERENCES.events.executionFailed,
         notify_daily_summary: DEFAULT_PREFERENCES.events.dailySummary,
       })
@@ -267,7 +265,6 @@ export class NotificationsService {
     return notificationPreferencesSchema.parse({
       channels: {
         email: record.email_enabled,
-        telegram: record.telegram_enabled,
         whatsapp: record.whatsapp_enabled,
       },
       events: {
@@ -276,7 +273,8 @@ export class NotificationsService {
         slHit: record.notify_sl_hit,
         lowMargin: record.notify_low_margin,
         eaDisconnected: record.notify_ea_disconnected,
-        telegramDisconnected: record.notify_telegram_disconnected,
+        masterOffline: record.notify_master_offline,
+        copyFailed: record.notify_copy_failed,
         executionFailed: record.notify_execution_failed,
         dailySummary: record.notify_daily_summary,
       },

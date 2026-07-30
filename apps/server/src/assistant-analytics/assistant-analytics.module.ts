@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 
-import { ExecutionModule } from '../execution/execution.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 import { AssistantAnalyticsController } from './assistant-analytics.controller';
 
 @Module({
-  imports: [ExecutionModule],
+  imports: [AnalyticsModule],
   controllers: [AssistantAnalyticsController],
 })
 export class AssistantAnalyticsModule {}
