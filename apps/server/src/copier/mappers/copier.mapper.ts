@@ -8,6 +8,7 @@ import {
   copyOrderSchema,
 } from '@tradepilot/shared';
 
+import { accountLabel } from '../../common/mappers/account-label';
 import {
   AccountRecord,
   CopierLinkRecord,
@@ -29,7 +30,7 @@ export class CopierMapper {
       id: record.id,
       masterAccountId: record.master_account_id,
       slaveAccountId: record.slave_account_id,
-      slaveAccountName: context.slaveAccount?.name ?? null,
+      slaveAccountName: accountLabel(context.slaveAccount),
       slaveAccountOnline: context.slaveOnline,
       enabled: record.enabled,
       copiesToday: context.copiesToday,

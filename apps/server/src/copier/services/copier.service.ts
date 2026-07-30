@@ -12,6 +12,7 @@ import {
   resolveBrokerSymbol,
 } from '@tradepilot/trading';
 
+import { accountLabel } from '../../common/mappers/account-label';
 import { DatabaseService } from '../../database/database.service';
 import {
   AccountRecord,
@@ -221,7 +222,7 @@ export class CopierService {
         note: null,
         command: {
           accountId: externalAccountId,
-          accountName: slaveAccount.name,
+          accountName: accountLabel(slaveAccount),
           requestedSymbol: event.baseSymbol,
           resolvedSymbol,
           message: command,
@@ -249,7 +250,7 @@ export class CopierService {
       note: sizing.note,
       command: {
         accountId: externalAccountId,
-        accountName: slaveAccount.name,
+        accountName: accountLabel(slaveAccount),
         requestedSymbol: event.baseSymbol,
         resolvedSymbol,
         message: buildOpenCommand({

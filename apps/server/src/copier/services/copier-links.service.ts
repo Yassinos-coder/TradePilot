@@ -16,6 +16,7 @@ import {
   copierOverviewSchema,
 } from '@tradepilot/shared';
 
+import { accountLabel } from '../../common/mappers/account-label';
 import { DatabaseService } from '../../database/database.service';
 import { AccountRecord, CopyOrderRecord } from '../../database/database.types';
 import { EaPresenceService } from '../../ea/services/ea-presence.service';
@@ -244,11 +245,11 @@ export class CopierLinksService {
 
     return events.map((event) =>
       CopierMapper.toCopyEventDto(event, {
-        masterAccountName: accounts.get(event.master_account_id)?.name ?? null,
+        masterAccountName: accountLabel(accounts.get(event.master_account_id)),
         orders: (ordersByEvent.get(event.id) ?? []).map((order) =>
           CopierMapper.toCopyOrderDto(
             order,
-            accounts.get(order.slave_account_id)?.name ?? null,
+            accountLabel(accounts.get(order.slave_account_id)),
           ),
         ),
       }),
@@ -279,7 +280,7 @@ export class CopierLinksService {
 
     return copierOverviewSchema.parse({
       masterAccountId: master?.id ?? null,
-      masterAccountName: master?.name ?? null,
+      masterAccountName: accountLabel(master),
       masterOnline: Boolean(
         master?.external_account_id && onlineIds.has(master.external_account_id),
       ),

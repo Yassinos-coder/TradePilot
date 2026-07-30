@@ -75,6 +75,65 @@ export class RedisService implements OnModuleDestroy {
     };
   }
 
+  /**
+   * Subscribes, then runs `trigger`, then waits for the first message.
+   *
+   * The subscribe is awaited before the trigger fires, which matters because
+   * publisher and subscriber are often the same process: a reply can land in
+   * well under a millisecond, so subscribing lazily loses it and the caller
+   * times out on an operation that actually succeeded. Taking the trigger as a
+   * callback makes that ordering impossible to get wrong at the call site.
+   */
+  async awaitMessageAfter(
+    channel: string,
+    timeoutMs: number,
+    trigger: () => Promise<void>,
+  ): Promise<string | null> {
+    const subscriber = this.createClient(`await:${channel}`);
+
+    const teardown = async () => {
+      try {
+        await subscriber.unsubscribe(channel);
+      } catch {
+        // Ignore unsubscribe failures during teardown.
+      }
+
+      await subscriber.quit();
+    };
+
+    let resolveMessage: (value: string | null) => void = () => undefined;
+    const message = new Promise<string | null>((resolve) => {
+      resolveMessage = resolve;
+    });
+
+    const onMessage = (incomingChannel: string, payload: string) => {
+      if (incomingChannel === channel) {
+        resolveMessage(payload);
+      }
+    };
+
+    subscriber.on('message', onMessage);
+
+    try {
+      await subscriber.subscribe(channel);
+    } catch (error) {
+      subscriber.off('message', onMessage);
+      await teardown();
+      throw error;
+    }
+
+    const timeoutId = setTimeout(() => resolveMessage(null), timeoutMs);
+
+    try {
+      await trigger();
+      return await message;
+    } finally {
+      clearTimeout(timeoutId);
+      subscriber.off('message', onMessage);
+      await teardown();
+    }
+  }
+
   async waitForMessage(channel: string, timeoutMs: number): Promise<string | null> {
     const temporarySubscriber = this.createClient(`temp:${channel}`);
 

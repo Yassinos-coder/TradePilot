@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { accountLabel } from '@/lib/account-label';
 import { apiClient } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
 import { cn, formatCurrency, formatLatency, formatPercent, formatTimestamp } from '@/lib/utils';
@@ -19,10 +20,6 @@ const ROLE_TONES: Record<AccountDTO['role'], BadgeTone> = {
   SLAVE: 'info',
   UNASSIGNED: 'neutral',
 };
-
-function accountLabel(account: AccountDTO) {
-  return account.displayName?.trim() || account.name;
-}
 
 /**
  * The EA reports every 10 seconds whether anything moved, so the raw feed is

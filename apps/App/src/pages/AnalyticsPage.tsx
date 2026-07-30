@@ -22,6 +22,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import type { DirectionBreakdownDTO, PeriodBreakdownDTO, TradeTypeBreakdownDTO } from '@tradepilot/shared';
 
+import { accountLabel } from '../lib/account-label';
 import { apiClient } from '../lib/api';
 import {
   cn,
@@ -554,8 +555,13 @@ export function AnalyticsPage() {
   );
 
   const handleHideAccount = useCallback(
-    (account: { id: string; name: string; externalAccountId?: string | null }) => {
-      const label = `${account.name}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
+    (account: {
+      id: string;
+      name: string;
+      displayName: string | null;
+      externalAccountId?: string | null;
+    }) => {
+      const label = `${accountLabel(account)}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
       const confirmed = window.confirm(
         `Hide ${label} from analytics?\n\nThis keeps the database records but removes the account from the selector and from All accounts analytics.`,
       );
@@ -567,8 +573,13 @@ export function AnalyticsPage() {
   );
 
   const handleDeleteAccountRecords = useCallback(
-    (account: { id: string; name: string; externalAccountId?: string | null }) => {
-      const label = `${account.name}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
+    (account: {
+      id: string;
+      name: string;
+      displayName: string | null;
+      externalAccountId?: string | null;
+    }) => {
+      const label = `${accountLabel(account)}${account.externalAccountId ? ` (${account.externalAccountId})` : ''}`;
       const confirmed = window.confirm(
         `Permanently delete records for ${label}?\n\nThis removes stored trades, snapshots, symbol mappings, execution logs, and the account row from TradePilot. This cannot be undone. If the EA reconnects, a fresh account row can be created again.`,
       );
@@ -964,7 +975,7 @@ export function AnalyticsPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-content-primary">
-                      Manage {selectedLiveAccount.name} ({selectedLiveAccount.externalAccountId})
+                      Manage {accountLabel(selectedLiveAccount)} ({selectedLiveAccount.externalAccountId})
                     </p>
                     {selectedLiveAccount.role !== 'UNASSIGNED' ? (
                       <Badge tone={selectedLiveAccount.role === 'MASTER' ? 'brand' : 'info'}>

@@ -22,6 +22,7 @@ import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { StatTile } from '@/components/ui/StatTile';
 import { Switch } from '@/components/ui/Toggle';
+import { accountLabel } from '@/lib/account-label';
 import { apiClient } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
 import { formatPercent } from '@/lib/utils';
@@ -246,7 +247,7 @@ export function CopierPage() {
                   { value: '', label: 'No master selected' },
                   ...accounts.map((account: AccountDTO) => ({
                     value: account.id,
-                    label: `${account.name}${account.online ? ' — online' : ''}`,
+                    label: `${accountLabel(account)}${account.online ? ' — online' : ''}`,
                   })),
                 ]}
                 onChange={(event) => setMasterDraft(event.target.value)}
@@ -287,7 +288,7 @@ export function CopierPage() {
                 { value: '', label: 'Link an account…' },
                 ...availableSlaves.map((account) => ({
                   value: account.id,
-                  label: account.name,
+                  label: accountLabel(account),
                 })),
               ]}
               onChange={(event) => {
@@ -312,7 +313,7 @@ export function CopierPage() {
                 onClick={() => openCreateDrawer(availableSlaves[0]!.id)}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Link {availableSlaves[0]!.name}
+                Link {accountLabel(availableSlaves[0]!)}
               </Button>
             ) : (
               <p className="text-content-tertiary mt-2 text-xs">

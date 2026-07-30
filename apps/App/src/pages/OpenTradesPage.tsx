@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, BadgeDollarSign, CheckCi
 
 import type { TradeApiOpenInput } from '@tradepilot/shared';
 
+import { accountLabel } from '@/lib/account-label';
 import { apiClient } from '@/lib/api';
 
 type OrderSide = TradeApiOpenInput['side'];
@@ -155,7 +156,7 @@ export function OpenTradesPage() {
                 {liveAccounts.length === 0 ? <option value="">No connected EA accounts</option> : null}
                 {liveAccounts.map((account) => {
                   const commandId = accountCommandId(account);
-                  return <option key={account.id} value={commandId}>{account.name} · {commandId}{account.online ? ' · online' : ''}</option>;
+                  return <option key={account.id} value={commandId}>{accountLabel(account)} · {commandId}{account.online ? ' · online' : ''}</option>;
                 })}
               </select>
             </label>

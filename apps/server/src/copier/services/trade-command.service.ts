@@ -134,9 +134,6 @@ export class TradeCommandService {
     const ackTimeoutMs = this.configService.get<number>('EA_DISPATCH_ACK_TIMEOUT_MS') ?? 2_000;
     const ackChannel = `${EA_DISPATCH_ACK_PREFIX}:${eventId}`;
 
-    // Subscribe before publishing so a fast ack cannot be missed.
-    const ackPromise = this.redisService.waitForMessage(ackChannel, ackTimeoutMs);
-
     const event: DispatchEventMessage = {
       eventId,
       executionKey,
@@ -153,13 +150,18 @@ export class TradeCommandService {
       ],
     };
 
-    await this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event));
-
-    const rawAck = await ackPromise;
+    // The gateway may be in this very process and ack within a millisecond, so
+    // the subscription has to be live before the publish goes out.
+    const rawAck = await this.redisService.awaitMessageAfter(
+      ackChannel,
+      ackTimeoutMs,
+      () => this.redisService.publish(EA_DISPATCH_CHANNEL, JSON.stringify(event)),
+    );
 
     if (!rawAck) {
       throw new ServiceUnavailableException(
-        `EA account ${accountId} did not acknowledge the command in time`,
+        `EA account ${accountId} did not acknowledge the command within ${ackTimeoutMs} ms. ` +
+          'It may still have been delivered — check the terminal and your open positions before retrying.',
       );
     }
 
