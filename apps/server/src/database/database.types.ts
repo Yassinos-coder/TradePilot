@@ -86,6 +86,7 @@ export interface AccountRecord {
   user_id: string;
   external_account_id: string | null;
   name: string;
+  display_name: string | null;
   broker: string | null;
   source: AccountSource;
   role: AccountRole;
@@ -312,6 +313,7 @@ export interface UserSessionRecord {
   id: string;
   user_id: string;
   auth_session_id: string;
+  device_id: string | null;
   user_agent: string | null;
   ip_address: string | null;
   last_seen_at: string;

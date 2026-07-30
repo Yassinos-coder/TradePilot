@@ -6,11 +6,17 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 
-import { CreateAccountInput, createAccountSchema } from '@tradepilot/shared';
+import {
+  CreateAccountInput,
+  RenameAccountInput,
+  createAccountSchema,
+  renameAccountSchema,
+} from '@tradepilot/shared';
 
 import { RequestUser } from '../auth/types/request-user.type';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -66,10 +72,25 @@ export class AccountsController {
     return this.accountsService.createAccount(user.userId, body);
   }
 
+  /** Danger zone: wipes every account and all derived analytics. */
+  @Delete('reset-all')
+  resetAllAccounts(@CurrentUser() user: RequestUser) {
+    return this.accountsService.resetAllAccounts(user.userId);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   deleteAccount(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.accountsService.deleteAccount(user.userId, id);
+  }
+
+  @Put(':id/name')
+  renameAccount(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(renameAccountSchema)) body: RenameAccountInput,
+  ) {
+    return this.accountsService.renameAccount(user.userId, id, body.displayName);
   }
 
   @Post(':id/hide')

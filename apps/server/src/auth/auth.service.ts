@@ -8,6 +8,7 @@ import { RequestUser } from './types/request-user.type';
 interface AuthRequestContext {
   ipAddress?: string | null;
   userAgent?: string | null;
+  deviceId?: string | null;
 }
 
 export interface RefreshedAuthSession {
@@ -56,12 +57,13 @@ export class AuthService {
     const sessionId = getSessionIdFromJwt(accessToken);
 
     if (sessionId) {
-      await this.usersService.upsertSession(
-        user.id,
-        sessionId,
-        context?.userAgent ?? null,
-        context?.ipAddress ?? null,
-      );
+      await this.usersService.upsertSession({
+        userId: user.id,
+        authSessionId: sessionId,
+        deviceId: context?.deviceId ?? null,
+        userAgent: context?.userAgent ?? null,
+        ipAddress: context?.ipAddress ?? null,
+      });
     }
 
     return {

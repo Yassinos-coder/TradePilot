@@ -12,6 +12,7 @@ import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LandingPage } from './pages/LandingPage';
+import { NewsCalendarPage } from './pages/NewsCalendarPage';
 import { OpenTradesPage } from './pages/OpenTradesPage';
 import { PricingPage } from './pages/PricingPage';
 import { PrivacyPage } from './pages/PrivacyPage';
@@ -102,6 +103,7 @@ export default function App() {
           <Route path="/app/analytics" element={<AnalyticsPage />} />
           <Route path="/app/copier" element={<CopierPage />} />
           <Route path="/app/open-trades" element={<OpenTradesPage />} />
+          <Route path="/app/news" element={<NewsCalendarPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
           <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>

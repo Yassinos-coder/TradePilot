@@ -275,34 +275,40 @@ export class UsersService {
     }
   }
 
-  async upsertSession(
-    userId: string,
-    authSessionId: string,
-    userAgent: string | null,
-    ipAddress: string | null,
-  ): Promise<void> {
+  /**
+   * One row per device when the client supplies a device id, so signing in again
+   * from the same browser refreshes that row rather than piling up entries.
+   * Clients without a device id fall back to the old per-session identity.
+   */
+  async upsertSession(input: {
+    userId: string;
+    authSessionId: string;
+    deviceId: string | null;
+    userAgent: string | null;
+    ipAddress: string | null;
+  }): Promise<void> {
+    const row = {
+      user_id: input.userId,
+      auth_session_id: input.authSessionId,
+      device_id: input.deviceId,
+      user_agent: input.userAgent,
+      ip_address: input.ipAddress,
+      last_seen_at: new Date().toISOString(),
+    };
+
     const { error } = await this.databaseService
       .getClient()
       .from('user_sessions')
-      .upsert(
-        {
-          user_id: userId,
-          auth_session_id: authSessionId,
-          user_agent: userAgent,
-          ip_address: ipAddress,
-          last_seen_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'user_id,auth_session_id',
-        },
-      );
+      .upsert(row, {
+        onConflict: input.deviceId ? 'user_id,device_id' : 'user_id,auth_session_id',
+      });
 
     if (error) {
       throw new InternalServerErrorException(error.message);
     }
   }
 
-  async listSessions(userId: string): Promise<UserSessionDTO[]> {
+  async listSessions(userId: string, currentDeviceId?: string | null): Promise<UserSessionDTO[]> {
     const { data, error } = await this.databaseService
       .getClient()
       .from('user_sessions')
@@ -315,16 +321,54 @@ export class UsersService {
       throw new InternalServerErrorException(error.message);
     }
 
-    return ((data ?? []) as UserSessionRecord[]).map((session) =>
+    return this.foldSessionsByDevice((data ?? []) as UserSessionRecord[]).map((session) =>
       sessionDtoSchema.parse({
         id: session.id,
         authSessionId: session.auth_session_id,
+        deviceId: session.device_id,
         userAgent: session.user_agent,
         ipAddress: session.ip_address,
+        sessionCount: session.sessionCount,
+        isCurrentDevice: Boolean(
+          currentDeviceId && session.device_id && session.device_id === currentDeviceId,
+        ),
         lastSeenAt: session.last_seen_at,
         createdAt: session.created_at,
       }),
     );
+  }
+
+  /**
+   * Collapses rows that represent the same physical device into one entry.
+   *
+   * Rows minted before device ids existed, or by clients that do not send one,
+   * fall back to IP plus user agent. Records arrive newest-first, so the first
+   * row seen in a group carries the latest activity; the rest only contribute
+   * to the count and to the earliest-seen timestamp.
+   */
+  private foldSessionsByDevice(
+    sessions: UserSessionRecord[],
+  ): Array<UserSessionRecord & { sessionCount: number }> {
+    const grouped = new Map<string, UserSessionRecord & { sessionCount: number }>();
+
+    for (const session of sessions) {
+      const key =
+        session.device_id ?? `${session.ip_address ?? 'unknown'}::${session.user_agent ?? 'unknown'}`;
+      const existing = grouped.get(key);
+
+      if (!existing) {
+        grouped.set(key, { ...session, sessionCount: 1 });
+        continue;
+      }
+
+      existing.sessionCount += 1;
+
+      if (new Date(session.created_at) < new Date(existing.created_at)) {
+        existing.created_at = session.created_at;
+      }
+    }
+
+    return [...grouped.values()];
   }
 
   async clearSessions(userId: string): Promise<void> {

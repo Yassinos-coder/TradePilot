@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
+  CalendarDays,
   CandlestickChart,
   Copy,
   LayoutDashboard,
@@ -26,6 +27,7 @@ const NAV = [
   { to: '/app/copier', label: 'Trade Copier', icon: Copy },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/app/open-trades', label: 'Open Trades', icon: CandlestickChart },
+  { to: '/app/news', label: 'News', icon: CalendarDays },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
@@ -35,6 +37,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app/copier': 'Trade Copier',
   '/app/analytics': 'Analytics',
   '/app/open-trades': 'Open Trades',
+  '/app/news': 'Economic Calendar',
   '/app/accounts': 'Accounts',
   '/app/settings': 'Settings',
 };

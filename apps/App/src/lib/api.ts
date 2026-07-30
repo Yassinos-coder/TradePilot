@@ -16,7 +16,9 @@ import {
   CreateCopierLinkInput,
   DailyTradeSummaryDTO,
   DashboardOverviewDTO,
+  EconomicCalendarDTO,
   ExecutionLogDTO,
+  NewsRange,
   NotificationPreferencesDTO,
   RequestEmailChangeInput,
   SettingsDTO,
@@ -33,11 +35,19 @@ import {
   VerifyEmailChangeInput,
 } from '@tradepilot/shared';
 
+import { getDeviceId } from './device-id';
+
 const env = parseClientEnv(import.meta.env as Record<string, unknown>);
 
 export const api = axios.create({
   baseURL: env.VITE_API_BASE_URL,
   withCredentials: true,
+});
+
+// Lets the server fold repeat sign-ins from this browser into one session row.
+api.interceptors.request.use((config) => {
+  config.headers.set('x-device-id', getDeviceId());
+  return config;
 });
 
 export const clientEnv = env;
@@ -156,6 +166,14 @@ export const apiClient = {
     const { data } = await api.post<AccountDTO>(`/accounts/${id}/hide`);
     return data;
   },
+  async renameAccount(id: string, displayName: string | null) {
+    const { data } = await api.put<AccountDTO>(`/accounts/${id}/name`, { displayName });
+    return data;
+  },
+  async resetAllAccounts() {
+    const { data } = await api.delete<{ deletedAccounts: number }>('/accounts/reset-all');
+    return data;
+  },
   async promoteToMaster(id: string) {
     const { data } = await api.post<AccountDTO[]>(`/accounts/${id}/promote-master`);
     return data;
@@ -210,6 +228,12 @@ export const apiClient = {
   },
   async manualModify(payload: TradeApiModifyInput) {
     const { data } = await api.post<TradeApiCommandResult>('/trades/modify', payload);
+    return data;
+  },
+
+  /* ── economic calendar ─────────────────────────────────────────────────── */
+  async newsCalendar(range: NewsRange) {
+    const { data } = await api.get<EconomicCalendarDTO>('/news/calendar', { params: { range } });
     return data;
   },
 

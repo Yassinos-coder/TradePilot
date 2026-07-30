@@ -1,4 +1,13 @@
-import { Body, Controller, Get, NotFoundException, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  NotFoundException,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 
 import {
   ChangePasswordInput,
@@ -86,8 +95,11 @@ export class UsersController {
   }
 
   @Get('sessions')
-  listSessions(@CurrentUser() user: RequestUser) {
-    return this.usersService.listSessions(user.userId);
+  listSessions(
+    @CurrentUser() user: RequestUser,
+    @Headers('x-device-id') deviceId?: string,
+  ) {
+    return this.usersService.listSessions(user.userId, deviceId ?? null);
   }
 
   @Post('sessions/logout-all')

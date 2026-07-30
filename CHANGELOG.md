@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-30
+
+### Added
+
+- **Economic calendar** — new News tab reading the Forex Factory public weekly feed, grouped by day with the current day highlighted, filterable by impact and currency, showing actual against forecast and previous. Times render in the viewer's timezone. Cached server-side for 10 minutes so the upstream feed is not hammered.
+- **Account names** — every connected terminal can be given a display name, edited inline on the Accounts page. The name is yours and survives EA reconnects; the broker's own account name stays visible underneath.
+- **Reset connected accounts** — a danger-zone action in Settings → Security that clears every account along with its trades, logs, snapshots, symbol maps, imported statements, copier links and copy history. The terminals are untouched, so each EA re-registers on its next heartbeat and the live data rebuilds itself.
+- **Device-scoped sessions** — the browser mints a stable device id and sends it with every request, so signing in again from the same browser refreshes one row instead of adding another. Active sessions are now a table showing device, IP, sign-in count and last activity, with the current device marked. Rows without a device id fold together on IP plus user agent.
+
+### Changed
+
+- **Accounts page rebuilt** — the three telemetry cards collapse into a single strip, the account list is a compact selectable row per terminal, and the status history is collapsed by default and shows only snapshots where something actually changed. The EA reports every 10 seconds whether or not anything moved, so the old table was mostly duplicate rows.
+- **Country is a dropdown** — a full ISO 3166-1 list replaces the free-text two-letter code field.
+- **Analytics is copier-aware** — the account selector sorts master first, then slaves, labels each with its role, and the manage panel shows a role badge.
+
+### Fixed
+
+- **Form fields sat at different heights in the same row** — `Input` and `Select` render label, field and optional hint as grid rows, and in a two-column layout the cell stretches to the tallest row. A field without a hint had its rows pushed apart, dropping its input below its neighbour. Both now pack their rows to the top.
+
+### Performance
+
+- **Analytics aggregates are cached** — the analytics summary and the calendar daily summary read through a 45-second Redis cache keyed by user, account and date range. `/dashboard/overview` recomputed the full closed-trade history on every call, so polling mapped one-to-one onto Supabase reads; it no longer does. A cache failure falls through to a live query.
+- **Polling intervals cut across the app** — dashboard overview 10s → 60s, dashboard trade history 1000 rows every 15s → 300 rows every 120s, analytics 15s → manual refresh only, copier overview 15s → 30s, copier feed 10s → 20s, accounts 10s → 30s, open trades 10s/8s → 20s. Query defaults now hold data fresh for 60s and stop polling entirely in a background tab.
+
+### Migration
+
+Re-run `supabase/tradepilot-schema-v2.sql`. It is idempotent; this pass adds
+`accounts.display_name`, `user_sessions.device_id` with a partial unique index on
+`(user_id, device_id)`, and `trade_executions.entry_type`.
+
 ## [1.0.0] - 2026-07-30
 
 TradePilot is now a multi-account trade copier. The Telegram signal-routing half

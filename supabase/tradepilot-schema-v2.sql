@@ -150,6 +150,7 @@ create table if not exists tradepilot.accounts (
   broker              text,
   external_account_id text,
   source              text        not null default 'MANUAL',
+  display_name        text,
   role                text        not null default 'UNASSIGNED',
   platform            text,
   account_login       text,
@@ -160,6 +161,7 @@ create table if not exists tradepilot.accounts (
   created_at          timestamptz not null default now()
 );
 
+alter table tradepilot.accounts add column if not exists display_name  text;
 alter table tradepilot.accounts add column if not exists role          text not null default 'UNASSIGNED';
 alter table tradepilot.accounts add column if not exists platform      text;
 alter table tradepilot.accounts add column if not exists account_login text;
@@ -574,6 +576,7 @@ create table if not exists tradepilot.user_sessions (
   id              uuid        primary key default gen_random_uuid(),
   user_id         uuid        not null references tradepilot.users(id) on delete cascade,
   auth_session_id uuid        not null,
+  device_id       text,
   user_agent      text,
   ip_address      text,
   last_seen_at    timestamptz not null default now(),
@@ -581,6 +584,16 @@ create table if not exists tradepilot.user_sessions (
   updated_at      timestamptz not null default now(),
   unique (user_id, auth_session_id)
 );
+
+alter table tradepilot.user_sessions add column if not exists device_id text;
+
+-- One row per browser: the client mints a device id once and reuses it, so
+-- signing in again from the same browser updates that row instead of adding
+-- another. Sessions from before this column existed keep the old per-session
+-- identity, which is why the index is partial.
+create unique index if not exists idx_user_sessions_device
+  on tradepilot.user_sessions(user_id, device_id)
+  where device_id is not null;
 
 -- ─── trade history files ─────────────────────────────────────────────────────
 

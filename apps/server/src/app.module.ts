@@ -14,6 +14,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { EaModule } from './ea/ea.module';
 import { EaSharedModule } from './ea/ea-shared.module';
 import { HealthController } from './health.controller';
+import { NewsModule } from './news/news.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
 import { SettingsModule } from './settings/settings.module';
@@ -40,6 +41,7 @@ import { UsersModule } from './users/users.module';
     CopierModule,
     EaModule,
     AnalyticsModule,
+    NewsModule,
     DashboardModule,
     AssistantAnalyticsModule,
   ],

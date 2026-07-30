@@ -17,7 +17,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
 
   return (
-    <div className="grid gap-1.5">
+    // content-start keeps the rows packed at the top. Without it, a field with no
+    // hint sitting beside one that has a hint gets its rows stretched apart by
+    // the taller grid row, dropping the input below its neighbour.
+    <div className="grid content-start gap-1.5">
       {label ? (
         <label htmlFor={inputId} className="text-content-secondary pl-0.5 text-xs font-medium">
           {label}

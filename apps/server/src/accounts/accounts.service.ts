@@ -81,6 +81,7 @@ export class AccountsService {
           name: account.name,
           broker: account.broker,
           source: account.source,
+          displayName: account.display_name,
           role: account.role ?? 'UNASSIGNED',
           platform: account.platform,
           currency: account.currency,
@@ -113,6 +114,28 @@ export class AccountsService {
     }
 
     return this.toAccountDto(account as AccountRecord, null, []);
+  }
+
+  async renameAccount(
+    userId: string,
+    accountId: string,
+    displayName: string | null,
+  ): Promise<AccountDTO> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('accounts')
+      .update({ display_name: displayName })
+      .eq('id', accountId)
+      .eq('user_id', userId)
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new NotFoundException('Account was not found');
+    }
+
+    const hiddenAccountIds = await this.listHiddenAccountIds(userId);
+    return this.toAccountDto(data as AccountRecord, null, hiddenAccountIds);
   }
 
   async deleteAccount(userId: string, accountId: string): Promise<void> {
@@ -157,6 +180,62 @@ export class AccountsService {
     await this.saveHiddenAccountIds(userId, nextHiddenAccountIds);
 
     return this.toAccountDto(account as AccountRecord, null, nextHiddenAccountIds);
+  }
+
+  /**
+   * Wipes every connected account and all derived data, returning the workspace
+   * to a brand-new state. Copier links go too, since they reference accounts
+   * that no longer exist.
+   *
+   * The EAs are untouched: each one re-registers its account on the next
+   * heartbeat and starts pushing symbols, status and trades again, so the data
+   * rebuilds itself once the terminals reconnect.
+   */
+  async resetAllAccounts(userId: string): Promise<{ deletedAccounts: number }> {
+    const client = this.databaseService.getClient();
+
+    const { data: accounts, error: listError } = await client
+      .from('accounts')
+      .select('id')
+      .eq('user_id', userId);
+
+    if (listError) {
+      throw new InternalServerErrorException(listError.message);
+    }
+
+    // Ordered so nothing is orphaned: children first, accounts last.
+    const tablesInDeletionOrder = [
+      'copy_orders',
+      'copy_events',
+      'copier_links',
+      'trade_executions',
+      'execution_logs',
+      'ea_account_status_snapshots',
+      'user_symbols',
+      'trade_history_files',
+    ];
+
+    for (const table of tablesInDeletionOrder) {
+      const { error } = await client.from(table).delete().eq('user_id', userId);
+
+      if (error) {
+        throw new InternalServerErrorException(`Failed to clear ${table}: ${error.message}`);
+      }
+    }
+
+    const { error: accountsError } = await client
+      .from('accounts')
+      .delete()
+      .eq('user_id', userId);
+
+    if (accountsError) {
+      throw new InternalServerErrorException(accountsError.message);
+    }
+
+    // Hidden-account ids live in the settings jsonb and would otherwise dangle.
+    await this.saveHiddenAccountIds(userId, []);
+
+    return { deletedAccounts: (accounts ?? []).length };
   }
 
   async deleteAccountRecords(userId: string, accountId: string): Promise<void> {
@@ -339,6 +418,7 @@ export class AccountsService {
       name: account.name,
       broker: account.broker,
       source: account.source,
+      displayName: account.display_name,
       role: account.role ?? 'UNASSIGNED',
       platform: account.platform,
       currency: account.currency,

@@ -227,8 +227,12 @@ export const changePasswordSchema = z.object({
 export const sessionDtoSchema = z.object({
   id: z.string().min(1),
   authSessionId: z.string().min(1),
+  deviceId: z.string().nullable().default(null),
   userAgent: z.string().nullable(),
   ipAddress: z.string().nullable(),
+  /** Sign-ins folded into this row: same device, or same IP + user agent. */
+  sessionCount: z.number().int().positive().default(1),
+  isCurrentDevice: z.boolean().default(false),
   lastSeenAt: z.string(),
   createdAt: z.string(),
 });
@@ -288,10 +292,15 @@ export const accountStatusDtoSchema = z.object({
   reportedAt: z.string(),
 });
 
+export const renameAccountSchema = z.object({
+  displayName: z.string().min(1).max(60).nullable(),
+});
+
 export const accountDtoSchema = z.object({
   id: z.string().min(1),
   externalAccountId: z.string().nullable().optional(),
   name: z.string().min(1),
+  displayName: z.string().nullable().default(null),
   broker: z.string().nullable().optional(),
   source: accountSourceSchema.default('EA'),
   role: accountRoleSchema.default('UNASSIGNED'),
@@ -651,6 +660,36 @@ export const dailyTradeSummaryItemSchema = z.object({
 
 export const dailyTradeSummarySchema = z.array(dailyTradeSummaryItemSchema);
 
+/* ─── economic calendar ──────────────────────────────────────────────────── */
+
+export const newsImpactSchema = z.enum(['HIGH', 'MEDIUM', 'LOW', 'HOLIDAY']);
+export const newsRangeSchema = z.enum(['lastweek', 'thisweek', 'nextweek']);
+
+export const economicEventSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  currency: z.string().min(2).max(6),
+  impact: newsImpactSchema,
+  /** ISO instant; the client renders it in the viewer's timezone. */
+  date: z.string(),
+  /** True when the source gave a day without a usable time (All Day, Tentative). */
+  allDay: z.boolean().default(false),
+  forecast: z.string().nullable().default(null),
+  previous: z.string().nullable().default(null),
+  actual: z.string().nullable().default(null),
+});
+
+export const economicCalendarSchema = z.object({
+  range: newsRangeSchema,
+  fetchedAt: z.string(),
+  events: z.array(economicEventSchema),
+});
+
+export type NewsImpact = z.infer<typeof newsImpactSchema>;
+export type NewsRange = z.infer<typeof newsRangeSchema>;
+export type EconomicEventDTO = z.infer<typeof economicEventSchema>;
+export type EconomicCalendarDTO = z.infer<typeof economicCalendarSchema>;
+
 /* ─── execution logs ─────────────────────────────────────────────────────── */
 
 export const executionStatusSchema = z.enum([
@@ -947,6 +986,7 @@ export type NotificationPreferencesDTO = z.infer<typeof notificationPreferencesS
 
 export type AccountDTO = z.infer<typeof accountDtoSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
+export type RenameAccountInput = z.infer<typeof renameAccountSchema>;
 export type AccountStatusDTO = z.infer<typeof accountStatusDtoSchema>;
 
 export type TradeApiOpenInput = z.infer<typeof tradeApiOpenSchema>;

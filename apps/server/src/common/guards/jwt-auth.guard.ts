@@ -10,7 +10,12 @@ import { AuthService } from '../../auth/auth.service';
 import { buildAuthCookies, readCookie, readRefreshCookie } from '../../auth/auth-cookie.util';
 
 interface AuthenticatedRequest {
-  headers: { authorization?: string; cookie?: string; 'user-agent'?: string };
+  headers: {
+    authorization?: string;
+    cookie?: string;
+    'user-agent'?: string;
+    'x-device-id'?: string;
+  };
   ip?: string;
   secure?: boolean;
   socket?: { remoteAddress?: string };
@@ -39,6 +44,7 @@ export class JwtAuthGuard implements CanActivate {
     const authContext = {
       ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
       userAgent: request.headers['user-agent'] ?? null,
+      deviceId: request.headers['x-device-id'] ?? null,
     };
 
     if (!accessToken) {

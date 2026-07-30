@@ -22,7 +22,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const selectId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
 
   return (
-    <div className="grid gap-1.5">
+    // See Input: content-start stops a hintless field being pushed down by a
+    // taller sibling in the same grid row.
+    <div className="grid content-start gap-1.5">
       {label ? (
         <label htmlFor={selectId} className="text-content-secondary pl-0.5 text-xs font-medium">
           {label}

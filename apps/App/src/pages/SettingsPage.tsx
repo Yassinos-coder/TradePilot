@@ -17,10 +17,13 @@ import { Button } from '@/components/ui/Button';
 import { FieldGrid, Section } from '@/components/ui/Section';
 import { Input } from '@/components/ui/Input';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { ConfirmDialog } from '@/components/ui/Modal';
 import { Tabs } from '@/components/ui/Tabs';
 import { Toggle } from '@/components/ui/Toggle';
 import { apiClient } from '@/lib/api';
+import { COUNTRY_SELECT_OPTIONS } from '@/lib/countries';
 import { queryClient } from '@/lib/query-client';
 import { formatTimestamp } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth-store';
@@ -104,6 +107,39 @@ const NOTIFICATION_EVENTS: Array<{
   },
 ];
 
+/** Best-effort friendly label; the raw user agent stays visible underneath. */
+function describeDevice(userAgent: string | null): string {
+  if (!userAgent) {
+    return 'Unknown device';
+  }
+
+  const browser = /Edg\//.test(userAgent)
+    ? 'Edge'
+    : /OPR\//.test(userAgent)
+      ? 'Opera'
+      : /Chrome\//.test(userAgent)
+        ? 'Chrome'
+        : /Safari\//.test(userAgent)
+          ? 'Safari'
+          : /Firefox\//.test(userAgent)
+            ? 'Firefox'
+            : 'Browser';
+
+  const platform = /Windows/.test(userAgent)
+    ? 'Windows'
+    : /Macintosh|Mac OS/.test(userAgent)
+      ? 'macOS'
+      : /Android/.test(userAgent)
+        ? 'Android'
+        : /iPhone|iPad|iOS/.test(userAgent)
+          ? 'iOS'
+          : /Linux/.test(userAgent)
+            ? 'Linux'
+            : 'Unknown OS';
+
+  return `${browser} on ${platform}`;
+}
+
 function SettingsSkeleton() {
   return (
     <div className="space-y-5">
@@ -147,6 +183,7 @@ export function SettingsPage() {
   const [notificationDraft, setNotificationDraft] = useState<NotificationPreferencesDTO | null>(
     null,
   );
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [requestedEmail, setRequestedEmail] = useState('');
   const [emailToken, setEmailToken] = useState('');
   const [passwordDraft, setPasswordDraft] = useState({
@@ -255,6 +292,20 @@ export function SettingsPage() {
       }),
   });
 
+  const resetAccountsMutation = useMutation({
+    mutationFn: apiClient.resetAllAccounts,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries();
+      setResetConfirmOpen(false);
+      pushToast({
+        tone: 'success',
+        title: 'Connected accounts reset',
+        description: `${result.deletedAccounts} account${result.deletedAccounts === 1 ? '' : 's'} cleared. Data rebuilds as each EA reconnects.`,
+      });
+    },
+    onError: () => pushToast({ tone: 'error', title: 'Could not reset accounts' }),
+  });
+
   const logoutAllMutation = useMutation({
     mutationFn: apiClient.logoutAllSessions,
     onSuccess: async () => {
@@ -338,7 +389,18 @@ export function SettingsPage() {
                 {settings.executionPaused ? 'Copier paused' : 'Copier active'}
               </Badge>
               {settings.allowApiTradeOpening ? <Badge tone="info">API trading on</Badge> : null}
-              {profileQuery.data?.pendingEmail ? (
+              <ConfirmDialog
+        open={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={() => resetAccountsMutation.mutate()}
+        title="Reset every connected account?"
+        description="All accounts, trades, logs, snapshots, imported statements and copier links are deleted permanently. Terminals reconnect on their own and start repopulating, but past trade history stored only in TradePilot cannot be recovered."
+        confirmLabel="Delete everything"
+        destructive
+        isLoading={resetAccountsMutation.isPending}
+      />
+
+      {profileQuery.data?.pendingEmail ? (
                 <Badge tone="warning">Pending email change</Badge>
               ) : null}
             </div>
@@ -441,18 +503,15 @@ export function SettingsPage() {
                     placeholder="+15551234567"
                   />
                   <Input label="E-mail address" value={email} onChange={() => undefined} disabled />
-                  <Input
+                  <Select
                     label="Country"
                     value={profileDraft.country}
+                    options={COUNTRY_SELECT_OPTIONS}
                     onChange={(event) =>
                       setProfileDraft((previous) =>
-                        previous
-                          ? { ...previous, country: event.target.value.toUpperCase().slice(0, 2) }
-                          : previous,
+                        previous ? { ...previous, country: event.target.value } : previous,
                       )
                     }
-                    placeholder="MA"
-                    hint="Two-letter country code"
                   />
                   <Input
                     label="City"
@@ -605,27 +664,73 @@ export function SettingsPage() {
                 Sign out everywhere
               </Button>
             }
+            bodyClassName="p-0 sm:p-0"
           >
-            <div className="space-y-2.5">
-              {(sessionsQuery.data ?? []).length === 0 ? (
-                <p className="text-content-tertiary text-sm">No active sessions recorded.</p>
-              ) : (
-                (sessionsQuery.data ?? []).map((session) => (
-                  <div
-                    key={session.id}
-                    className="border-line-subtle bg-surface-inset rounded-lg border px-4 py-3"
-                  >
-                    <p className="text-content-primary text-sm font-medium">
-                      {session.userAgent ?? 'Unknown device'}
-                    </p>
-                    <p className="text-content-tertiary text-xs">
-                      {session.ipAddress ?? 'Unknown IP'} · last seen{' '}
-                      {formatTimestamp(session.lastSeenAt)}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
+            {(sessionsQuery.data ?? []).length === 0 ? (
+              <p className="text-content-tertiary p-5 text-sm">No active sessions recorded.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[620px] text-left text-sm">
+                  <thead className="border-line-subtle text-content-tertiary border-b text-xs">
+                    <tr>
+                      <th className="px-5 py-3 font-medium">Device</th>
+                      <th className="px-5 py-3 font-medium">IP address</th>
+                      <th className="px-5 py-3 font-medium">Sign-ins</th>
+                      <th className="px-5 py-3 font-medium">Last active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(sessionsQuery.data ?? []).map((session) => (
+                      <tr key={session.id} className="border-line-subtle border-b last:border-0">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-content-primary font-medium">
+                              {describeDevice(session.userAgent)}
+                            </span>
+                            {session.isCurrentDevice ? (
+                              <Badge tone="brand">This device</Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-content-tertiary mt-0.5 truncate text-xs">
+                            {session.userAgent ?? 'Unknown user agent'}
+                          </p>
+                        </td>
+                        <td className="text-content-secondary px-5 py-3 text-xs">
+                          {session.ipAddress ?? 'Unknown'}
+                        </td>
+                        <td className="text-content-secondary tabular px-5 py-3 text-xs">
+                          {session.sessionCount}
+                        </td>
+                        <td className="text-content-secondary px-5 py-3 text-xs">
+                          {formatTimestamp(session.lastSeenAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+          <Section
+            title="Reset connected accounts"
+            description="Start over with a clean workspace."
+            footer={
+              <Button variant="danger" fullWidth onClick={() => setResetConfirmOpen(true)}>
+                Reset connected accounts
+              </Button>
+            }
+          >
+            <Alert tone="danger" title="This deletes trading data, not just the connection">
+              Every connected account is removed along with its trades, execution logs, status
+              snapshots, symbol maps, imported statements, copier links and copy history. Analytics
+              goes back to empty.
+            </Alert>
+            <p className="text-content-secondary mt-3 text-sm leading-6">
+              Your MetaTrader terminals are left alone. Each EA re-registers its account on the next
+              heartbeat and starts pushing symbols, balances and trades again, so live data rebuilds
+              itself once the terminals reconnect. Historical trades that were only stored here are
+              gone for good.
+            </p>
           </Section>
         </div>
       ) : null}
@@ -722,6 +827,17 @@ export function SettingsPage() {
           </Section>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={() => resetAccountsMutation.mutate()}
+        title="Reset every connected account?"
+        description="All accounts, trades, logs, snapshots, imported statements and copier links are deleted permanently. Terminals reconnect on their own and start repopulating, but past trade history stored only in TradePilot cannot be recovered."
+        confirmLabel="Delete everything"
+        destructive
+        isLoading={resetAccountsMutation.isPending}
+      />
 
       {profileQuery.data?.pendingEmail ? (
         <Alert tone="warning" title="Pending email change">
