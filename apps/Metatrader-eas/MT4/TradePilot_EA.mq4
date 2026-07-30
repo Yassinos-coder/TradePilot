@@ -4,7 +4,7 @@
 //| Requires: Tools > Options > Expert Advisors > Allow DLL imports  |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.01"
+#property version   "3.02"
 #property strict
 
 #import "winhttp.dll"
@@ -84,7 +84,10 @@ string EscapeJson(string value) {
          result += "\\f";
       } else if (c == 13) {
          result += "\\r";
-      } else if (c < 32) {
+      } else if (c < 32 || c > 126) {
+         // Same reasoning as the MT5 build: escape everything outside printable
+         // ASCII rather than pushing it through CharToStr, which truncates to a
+         // single byte and corrupts non-ASCII symbols and comments.
          result += StringFormat("\\u%04X", c);
       } else {
          result += CharToStr(c);

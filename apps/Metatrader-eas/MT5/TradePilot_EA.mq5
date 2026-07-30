@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.17"
+#property version   "3.18"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -71,10 +71,15 @@ string EscapeJson(string value) {
          result += "\\f";
       } else if (c == 13) {
          result += "\\r";
-      } else if (c < 32) {
+      } else if (c < 32 || c > 126) {
+         // Anything outside printable ASCII goes out as a \uXXXX escape. That
+         // keeps the payload valid JSON and, importantly, avoids passing a
+         // ushort to CharToString, which takes a uchar and would silently
+         // truncate any character above 255 — corrupting symbols and comments
+         // that are not plain ASCII.
          result += StringFormat("\\u%04X", c);
       } else {
-         result += CharToString(c);
+         result += CharToString((uchar)c);
       }
    }
 
