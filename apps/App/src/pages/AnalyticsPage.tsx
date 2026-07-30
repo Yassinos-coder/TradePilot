@@ -427,7 +427,7 @@ export function AnalyticsPage() {
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
-    refetchInterval: 15_000,
+    refetchInterval: false,
   });
 
   const historyFilesQuery = useQuery({
@@ -503,7 +503,7 @@ export function AnalyticsPage() {
   const analyticsQuery = useQuery({
     queryKey: ['execution', 'analytics', accountId ?? 'all', dateRange],
     queryFn: () => apiClient.executionAnalytics(accountId, startDate, endDate),
-    refetchInterval: 15_000,
+    refetchInterval: false,
   });
 
   const aiAnalysisQuery = useQuery({
@@ -515,7 +515,7 @@ export function AnalyticsPage() {
   const tradesQuery = useQuery({
     queryKey: ['execution', 'trades', accountId ?? 'all', dateRange],
     queryFn: () => apiClient.executionTrades(accountId, 500),
-    refetchInterval: 15_000,
+    refetchInterval: false,
   });
 
   const isRefreshing =

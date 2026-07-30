@@ -41,7 +41,7 @@ export function AccountsPage() {
   const accountsQuery = useQuery({
     queryKey: ['accounts'],
     queryFn: apiClient.accounts,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
 
@@ -74,7 +74,7 @@ export function AccountsPage() {
     queryKey: ['accounts', 'status-history', selectedExternalId ?? 'none'],
     queryFn: () => apiClient.accountStatusHistory(selectedExternalId ?? undefined, 24),
     enabled: Boolean(selectedExternalId),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
 
   if (accountsQuery.isLoading) {

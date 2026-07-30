@@ -61,12 +61,12 @@ export function CopierPage() {
   const overviewQuery = useQuery({
     queryKey: ['copier', 'overview'],
     queryFn: apiClient.copierOverview,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
   const eventsQuery = useQuery({
     queryKey: ['copier', 'events'],
     queryFn: () => apiClient.copyEvents(25),
-    refetchInterval: 10_000,
+    refetchInterval: 20_000,
   });
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: apiClient.settings });
 

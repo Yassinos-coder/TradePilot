@@ -22,6 +22,7 @@ import {
   TradeExecutionRecord,
 } from '../../database/database.types';
 import { EaGatewayService } from '../../ea/ea-gateway.service';
+import { CacheService } from '../../redis/cache.service';
 
 /**
  * Read side of the platform: performance metrics, the trading calendar, the AI
@@ -36,7 +37,14 @@ export class AnalyticsService {
     private readonly databaseService: DatabaseService,
     private readonly gateway: EaGatewayService,
     private readonly configService: ConfigService,
+    private readonly cacheService: CacheService,
   ) {}
+
+  /**
+   * Long enough that dashboard polling stops driving Supabase reads, short
+   * enough that a closed trade shows up promptly.
+   */
+  private static readonly AGGREGATE_CACHE_TTL_MS = 45_000;
 
   async getAiAnalysis(userId: string, accountId?: string, startDate?: string, endDate?: string): Promise<string> {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
@@ -108,6 +116,19 @@ export class AnalyticsService {
   }
 
   async getDailyProfitSummary(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    accountId?: string,
+  ): Promise<DailyTradeSummaryDTO> {
+    return this.cacheService.remember(
+      `tradepilot:cache:daily:${userId}:${accountId ?? 'all'}:${startDate}:${endDate}`,
+      AnalyticsService.AGGREGATE_CACHE_TTL_MS,
+      () => this.computeDailyProfitSummary(userId, startDate, endDate, accountId),
+    );
+  }
+
+  private async computeDailyProfitSummary(
     userId: string,
     startDate: string,
     endDate: string,
@@ -296,6 +317,19 @@ export class AnalyticsService {
   }
 
   async getAnalytics(
+    userId: string,
+    accountId?: string,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<AnalyticsSummaryDTO> {
+    return this.cacheService.remember(
+      `tradepilot:cache:analytics:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
+      AnalyticsService.AGGREGATE_CACHE_TTL_MS,
+      () => this.computeAnalytics(userId, accountId, startDate, endDate),
+    );
+  }
+
+  private async computeAnalytics(
     userId: string,
     accountId?: string,
     startDate?: string,

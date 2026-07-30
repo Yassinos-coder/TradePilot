@@ -99,7 +99,7 @@ export function DashboardPage() {
   const overviewQuery = useQuery({
     queryKey: ['overview'],
     queryFn: apiClient.overview,
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
 
   const calendarQuery = useQuery({
@@ -119,8 +119,8 @@ export function DashboardPage() {
 
   const tradesQuery = useQuery({
     queryKey: ['execution', 'trades', 'all'],
-    queryFn: () => apiClient.executionTrades(undefined, 1000),
-    refetchInterval: 15_000,
+    queryFn: () => apiClient.executionTrades(undefined, 300),
+    refetchInterval: 120_000,
   });
 
   const summaryMap = useMemo(() => summaryMapFromItems(calendarQuery.data ?? []), [calendarQuery.data]);

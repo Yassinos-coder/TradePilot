@@ -48,13 +48,13 @@ export function OpenTradesPage() {
     queryKey: ['manual-positions', selectedAccountId],
     queryFn: () => apiClient.manualPositions(selectedAccountId),
     enabled: Boolean(selectedAccountId),
-    refetchInterval: 10_000,
+    refetchInterval: 20_000,
   });
   const logsQuery = useQuery({
     queryKey: ['execution-logs', selectedAccountId],
     queryFn: () => apiClient.executionLogs(selectedAccountId),
     enabled: Boolean(selectedAccountId),
-    refetchInterval: 8_000,
+    refetchInterval: 20_000,
   });
 
   const payload = useMemo<TradeApiOpenInput>(() => ({
