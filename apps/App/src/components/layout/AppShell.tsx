@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
+  CandlestickChart,
   Copy,
   LayoutDashboard,
   LogOut,
@@ -24,6 +25,7 @@ const NAV = [
   { to: '/app', label: 'Overview', icon: LayoutDashboard },
   { to: '/app/copier', label: 'Trade Copier', icon: Copy },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/open-trades', label: 'Open Trades', icon: CandlestickChart },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
@@ -32,6 +34,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app': 'Overview',
   '/app/copier': 'Trade Copier',
   '/app/analytics': 'Analytics',
+  '/app/open-trades': 'Open Trades',
   '/app/accounts': 'Accounts',
   '/app/settings': 'Settings',
 };

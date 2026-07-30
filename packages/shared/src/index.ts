@@ -315,16 +315,30 @@ export const accountStatusHistorySchema = z.array(accountStatusDtoSchema);
 
 /* ─── trade api (HTTP, gated by allowApiTradeOpening) ────────────────────── */
 
-export const tradeApiOpenSchema = z.object({
-  accountId: z.string().min(1),
-  symbol: symbolSchema,
-  side: orderSideSchema,
-  volume: z.number().positive(),
-  entry: orderEntrySchema.default('MARKET'),
-  entryPrice: z.number().positive().nullable().optional(),
-  stopLoss: z.number().positive().nullable().optional(),
-  takeProfit: z.number().positive().nullable().optional(),
-});
+export const tradeApiOpenSchema = z
+  .object({
+    accountId: z.string().min(1),
+    symbol: symbolSchema,
+    side: orderSideSchema,
+    volume: z.number().positive(),
+    entry: orderEntrySchema.default('MARKET'),
+    entryPrice: z.number().positive().nullable().optional(),
+    stopLoss: z.number().positive().nullable().optional(),
+    takeProfit: z.number().positive().nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      value.entry !== 'MARKET' || value.entryPrice === null || value.entryPrice === undefined,
+    { message: 'Market orders must not include an entryPrice', path: ['entryPrice'] },
+  )
+  .refine((value) => value.entry === 'MARKET' || Boolean(value.entryPrice), {
+    message: 'Pending orders require entryPrice',
+    path: ['entryPrice'],
+  })
+  .refine((value) => value.entry !== 'STOP_LIMIT', {
+    message: 'STOP_LIMIT orders are not supported by the connected EA yet. Use STOP or LIMIT.',
+    path: ['entry'],
+  });
 
 export const tradeApiCloseSchema = z
   .object({

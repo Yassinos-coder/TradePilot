@@ -7,6 +7,7 @@ import { RedisModule } from '../redis/redis.module';
 import { SettingsModule } from '../settings/settings.module';
 
 import { CopierController } from './controllers/copier.controller';
+import { ManualTradeController } from './controllers/manual-trade.controller';
 import { TradeApiController } from './controllers/trade-api.controller';
 import { CopierLinkRepository } from './repositories/copier-link.repository';
 import { CopyEventRepository } from './repositories/copy-event.repository';
@@ -18,7 +19,7 @@ import { TradeCommandService } from './services/trade-command.service';
 
 @Module({
   imports: [DatabaseModule, RedisModule, SettingsModule, ApiKeysModule, EaSharedModule],
-  controllers: [CopierController, TradeApiController],
+  controllers: [CopierController, ManualTradeController, TradeApiController],
   providers: [
     CopierService,
     CopierLinksService,

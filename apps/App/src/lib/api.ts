@@ -20,6 +20,10 @@ import {
   NotificationPreferencesDTO,
   RequestEmailChangeInput,
   SettingsDTO,
+  TradeApiCloseInput,
+  TradeApiCommandResult,
+  TradeApiModifyInput,
+  TradeApiOpenInput,
   TradeExecutionDTO,
   TradeHistoryFileDTO,
   UpdateCopierLinkInput,
@@ -186,6 +190,26 @@ export const apiClient = {
   },
   async copyEvents(limit = 25) {
     const { data } = await api.get<CopyEventDTO[]>('/copier/events', { params: { limit } });
+    return data;
+  },
+
+  /* ── manual trading (session-authed, from the dashboard) ───────────────── */
+  async manualPositions(accountId: string) {
+    const { data } = await api.get<TradeExecutionDTO[]>('/trades/positions', {
+      params: { accountId },
+    });
+    return data;
+  },
+  async manualOpen(payload: TradeApiOpenInput) {
+    const { data } = await api.post<TradeApiCommandResult>('/trades/open', payload);
+    return data;
+  },
+  async manualClose(payload: TradeApiCloseInput) {
+    const { data } = await api.post<TradeApiCommandResult>('/trades/close', payload);
+    return data;
+  },
+  async manualModify(payload: TradeApiModifyInput) {
+    const { data } = await api.post<TradeApiCommandResult>('/trades/modify', payload);
     return data;
   },
 

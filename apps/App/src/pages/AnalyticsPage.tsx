@@ -610,14 +610,25 @@ export function AnalyticsPage() {
     ? historyFiles.find((file) => `upload:${file.id}` === accountId)
     : undefined;
 
+  // Master first, then slaves, then unassigned — the order you actually compare in.
+  const ROLE_ORDER = { MASTER: 0, SLAVE: 1, UNASSIGNED: 2 } as const;
+  const liveAccountOptions = (accountsQuery.data ?? [])
+    .filter((acc) => acc.externalAccountId)
+    .sort((left, right) => {
+      const byRole = ROLE_ORDER[left.role] - ROLE_ORDER[right.role];
+      return byRole !== 0 ? byRole : left.name.localeCompare(right.name);
+    })
+    .map((acc) => ({
+      label:
+        acc.role === 'UNASSIGNED'
+          ? `${acc.name} (${acc.externalAccountId})`
+          : `${acc.role === 'MASTER' ? '★ Master' : 'Slave'} · ${acc.name} (${acc.externalAccountId})`,
+      value: acc.externalAccountId!,
+    }));
+
   const accountOptions = [
     { label: 'All accounts', value: 'all' },
-    ...(accountsQuery.data ?? [])
-      .filter((acc) => acc.externalAccountId)
-      .map((acc) => ({
-        label: `${acc.name} (${acc.externalAccountId})`,
-        value: acc.externalAccountId!,
-      })),
+    ...liveAccountOptions,
     ...historyFiles.map((file) => ({
       label: `Imported: ${file.displayName}`,
       value: `upload:${file.id}`,
@@ -951,9 +962,16 @@ export function AnalyticsPage() {
             <div className="rounded-2xl border border-line bg-surface-muted px-4 py-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-content-primary">
-                    Manage {selectedLiveAccount.name} ({selectedLiveAccount.externalAccountId})
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-content-primary">
+                      Manage {selectedLiveAccount.name} ({selectedLiveAccount.externalAccountId})
+                    </p>
+                    {selectedLiveAccount.role !== 'UNASSIGNED' ? (
+                      <Badge tone={selectedLiveAccount.role === 'MASTER' ? 'brand' : 'info'}>
+                        {selectedLiveAccount.role}
+                      </Badge>
+                    ) : null}
+                  </div>
                   <p className="mt-1 text-xs leading-relaxed text-content-tertiary">
                     Hide keeps the records but excludes this account from the selector and All accounts analytics. Delete records permanently removes stored trades, snapshots, logs, and symbols for this account.
                   </p>

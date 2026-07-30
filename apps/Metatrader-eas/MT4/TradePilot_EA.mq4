@@ -463,6 +463,7 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
    double entryPrice = JsonNum(data, "entry_price");
    double stopLoss = JsonNum(data, "stop_loss");
    double takeProfit = JsonNum(data, "take_profit");
+   double requestedVolume = JsonNum(data, "volume");
 
    if (symbol == "" || side == "" || entryKind == "") {
       SendCommandResult("OPEN", symbol, false, "Invalid trade payload", signalId, executionKey);
@@ -474,7 +475,7 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
       return true;
    }
 
-   double normalizedLot = NormalizeVolumeForSymbol(symbol, lotPerTrade);
+   double normalizedLot = NormalizeVolumeForSymbol(symbol, requestedVolume > 0.0 ? requestedVolume : lotPerTrade);
    if (normalizedLot <= 0.0) {
       SendCommandResult("OPEN", symbol, false, "LotSize must be greater than zero", signalId, executionKey);
       return false;
@@ -492,6 +493,12 @@ bool ExecuteOpenPayload(string data, double lotPerTrade, int tradeIndex) {
    if (entryKind == "LIMIT" && entryPrice > 0.0) {
       cmd = isBuy ? OP_BUYLIMIT : OP_SELLLIMIT;
       price = entryPrice;
+   } else if (entryKind == "STOP" && entryPrice > 0.0) {
+      cmd = isBuy ? OP_BUYSTOP : OP_SELLSTOP;
+      price = entryPrice;
+   } else if (entryKind == "STOP_LIMIT") {
+      SendCommandResult("OPEN", symbol, false, "STOP_LIMIT orders are not supported yet; use STOP or LIMIT", signalId, executionKey);
+      return false;
    } else {
       cmd = isBuy ? OP_BUY : OP_SELL;
       price = isBuy ? Ask : Bid;
