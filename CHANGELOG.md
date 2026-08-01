@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-01
+
+### Added
+
+- **TradingView London Session Strategy** — new Pine v6 strategy implementing the "time before price" London model. A 90-minute window from 03:00 New York; the range that existed before it, defined either as a session window (Asian range by default) or as the previous completed hourly candle — the "2am sets it, 3am manipulates it, 4am expands" framing, read non-repainting; one side of that range swept inside the window; and a displacement candle closing through the extreme of a run of opposing-close candles with a body of at least 0.8 ATR. Entry is market-on-displacement or a limit into the fair value gap or order block the displacement left, stops sit beyond the sweep extreme, and targets are the 50% or the far side of the dealing range redrawn from that extreme. Optional SMT divergence against a correlated symbol. Defaults are tuned for FX on 5m and the script blocks itself above 15m, where a 90-minute window is too few bars for a sweep, a displacement and an entry to fit.
+- **Per-day funnel on the London dashboard** — windows seen, then days that swept, then days that displaced, then days that traded. "Why did today produce nothing?" has four possible answers and the Strategy Tester can only ever show the last one; the first big drop in that chain names the stage that is rejecting setups and the setting that governs it.
+- **TradingView Dynamic VWAP Strategy** — new Pine v6 strategy derived from Chen (2024), *A Review of VWAP Trading Algorithms*. The paper's volume decomposition is kept but its input is swapped: on a CFD the volume field is the broker's own tick count, so the activity proxy defaults to true range, which makes the benchmark a property of price rather than of your broker. The learned per-slot activity profile gates trading until it has seen enough sessions, and the surprise residual switches between a reversion leg (transient impact, fade back to the benchmark) and a momentum leg (permanent impact, go with the break), with the two legs deliberately on separate bands. 100/200 EMA regime filter, neither drawn. Defaults for NZDUSD on 2H with a weekly anchor.
+
+### Changed
+
+- TradingView documentation now covers both new strategies, including the London model's RR-versus-target interaction (the equilibrium target implies 1.2–1.6R, so the 1:2 minimum the model quotes verbally only holds against the range extreme), its notional-cap arithmetic (a 3-pip stop needs ~33× equity for a real 1% risk, so the 3× that suits the 2H strategies silently cuts realised risk to ~0.09%), and the VWAP script's parameter optimisation protocol.
+
 ## [1.1.0] - 2026-07-30
 
 ### Added

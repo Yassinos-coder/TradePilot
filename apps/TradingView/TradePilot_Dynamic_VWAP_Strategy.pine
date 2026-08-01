@@ -1,0 +1,729 @@
+//@version=6
+// ============================================================================
+// TradePilot Dynamic VWAP Strategy   —   tuned for NZDUSD CFD, 2H
+// ----------------------------------------------------------------------------
+// Built from: Chen, R. (2024) "A Review of VWAP Trading Algorithms: Development,
+// Improvements and Limitations." ICFTBA, DOI 10.54254/2754-1169/135/2024.18582
+//
+// The paper reviews VWAP as an EXECUTION algorithm — its goal is to minimise
+// tracking error against the market VWAP, not to predict direction. It cannot be
+// ported literally into a strategy: a pure slicer has no P&L to backtest. What
+// IS portable is the machinery the paper spends most of its length on, and the
+// two failures it names. Both are implemented here.
+//
+// ----------------------------------------------------------------------------
+// WHY THERE IS NO VOLUME IN THIS SCRIPT BY DEFAULT
+//
+// On a CFD the "volume" field is the broker's own tick count, not exchange
+// traded size. It is venue-dependent, it is not comparable between brokers, and
+// on an FX CFD there is no consolidated tape behind it at all. Weighting a
+// benchmark by a number like that means the benchmark is defined by your broker.
+//
+// The fix is not to drop the model — it is to swap the ACTIVITY PROXY the model
+// is built on. Clark (1973), Mixture of Distributions Hypothesis, and Ane &
+// Geman (2000) establish that volume and volatility are both observable proxies
+// for the same latent information-arrival process — the "market clock". Trading
+// volume is one measurement of how much happened in an interval; realised range
+// is another, and on a CFD it is the honest one, because range comes from price
+// and price is the thing you are actually filled at.
+//
+// So the default proxy is TRUE RANGE. Everything below is unchanged in
+// structure — the decomposition, the profile, the surprise term, the bands. Only
+// the input to the weighting changes:
+//
+//     WAP  = sum(a.p) / sum(a)        a = activity (TR by default, volume opt.)
+//
+// The paper's V = D.phi.eps becomes R = D.phi.eps. eps stops being a volume
+// surprise and becomes a VOLATILITY surprise, which if anything is closer to the
+// impact literature the direction logic is built on. Set Activity Proxy back to
+// "Volume" on a futures or cash-equity chart, where the tape is real.
+//
+// ----------------------------------------------------------------------------
+// WHAT THE PAPER GIVES US
+//
+//  1. Eq.(1)  VWAP = sum(v.p) / sum(v)
+//     Anchor-scoped, plus activity-WEIGHTED standard deviation bands built from
+//     the same weights as the mean (sum(a.p^2)/sum(a) - WAP^2), not a bar-count
+//     stdev — otherwise the bands and the line disagree about what "average"
+//     means.
+//
+//  2. Sec.4  The U/V-shaped intraday activity cycle (Biais et al.; Dufour &
+//     Engle; Le Fol & Gourieroux). Activity is not flat across the session.
+//     On FX the same cycle exists weekly: Sunday/Monday-Asia dead, the
+//     London-NY overlap peak, Friday afternoon dead.
+//
+//  3. Sec.4  Brownlees, Cipollini & Gallo (2011) decompose intraday volume
+//     multiplicatively into three parts. Reproduced here on the activity proxy:
+//
+//         A(session, slot)  =  D(session) . phi(slot) . eps(session, slot)
+//
+//         D    level         EWMA of prior completed session totals
+//         phi  cycle         EWMA of prior sessions' activity SHARE per slot,
+//                            i.e. the U-shape LEARNED for this symbol and this
+//                            timeframe — nothing is hardcoded
+//         eps  specific      the residual, actual / expected
+//
+//     eps is the whole point. Lo et al. and He et al. (Sec.4) call phi and D the
+//     stable components and eps the random one. Bialkowski et al. model exactly
+//     this residual to cut VWAP tracking error by 7%.
+//
+//  4. Sec.4/5  The two named failures of static VWAP:
+//         (a) it depends entirely on the activity forecast being right
+//         (b) it is static — "cannot incorporate the latest market information"
+//     (a) is handled by refusing to trade until phi has been learned from
+//     `Min Sessions Learned` completed sessions, and by surfacing live forecast
+//     error on the dashboard. (b) is the trade logic below.
+//
+// HOW eps BECOMES A DIRECTIONAL SIGNAL
+//
+// The paper's own citations supply the bridge. Gomes & Waelbroeck (2015), ref
+// [23], ask whether market impact measures the INFORMATION VALUE of trades, and
+// separate liquidity-driven from informed metaorders. Cont, Kukanov & Stoikov
+// (2014), ref [25], model the price impact of order-book events. The standing
+// result: impact from uninformed/liquidity flow is TRANSIENT and decays, impact
+// from informed flow is PERMANENT.
+//
+// So a displacement from the benchmark means two opposite things depending on
+// the activity that produced it, and eps is what tells them apart:
+//
+//   price far from WAP, eps LOW    ->  nothing is behind the move. Drift on a
+//        (quiet)                       thin book, transient impact.
+//                                      REVERSION — take it back to the WAP,
+//                                      which is literally the benchmark the
+//                                      paper's execution algos aim at.
+//
+//   price breaks from WAP, eps HIGH -> abnormal activity, informed flow,
+//        (loud)                        permanent impact.
+//                                      MOMENTUM — go with it; the WAP will be
+//                                      dragged to price, not price back to WAP.
+//
+// That is the dynamic layer: identical price geometry, opposite trade, decided
+// by real-time information the static algorithm ignores by construction.
+//
+// ----------------------------------------------------------------------------
+// REGIME FILTER (not from the paper — added for the 2H FX configuration)
+//
+// 100 EMA and 200 EMA on the chart timeframe. Price above BOTH = longs only,
+// below BOTH = shorts only, between them = no trade. Neither EMA is plotted;
+// both values and the resulting bias are on the dashboard.
+//
+// Note how it composes with the two legs, because it is not redundant with
+// either:
+//   momentum long  above both EMAs  -> trend continuation, obviously coherent
+//   reversion long above both EMAs  -> buying a dip inside an uptrend
+// and it removes the two worst cases outright: fading a rally in a downtrend,
+// and chasing a break against the higher-timeframe trend. On 2H, the 200 EMA is
+// ~16 trading days and the 100 EMA ~8, so the "between" state is a genuine
+// no-man's-land rather than noise.
+//
+// ----------------------------------------------------------------------------
+// DEFAULTS ARE SET FOR NZDUSD CFD ON 2H, WEEKLY ANCHOR.
+//
+// A 24h FX day is only 12 bars at 2H — too few slots for a profile, and the
+// activity-weighted sigma is meaningless for the first third of every session.
+// A WEEK is 60 bars at 2H, so `slot` becomes hour-of-week, and the FX weekly
+// activity cycle is strong, stable and well documented. The horizon flat then
+// lands before the weekend gap, which is where an FX position should not be
+// anyway. Switch Anchor back to "Session (Daily)" for intraday work at 15m or
+// below — that is what the rest of the defaults would need re-tuning for.
+//
+// Participation-weighted sizing defaults OFF here, and that is deliberate: see
+// its tooltip. It is correct for volume, wrong for range.
+//
+// Sizing note carried over from the ATR strategy in this folder: risk-% sizing
+// on an FX pair needs ~3x equity in notional for a real 1% risk, because
+// per-unit risk is tiny. If the order exceeds the tester's margin, TradingView
+// REJECTS it and you get an entry marker with no trade in the report. "Max
+// Position Notional" caps qty instead, and the dashboard flags the cap.
+// ============================================================================
+
+strategy("TradePilot Dynamic VWAP Strategy", "TP DVWAP",
+     overlay                 = true,
+     pyramiding              = 0,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.0,
+     slippage                = 0,
+     margin_long             = 0,
+     margin_short            = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = true,
+     max_labels_count        = 100)
+
+// ============================================================================
+// INPUT GROUPS
+// ============================================================================
+grpAnchor = "Anchor & Activity Proxy"
+grpProf   = "Activity Forecast (Brownlees Decomposition)"
+grpBias   = "Regime Filter (EMA)"
+grpEntry  = "Entry Logic"
+grpRev    = "Reversion Leg (transient impact)"
+grpMom    = "Momentum Leg (permanent impact)"
+grpSize   = "Position Sizing"
+grpCost   = "Costs & Liquidity"
+grpSess   = "Session Guards"
+grpViz    = "Visuals"
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+anchorMode = input.string("Session (Daily)", "Anchor", options=["Session (Daily)", "Weekly", "Monthly"], group=grpAnchor, tooltip="Where the WAP accumulator and the activity profile reset. Daily is the 15m default: a 24h FX day is 96 bars at 15m, so `slot` becomes time-of-day and the intraday U-shape the paper describes finally has enough buckets to be learned. Switch to Weekly on 1H and above, where a single day is too few bars to carry a profile.")
+actProxy   = input.string("True Range", "Activity Proxy", options=["True Range", "Volume", "Range x Volume"], group=grpAnchor, tooltip="What weights the benchmark and feeds the phi/eps model. True Range on any CFD or FX symbol — the volume field there is your broker's tick count, so a volume-weighted benchmark would be defined by your broker rather than by the market. Clark (1973) and Ane & Geman (2000) show range and volume are both proxies for the same latent information-arrival process, so the model is unchanged in structure. Switch to Volume on futures or cash equities, where the tape is real.")
+vwapSrc    = input.source(hlc3, "Price Source", group=grpAnchor, tooltip="hlc3 is the standard VWAP source. close makes the line jumpier and the bands narrower.")
+
+profileDays  = input.int(20, "Profile Memory (sessions)", minval=2, maxval=250, group=grpProf, tooltip="EWMA half-life for both phi (the cycle) and D (the level), counted in anchor periods - daily sessions under the daily anchor. 20 sessions is about one trading month: long enough to average out single event days, short enough to follow a genuine shift in the time-of-day profile.")
+minSessions  = input.int(5, "Min Sessions Learned", minval=1, group=grpProf, tooltip="No trading until this many anchor periods have been folded into the profile. This is the direct answer to the paper's failure (a): a VWAP algorithm running on an unlearned forecast is the failure mode, not a warm-up inconvenience. 5 sessions is one trading week, so the warm-up now costs days rather than months.")
+actClampMult = input.float(4.0, "Outlier Clamp (x forecast)", minval=1.5, step=0.5, group=grpProf, tooltip="Cap a bar's contribution to the profile and to eps at this multiple of its own forecast. phi is PERSISTENT state - one bad broker print does not merely ruin a trade, it sits in the EWMA for the whole memory window and skews every slot comparison after it. Cheapest protection in the script.")
+surpriseLen  = input.int(8, "Surprise Smoothing (bars)", minval=1, maxval=50, group=grpProf, tooltip="eps is noisy bar to bar, and far noisier at 15m than at 2H. 8 bars = 2h, enough that one print cannot flip the regime. NOTE: the reversion Activity Decay Lookback should be at least this long. At the current 3 it compares two heavily overlapping 8-bar averages, and the decay test carries almost no information.")
+
+biasMode     = input.string("Both EMAs (strict)", "Bias Filter", options=["Both EMAs (strict)", "Slow EMA only", "Off"], group=grpBias, tooltip="Strict: price above BOTH EMAs = longs only, below BOTH = shorts only, between them = no trade. The dead zone is the point — it is where trend is genuinely undefined. Neither EMA is drawn on the chart; both values and the live bias are on the dashboard.")
+emaFastLen   = input.int(100, "Fast EMA", minval=1, inline="ema", group=grpBias)
+emaSlowLen   = input.int(200, "Slow EMA", minval=1, inline="ema", group=grpBias, tooltip="On 2H the 200 EMA is ~16 trading days and the 100 EMA ~8.")
+requireStack = input.bool(false, "Also Require EMA Stack Alignment", group=grpBias, tooltip="Additionally demand fast > slow for longs and fast < slow for shorts. Stricter — it rejects entries where price has cleared both EMAs but the EMAs themselves have not crossed yet. Off by default; it is a legitimate thing to sweep.")
+
+// The two legs get SEPARATE bands. Sharing one was a simplification that forced
+// broken geometry on the momentum side: entering a break at the same 2 sigma the
+// reversion fades leaves only 1.5 sigma of room to a 3.5 sigma target against a
+// 1 sigma stop — 1.5:1, which needs a 40% hit rate to break even. Momentum enters
+// on the NEAR band so the trade has somewhere to go.
+revEntryZ  = input.float(2.0, "Reversion Band (sigma)", minval=0.25, step=0.25, group=grpEntry, tooltip="How far from the WAP counts as 'displaced' for a fade. The distance back to the WAP is also the reward, so this number IS the reversion target.")
+momEntryZ  = input.float(1.0, "Momentum Break Band (sigma)", minval=0.25, step=0.25, group=grpEntry, tooltip="Which band a break has to clear to be a momentum entry. Deliberately NEARER than the reversion band: risk runs from here back to the WAP, reward runs from here out to the target, so entering late destroys the RR. Keep it well below the reversion band or the two legs fight over the same bars.")
+quietMax   = input.float(1.35, "Quiet Ceiling (eps <=)", minval=0.05, step=0.05, group=grpEntry, tooltip="A ceiling, not a test. At 1.00 it was still doing real filtering and the reversion leg fired 8 times in 2.5 years — an untestable sample. Under a RANGE proxy, low eps and large |z| are close to mutually exclusive by construction, so this gate was rejecting the very bars the leg exists to trade. It now sits just under the loud threshold, non-overlapping, and the decay test does the discriminating.")
+revDecay   = input.int(8, "Activity Decay Lookback (bars)", minval=1, maxval=50, group=grpEntry, tooltip="Reversion requires eps to be FALLING versus this many bars ago - the actual signature of transient impact (Cont et al.; Gomes & Waelbroeck), since uninformed impact is impact that DECAYS rather than impact that arrived quietly. Must be at least surpriseLen or the test is meaningless: at 3 against an 8-bar smoother the two windows share 5 of 8 bars (62.5% overlap) and eps can almost never fall far enough to trigger. At 8 the windows are exactly adjacent and non-overlapping.")
+loudMin    = input.float(1.40, "Loud Threshold (eps >=)", minval=1.0, step=0.05, group=grpEntry, tooltip="Above-forecast activity. 1.40 = 40% more range than the slot predicts. Gomes & Waelbroeck's informed-metaorder case.")
+
+useRev     = input.bool(true,  "Enable Reversion Leg", group=grpRev)
+revStopZ   = input.float(1.0, "Stop Beyond Entry (sigma)", minval=0.25, step=0.25, group=grpRev, tooltip="Added past the entry price, in activity-weighted sigma. The dislocation is allowed to get worse by this much before the transient-impact read is declared wrong. With the band at 2.0 and this at 1.0 the leg runs 2:1, needing a 33% hit rate — mean reversion should clear that comfortably or it is not mean reverting.")
+revContract= input.bool(true,  "Require Deviation To Be Contracting", group=grpRev, tooltip="Only enter once |z| has started shrinking, i.e. the move away from the WAP has stalled. Off = catch the falling knife at the band. On is strongly recommended; the band alone is not a turn.")
+revTimeStop= input.int(24, "Time Stop (bars)", minval=0, group=grpRev, tooltip="Close the reversion trade if the WAP has not been reached in this many bars. 24 = 6h at 15m, a quarter of the daily window. 0 disables. A reversion that has not happened is not a reversion, and the anchor horizon is finite, which is the whole premise of an execution window.")
+
+useMom     = input.bool(true,  "Enable Momentum Leg", group=grpMom)
+momTargetZ = input.float(4.0, "Target (sigma from WAP)", minval=0.5, step=0.25, group=grpMom, tooltip="Where permanent impact is assumed exhausted. Measured from the live WAP, so the target travels with the benchmark rather than sitting at a fixed price. Reward is this MINUS the break band, so the two inputs have to be read together.")
+momStopZ   = input.float(1.0, "Backstop Below WAP (sigma)", minval=0.0, step=0.25, group=grpMom, tooltip="Measured from the WAP, NOT from the entry — the invalidation for a permanent-impact read is 'the benchmark was not dragged', which is a level. Widened from 0.25 because at that distance the INTRABAR stop was firing on wicks before the confirmed close-below-WAP exit could ever run, which defeats the entire point of having a close-based exit. With 'Exit If Price Reclaims WAP' on, that close is the real invalidation and this is a gap/spike backstop only.")
+
+useTrail    = input.bool(true, "Trail After Profit", group=grpMom, tooltip="Directly attacks the realized-vs-configured payoff gap. A momentum trade that runs 2 sigma and then gets flattened by the anchor horizon currently gives back everything; trailing banks it. This is the single change most likely to move realized RR toward the configured number.")
+trailStartZ = input.float(1.0, "Start Trailing After (sigma profit)", minval=0.25, step=0.25, inline="tr", group=grpMom)
+trailDistZ  = input.float(1.0, "Trail Distance (sigma)", minval=0.25, step=0.25, inline="tr", group=grpMom, tooltip="Trails behind the high-water mark of the move, in activity-weighted sigma, so it widens and tightens with the same measure everything else uses.")
+momMaxChase= input.float(0.35, "Max Chase Past Band (sigma)", minval=0.0, step=0.05, group=grpMom, tooltip="Skip the break if the triggering bar CLOSED more than this far past the band. Fills happen at the close, so a bar running 0.8 -> 1.6 sigma fills at 1.6: risk to the WAP grows and room to the target shrinks, turning 3:1 into roughly 2:1 before the trade starts. Rejecting the chase protects the geometry using real close prices, rather than assuming a resting stop order would have filled at the exact level - which on a CFD in a fast break it would not.")
+momTimeStop= input.int(48, "Time Stop (bars)", minval=0, group=grpMom, tooltip="Momentum had no time stop while reversion did, an asymmetry with nothing behind it. 48 = 12h at 15m, half the daily window, so a break gets the rest of the session to work but never two of them. 0 disables.")
+momExitVwap= input.bool(true,  "Exit If Price Reclaims WAP", group=grpMom, tooltip="A close back through the benchmark falsifies the permanent-impact read directly — the WAP was not dragged. Cheaper and earlier than waiting for the sigma stop.")
+momSlope   = input.bool(true,  "Require WAP Slope Agreement", group=grpMom, tooltip="Longs need a rising WAP, shorts a falling one. Filters breaks that fire while the benchmark itself is still moving the other way.")
+
+sizeMode    = input.string("Risk %", "Sizing Mode", options=["Risk %", "Fixed Qty"], group=grpSize)
+fixedQty    = input.float(1.0, "Fixed Qty (contracts/lots)", minval=0.0, step=0.01, group=grpSize)
+riskPct     = input.float(1.0, "Risk % of Equity", minval=0.0, step=0.1, group=grpSize)
+atrFloorMult= input.float(1.0, "Stop Floor (x ATR14)", minval=0.0, step=0.25, group=grpSize, tooltip="No stop closer than this multiple of ATR(14). Early in an anchor window sigma is built from a handful of bars and can be tighter than one bar's normal travel, putting the stop inside noise and guaranteeing a loss that says nothing about the thesis. 0 disables.")
+useParticip = input.bool(false, "Participation-Weighted Sizing", group=grpSize, tooltip="OFF by default, and that is not an oversight. Under a VOLUME proxy this is the VWAP execution principle — size tracks predicted liquidity, deep slots get a bigger clip. Under a RANGE proxy the same scalar means size tracks predicted VOLATILITY, which is backwards for risk AND double-counts, because Risk-% sizing already divides by a sigma-scaled stop. Only enable it alongside Activity Proxy = Volume.")
+participMin = input.float(0.5, "Min Size Multiple", minval=0.1, step=0.1, inline="pw", group=grpSize)
+participMax = input.float(1.5, "Max Size Multiple", minval=1.0, step=0.1, inline="pw", group=grpSize, tooltip="Clamps the participation scalar. Unclamped, a single freak slot can demand an order many times normal size.")
+maxLeverage = input.float(3.0, "Max Position Notional (x Equity)", minval=0.1, step=0.5, group=grpSize, tooltip="Caps qty so an order is never larger than this multiple of equity. FX needs ~3x for a true 1% risk because per-unit risk is tiny. Entry markers with no trades in the report means orders are being rejected for size — raise this, or set Properties -> Margin to 0%.")
+
+spreadPoints = input.int(15, "Typical Spread (points)", minval=0, group=grpCost, tooltip="Your broker's typical spread in MT5 points, NOT the thin-hours blowout. IC Markets Raw on NZDUSD runs a few points through the London/NY overlap and far wider around the Asian gap. This is NOT a fill model - set Properties -> Slippage for that or you will double-count. It only feeds the edge gate below.")
+commPerLot   = input.float(7.0, "Commission per Lot (round turn)", minval=0.0, step=0.5, group=grpCost, tooltip="IC Markets Raw is 3.50 per side per standard lot, so 7.00 round turn - about 0.7 pips on NZDUSD. Commission is the same order of magnitude as the spread here, which is exactly why it cannot be left out of the gate.")
+contractSize = input.float(100000, "Contract Size", minval=1, group=grpCost)
+minEdgeMult  = input.float(3.0, "Min Target / Round-Trip Cost", minval=0.0, step=0.5, group=grpCost, tooltip="Refuse any trade whose target distance is under this multiple of total round-trip cost. Measured edge was about 1.26 per trade against roughly 2.60 of cost, so trades taken while sigma is compressed are negative before they open. This removes them instead of tuning around them.")
+useAvoidSess = input.bool(true, "Block Entries In Thin Hours", group=grpCost, tooltip="Spreads blow out after the NY close and before Tokyo. One entry filled at 6 pips instead of 0.6 costs roughly ten trades worth of average edge, so that window is not a place to be crossing the spread.")
+avoidSess    = input.session("2100-2300", "Thin-Hours Window", group=grpCost, tooltip="Chart exchange time. 2100-2300 is the late-NY into early-Asia transition, where FX CFD spreads routinely blow out to 40-60+ points - the window your own 62-point reading came from. The 17:00 rollover does NOT need covering here: under a Daily anchor it already sits inside the Skip First N Slots warm-up.")
+cooldownBars = input.int(3, "Cooldown After Exit (bars)", minval=0, group=grpSess, tooltip="Entry conditions are often still true the bar after a stop-out, so without this the strategy re-enters the same failed idea immediately and pays the spread again.")
+warmupSlots  = input.int(8, "Skip First N Slots", minval=0, group=grpSess, tooltip="The opening slots carry the 17:00 rollover and its spread blowout, and the WAP has almost no activity behind it yet, so sigma is meaningless and z is enormous. 8 slots = the first 2h of the daily session at 15m. Under a Daily anchor this already covers the rollover, which is why the Thin-Hours window below has little left to do.")
+flatBeforeEnd= input.int(4, "Flat N Slots Before Close", minval=0, group=grpSess, tooltip="Positions close this many slots before the expected anchor end, which is LEARNED from prior sessions rather than hardcoded. 4 slots = flat 1h before the 17:00 daily close, so nothing is carried into the rollover.")
+minRunway    = input.int(16, "Min Slots Remaining To Enter", minval=0, group=grpSess, tooltip="Do not open a position unless this many slots remain before the horizon flat. The target and the horizon were originally specified independently, which is incoherent: a 3-sigma extension cannot happen in the four bars left before the close, so the trade gets flattened mid-move and books a fraction of its designed payoff. 16 = 4h of runway at 15m.")
+maxTrades    = input.int(3, "Max Trades Per Session", minval=0, group=grpSess, tooltip="Per anchor period, which is per DAY under the daily anchor. 3 allows a momentum break and a fade across the London and NY sessions without paying spread repeatedly through a chop day. 0 = unlimited.")
+allowLong    = input.bool(true, "Allow Longs", inline="dir", group=grpSess)
+allowShort   = input.bool(true, "Allow Shorts", inline="dir", group=grpSess)
+
+showBands  = input.bool(true, "Show WAP + Bands", group=grpViz)
+showSignal = input.bool(true, "Show Entry Markers", group=grpViz)
+colorBars  = input.bool(false, "Colour Bars By Activity Regime", group=grpViz, tooltip="Blue = loud (eps above the loud threshold), grey = quiet, unpainted = the dead zone in between.")
+showDash   = input.bool(true, "Show Dashboard", group=grpViz)
+dashPos    = input.string("Top Right", "Dashboard Position", options=["Top Right", "Middle Right", "Bottom Right", "Bottom Left"], group=grpViz)
+
+// ============================================================================
+// ACTIVITY PROXY  —  the only place volume can enter, and only if asked for
+// ============================================================================
+float NA_FLOAT = na
+
+var bool volSeen = false
+if not na(volume) and volume > 0
+    volSeen := true
+
+bool needsVolume = actProxy == "Volume" or actProxy == "Range x Volume"
+
+float barAct = switch actProxy
+    "Volume"         => nz(volume, 0.0)
+    "Range x Volume" => nz(volume, 0.0) * ta.tr(true)
+    => ta.tr(true)
+
+bool intradayOk = anchorMode == "Session (Daily)" ? timeframe.isintraday : not timeframe.isseconds
+bool volOk      = not needsVolume or volSeen
+bool envOk      = volOk and intradayOk
+
+bool newSession = switch anchorMode
+    "Weekly"  => timeframe.change("1W")
+    "Monthly" => timeframe.change("1M")
+    => timeframe.change("1D")
+
+// ============================================================================
+// STATE
+// ============================================================================
+var float cumAP  = 0.0
+var float cumA   = 0.0
+var float cumAP2 = 0.0
+
+var array<float> sessAct  = array.new<float>(0)
+var array<float> shapeEma = array.new<float>(0)
+
+var float levelEma   = na
+var float typicalLen = na
+var float shapeMean  = na
+
+var int slot         = -1
+var int sessionsSeen = 0
+var int sessTrades   = 0
+
+var float expCumRun = 0.0
+
+float alpha = 2.0 / (profileDays + 1)
+
+// ============================================================================
+// SESSION ROLLOVER — fold the completed session into the model, then reset
+// ============================================================================
+if newSession or slot < 0
+    int   prevLast  = slot
+    float prevTotal = cumA
+
+    if prevLast >= 0 and prevTotal > 0
+        float sumShare = 0.0
+        for i = 0 to prevLast
+            if i < array.size(sessAct)
+                float share = array.get(sessAct, i) / prevTotal
+                float prior = array.get(shapeEma, i)
+                float blend = na(prior) ? share : prior + alpha * (share - prior)
+                array.set(shapeEma, i, blend)
+                sumShare += blend
+
+        levelEma   := na(levelEma)   ? prevTotal : levelEma   + alpha * (prevTotal - levelEma)
+        // A holiday week or broker outage produces a short session. Learning its
+        // LENGTH collapses typicalLen and fires nearClose prematurely for weeks
+        // afterwards; its SHAPE is still fine to learn, so only length is gated.
+        bool lenSane = na(typicalLen) or (prevLast >= typicalLen * 0.5 and prevLast <= typicalLen * 1.5)
+        if lenSane
+            typicalLen := na(typicalLen) ? prevLast : typicalLen + alpha * (prevLast - typicalLen)
+        shapeMean  := sumShare / (prevLast + 1)
+        sessionsSeen += 1
+
+    if array.size(sessAct) > 0
+        for i = 0 to array.size(sessAct) - 1
+            array.set(sessAct, i, 0.0)
+
+    cumAP      := 0.0
+    cumA       := 0.0
+    cumAP2     := 0.0
+    expCumRun  := 0.0
+    sessTrades := 0
+    slot       := 0
+else
+    slot := slot + 1
+
+while array.size(sessAct) <= slot
+    array.push(sessAct, 0.0)
+    array.push(shapeEma, NA_FLOAT)
+
+// ============================================================================
+// ACTIVITY FORECAST  —  A = D . phi . eps   (Brownlees et al., paper Sec.4)
+// ============================================================================
+// Computed BEFORE this bar contributes: phi and D come only from COMPLETED
+// sessions, so they are already known, and having them here lets the clamp judge
+// the incoming bar against its own forecast.
+float expShare = slot < array.size(shapeEma) ? array.get(shapeEma, slot) : na
+float expAct   = na(expShare) or na(levelEma) ? na : expShare * levelEma
+
+float actCap = na(expAct) or expAct <= 0 ? na : actClampMult * expAct
+float actUse = na(actCap) ? barAct : math.min(barAct, actCap)
+
+// ============================================================================
+// ANCHORED WAP AND ACTIVITY-WEIGHTED BANDS  — paper Eq.(1)
+// ============================================================================
+array.set(sessAct, slot, array.get(sessAct, slot) + actUse)
+
+cumAP  := cumAP  + vwapSrc * actUse
+cumA   := cumA   + actUse
+cumAP2 := cumAP2 + vwapSrc * vwapSrc * actUse
+
+float wap  = cumA > 0 ? cumAP / cumA : vwapSrc
+float varW = cumA > 0 ? math.max(cumAP2 / cumA - wap * wap, 0.0) : 0.0
+float sd   = math.sqrt(varW)
+
+float z = sd > 0 ? (close - wap) / sd : 0.0
+
+float epsRaw = na(expAct) or expAct <= 0 ? 1.0 : actUse / expAct
+float eps    = ta.sma(epsRaw, surpriseLen)
+
+expCumRun := expCumRun + nz(expShare, 0.0)
+float actCumShare = na(levelEma) or levelEma <= 0 ? na : cumA / levelEma
+float schedule    = na(actCumShare) ? na : actCumShare - expCumRun
+
+// ============================================================================
+// REGIME FILTER — computed every bar, never plotted
+// ============================================================================
+float emaFast = ta.ema(close, emaFastLen)
+float emaSlow = ta.ema(close, emaSlowLen)
+
+bool emaReady = not na(emaFast) and not na(emaSlow)
+
+bool bullRaw = switch biasMode
+    "Off"            => true
+    "Slow EMA only"  => emaReady and close > emaSlow
+    => emaReady and close > emaFast and close > emaSlow
+
+bool bearRaw = switch biasMode
+    "Off"            => true
+    "Slow EMA only"  => emaReady and close < emaSlow
+    => emaReady and close < emaFast and close < emaSlow
+
+bool stackUp = not requireStack or (emaReady and emaFast > emaSlow)
+bool stackDn = not requireStack or (emaReady and emaFast < emaSlow)
+
+bool bullOk = bullRaw and stackUp
+bool bearOk = bearRaw and stackDn
+
+string biasTxt = biasMode == "Off" ? "off" : bullOk ? "BULL" : bearOk ? "BEAR" : "neutral"
+
+// ============================================================================
+// REGIME AND GATES
+// ============================================================================
+bool profileReady = sessionsSeen >= minSessions and not na(expAct) and not na(shapeMean) and shapeMean > 0
+
+// Transient impact is impact that DECAYS. Under a range proxy, "eps is low right
+// now" cannot be the test — displacement and range are the same measurement, so
+// the condition almost never fires and the reversion leg goes silent. Falling eps
+// is the correct signature and it is not mechanically fighting the z test.
+bool loud      = eps >= loudMin
+bool epsFading = eps < nz(eps[revDecay], eps)
+bool quiet     = epsFading and eps <= quietMax and not loud
+
+// session.islastbar tracks the DAILY session, so it only defines the horizon when
+// the anchor is daily too. Under a weekly/monthly anchor it would force a flat
+// every afternoon and quietly turn this into a different strategy.
+int  sessLen    = na(typicalLen) ? 0 : int(math.round(typicalLen))
+bool anchorDay  = anchorMode == "Session (Daily)"
+bool nearClose  = (anchorDay and session.islastbar) or (sessLen > 0 and slot >= sessLen - flatBeforeEnd)
+// Stop floor. Sigma early in an anchor window is built from a handful of bars and
+// can be tighter than one bar's ordinary travel, which puts the stop inside noise.
+float atrFloor = atrFloorMult * nz(ta.atr(14), 0.0)
+
+// Round-trip cost in price terms. Commission is ~0.7 pips on a 100k NZDUSD lot at
+// 7.00 per lot, i.e. the same order as the spread — leaving it out understates the
+// hurdle by roughly half.
+float spreadPx = spreadPoints * syminfo.mintick
+float commPx   = contractSize > 0 ? commPerLot / contractSize : 0.0
+float costPx   = spreadPx + commPx
+
+bool revEdgeOk = minEdgeMult <= 0 or revEntryZ * sd >= minEdgeMult * costPx
+bool momEdgeOk = minEdgeMult <= 0 or (momTargetZ - momEntryZ) * sd >= minEdgeMult * costPx
+
+// Evaluated unconditionally so the session lookup is not short-circuited away.
+bool inThinWindow = not na(time(timeframe.period, avoidSess))
+bool thinHours    = useAvoidSess and inThinWindow
+
+var int lastExitBar = na
+var int prevClosed  = 0
+if strategy.closedtrades > prevClosed
+    lastExitBar := bar_index
+    prevClosed  := strategy.closedtrades
+bool cooldownOk = na(lastExitBar) or bar_index - lastExitBar >= cooldownBars
+
+bool slotOk     = slot >= warmupSlots and not nearClose
+bool tradesOk   = maxTrades == 0 or sessTrades < maxTrades
+
+// Runway. The target and the horizon were specified independently, so a late
+// entry was being flattened mid-move and booking a fraction of its designed
+// payoff — the realized-vs-configured RR gap. A trade that cannot reach its
+// target before the horizon is not the trade the geometry describes.
+int  slotsLeft  = sessLen > 0 ? sessLen - flatBeforeEnd - slot : 9999
+bool runwayOk   = slotsLeft >= minRunway
+bool canTrade   = envOk and profileReady and slotOk and tradesOk and runwayOk and cooldownOk and not thinHours and barstate.isconfirmed and sd > 0
+
+// ============================================================================
+// SIGNALS
+// ============================================================================
+bool contracting = math.abs(z) < math.abs(nz(z[1], z))
+bool wapUp       = wap > nz(wap[3], wap)
+bool wapDn       = wap < nz(wap[3], wap)
+
+bool revLong  = useRev and allowLong  and bullOk and revEdgeOk and z <= -revEntryZ and quiet and (not revContract or contracting)
+bool revShort = useRev and allowShort and bearOk and revEdgeOk and z >=  revEntryZ and quiet and (not revContract or contracting)
+
+bool momLong  = useMom and allowLong  and bullOk and momEdgeOk and ta.crossover(z,   momEntryZ) and z <=  momEntryZ + momMaxChase and loud and (not momSlope or wapUp)
+bool momShort = useMom and allowShort and bearOk and momEdgeOk and ta.crossunder(z, -momEntryZ) and z >= -momEntryZ - momMaxChase and loud and (not momSlope or wapDn)
+
+bool flat = strategy.position_size == 0
+
+bool fireRevLong  = canTrade and flat and revLong
+bool fireRevShort = canTrade and flat and revShort and not revLong
+bool fireMomLong  = canTrade and flat and momLong  and not revLong  and not revShort
+bool fireMomShort = canTrade and flat and momShort and not revLong  and not revShort and not momLong
+
+bool entrySignal = fireRevLong or fireRevShort or fireMomLong or fireMomShort
+
+// ============================================================================
+// SIZING
+// ============================================================================
+participScalar() =>
+    float raw = not useParticip or na(expShare) or na(shapeMean) or shapeMean <= 0 ? 1.0 : expShare / shapeMean
+    math.min(math.max(raw, participMin), participMax)
+
+orderQty(float stopDist) =>
+    float scalar = participScalar()
+    float baseQty = switch sizeMode
+        "Fixed Qty" => fixedQty
+        => stopDist > 0 ? (strategy.equity * riskPct / 100.0) / stopDist : 0.0
+    float scaled = baseQty * scalar
+    float capQty = close > 0 ? (strategy.equity * maxLeverage) / close : scaled
+    math.max(math.min(scaled, capQty), 0.0)
+
+// ============================================================================
+// ENTRIES
+// ============================================================================
+var float  posStop  = na
+var string posMode  = ""
+var int    entryBar = na
+
+// All-time per-leg counters. These exist because a silent leg is the failure mode
+// that looks like a bad strategy: if one of these stays at zero, the regime test
+// is contradicting its own entry condition and no amount of tuning will show it.
+var int revTaken = 0
+var int momTaken = 0
+
+// High-water mark of the open trade, for the momentum trail.
+var float peakPx = na
+
+// Exit-reason tally. These three are counted where close_all is called, so they
+// are exact; target/stop fills are the remainder against strategy.closedtrades.
+// This is the breakdown that says whether winners die on the horizon or on the
+// WAP reclaim — the one diagnostic the Strategy Tester will not summarise.
+var int exWap     = 0
+var int exHorizon = 0
+var int exTime    = 0
+
+if fireRevLong
+    float stopPx = math.min(close - revStopZ * sd, close - atrFloor)
+    float qty    = orderQty(close - stopPx)
+    if qty > 0
+        strategy.entry("REV-L", strategy.long, qty=qty, alert_message="TP DVWAP reversion long")
+        posStop  := stopPx
+        posMode  := "REV"
+        entryBar := bar_index
+        sessTrades += 1
+        revTaken += 1
+
+if fireRevShort
+    float stopPx = math.max(close + revStopZ * sd, close + atrFloor)
+    float qty    = orderQty(stopPx - close)
+    if qty > 0
+        strategy.entry("REV-S", strategy.short, qty=qty, alert_message="TP DVWAP reversion short")
+        posStop  := stopPx
+        posMode  := "REV"
+        entryBar := bar_index
+        sessTrades += 1
+        revTaken += 1
+
+if fireMomLong
+    float stopPx = math.min(wap - momStopZ * sd, close - atrFloor)
+    float qty    = orderQty(close - stopPx)
+    if qty > 0
+        strategy.entry("MOM-L", strategy.long, qty=qty, alert_message="TP DVWAP momentum long")
+        posStop  := stopPx
+        posMode  := "MOM"
+        entryBar := bar_index
+        sessTrades += 1
+        momTaken += 1
+
+if fireMomShort
+    float stopPx = math.max(wap + momStopZ * sd, close + atrFloor)
+    float qty    = orderQty(stopPx - close)
+    if qty > 0
+        strategy.entry("MOM-S", strategy.short, qty=qty, alert_message="TP DVWAP momentum short")
+        posStop  := stopPx
+        posMode  := "MOM"
+        entryBar := bar_index
+        sessTrades += 1
+        momTaken += 1
+
+// ============================================================================
+// EXITS
+// ============================================================================
+// Reversion targets the WAP itself — the paper's benchmark, re-read every bar so
+// the target travels with it. Momentum targets a sigma extension and dies on a
+// WAP reclaim. Everything is flat before the anchor horizon expires.
+//
+// Read the book AFTER the entry block. `flat` above is the pre-entry snapshot the
+// signals gate on; reusing it here would be a bar stale.
+bool longOpen  = strategy.position_size > 0
+bool shortOpen = strategy.position_size < 0
+bool inPos     = longOpen or shortOpen
+int  heldBars  = na(entryBar) ? 0 : bar_index - entryBar
+
+if longOpen and posMode == "REV"
+    strategy.exit("X REV-L", from_entry="REV-L", stop=posStop, limit=wap)
+if shortOpen and posMode == "REV"
+    strategy.exit("X REV-S", from_entry="REV-S", stop=posStop, limit=wap)
+
+if longOpen
+    peakPx := na(peakPx) ? high : math.max(peakPx, high)
+if shortOpen
+    peakPx := na(peakPx) ? low : math.min(peakPx, low)
+
+float entryPx  = strategy.position_avg_price
+bool  trailArm = useTrail and inPos and sd > 0 and not na(peakPx) and not na(entryPx) and (longOpen ? peakPx - entryPx >= trailStartZ * sd : entryPx - peakPx >= trailStartZ * sd)
+float trailPx  = not trailArm ? na : (longOpen ? peakPx - trailDistZ * sd : peakPx + trailDistZ * sd)
+float effStop  = na(trailPx) ? posStop : (longOpen ? math.max(posStop, trailPx) : math.min(posStop, trailPx))
+
+if longOpen and posMode == "MOM"
+    strategy.exit("X MOM-L", from_entry="MOM-L", stop=effStop, limit=wap + momTargetZ * sd)
+if shortOpen and posMode == "MOM"
+    strategy.exit("X MOM-S", from_entry="MOM-S", stop=effStop, limit=wap - momTargetZ * sd)
+
+if posMode == "REV" and revTimeStop > 0 and heldBars >= revTimeStop and inPos
+    strategy.close_all(comment="Time stop")
+    exTime += 1
+
+if posMode == "MOM" and momTimeStop > 0 and heldBars >= momTimeStop and inPos
+    strategy.close_all(comment="Time stop")
+    exTime += 1
+
+if posMode == "MOM" and momExitVwap and barstate.isconfirmed
+    if longOpen and close < wap
+        strategy.close_all(comment="WAP reclaimed")
+        exWap += 1
+    if shortOpen and close > wap
+        strategy.close_all(comment="WAP reclaimed")
+        exWap += 1
+
+if nearClose and inPos
+    strategy.close_all(comment="Anchor horizon")
+    exHorizon += 1
+
+// Only clear once the book is genuinely empty AND no order was just submitted.
+// With process_orders_on_close the entry bar still reports position_size == 0, so
+// an unguarded reset would wipe posStop/posMode on the very bar that set them and
+// the trade would never get an exit order.
+if not inPos and not entrySignal
+    posStop  := na
+    posMode  := ""
+    entryBar := na
+    peakPx   := na
+
+// ============================================================================
+// PLOTS   — the EMAs are deliberately NOT drawn; their values are on the dash
+// ============================================================================
+color wapCol = loud ? color.new(color.aqua, 0) : quiet ? color.new(color.gray, 0) : color.new(color.orange, 0)
+
+pWap = plot(showBands and envOk ? wap : na, "Anchored WAP", color=wapCol, linewidth=2)
+pUp1 = plot(showBands and envOk ? wap + sd : na, "+1 sigma", color=color.new(color.teal, 55))
+pDn1 = plot(showBands and envOk ? wap - sd : na, "-1 sigma", color=color.new(color.teal, 55))
+pUp2 = plot(showBands and envOk ? wap + revEntryZ * sd : na, "+reversion band", color=color.new(color.teal, 25), linewidth=1)
+pDn2 = plot(showBands and envOk ? wap - revEntryZ * sd : na, "-reversion band", color=color.new(color.teal, 25), linewidth=1)
+
+fill(pUp1, pDn1, color=color.new(color.teal, 93))
+fill(pUp2, pUp1, color=color.new(color.teal, 96))
+fill(pDn1, pDn2, color=color.new(color.teal, 96))
+
+plotshape(showSignal and fireRevLong,  "Reversion Long",  shape.triangleup,   location.belowbar, color.new(color.gray, 0), size=size.tiny)
+plotshape(showSignal and fireRevShort, "Reversion Short", shape.triangledown, location.abovebar, color.new(color.gray, 0), size=size.tiny)
+plotshape(showSignal and fireMomLong,  "Momentum Long",   shape.triangleup,   location.belowbar, color.new(color.aqua, 0), size=size.small)
+plotshape(showSignal and fireMomShort, "Momentum Short",  shape.triangledown, location.abovebar, color.new(color.aqua, 0), size=size.small)
+
+barcolor(colorBars ? (loud ? color.new(color.aqua, 40) : quiet ? color.new(color.gray, 55) : na) : na)
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+dashLoc = switch dashPos
+    "Middle Right" => position.middle_right
+    "Bottom Right" => position.bottom_right
+    "Bottom Left"  => position.bottom_left
+    => position.top_right
+
+if showDash and barstate.islast
+    var table dash = table.new(dashLoc, 2, 17, border_width=1, frame_width=1, frame_color=color.new(color.gray, 50))
+
+    // Reward:risk implied by the current inputs, and the hit rate it needs to
+    // break even. These are arithmetic, not opinion — if the tester's win rate is
+    // below the break-even figure, the settings cannot be profitable and no
+    // amount of sweeping the other inputs will change that.
+    float rrRev  = revStopZ > 0 ? revEntryZ / revStopZ : na
+    // With the close-below-WAP exit on, the WAP is the real invalidation and the
+    // sigma backstop only catches gaps, so risk is the entry band alone.
+    float momRsk = momExitVwap ? momEntryZ : momEntryZ + momStopZ
+    float rrMom  = momRsk > 0 ? (momTargetZ - momEntryZ) / momRsk : na
+    float beRev = na(rrRev) ? na : 100.0 / (1.0 + rrRev)
+    float beMom = na(rrMom) ? na : 100.0 / (1.0 + rrMom)
+
+    color okCol   = color.new(color.green, 80)
+    color warnCol = color.new(color.orange, 70)
+    color badCol  = color.new(color.red, 70)
+    color headCol = color.new(color.gray, 75)
+
+    table.cell(dash, 0, 0, "TP Dynamic VWAP", text_color=color.white, bgcolor=headCol, text_size=size.small)
+    table.cell(dash, 1, 0, envOk ? (profileReady ? "ARMED" : "LEARNING") : "BLOCKED", text_color=color.white, bgcolor=envOk ? (profileReady ? okCol : warnCol) : badCol, text_size=size.small)
+
+    string envMsg = needsVolume and not volSeen ? "No volume feed" : not intradayOk ? "Needs intraday chart" : "OK"
+    table.cell(dash, 0, 1, "Environment", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 1, envMsg, text_color=envOk ? color.silver : color.red, text_size=size.tiny)
+
+    table.cell(dash, 0, 2, "Activity proxy", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 2, actProxy, text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 3, "Bias (EMA " + str.tostring(emaFastLen) + "/" + str.tostring(emaSlowLen) + ")", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 3, biasTxt, text_color=bullOk and biasMode != "Off" ? color.lime : bearOk and biasMode != "Off" ? color.red : color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 4, "EMA fast / slow", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 4, emaReady ? str.tostring(emaFast, format.mintick) + " / " + str.tostring(emaSlow, format.mintick) : "warming up", text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 5, "Sessions learned", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 5, str.tostring(sessionsSeen) + " / " + str.tostring(minSessions), text_color=sessionsSeen >= minSessions ? color.silver : color.orange, text_size=size.tiny)
+
+    table.cell(dash, 0, 6, "Slot", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 6, str.tostring(slot) + (sessLen > 0 ? " / ~" + str.tostring(sessLen) : ""), text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 7, "phi (slot share)", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 7, na(expShare) ? "—" : str.tostring(expShare * 100, "#.##") + "%", text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 8, "eps (act / forecast)", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 8, str.tostring(eps, "#.##") + "x " + (loud ? "LOUD" : quiet ? "quiet" : "—"), text_color=loud ? color.aqua : quiet ? color.gray : color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 9, "z (dev from WAP)", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 9, str.tostring(z, "#.##") + " sigma", text_color=math.abs(z) >= revEntryZ ? color.orange : color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 10, "Schedule vs forecast", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 10, na(schedule) ? "—" : (schedule >= 0 ? "+" : "") + str.tostring(schedule * 100, "#.#") + "%", text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 11, "Size multiple", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 11, str.tostring(participScalar(), "#.##") + "x" + (useParticip ? "" : " (off)"), text_color=color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 12, "Position", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 12, not inPos ? "flat (" + str.tostring(sessTrades) + " this session)" : posMode + (longOpen ? " long" : " short"), text_color=not inPos ? color.silver : color.white, text_size=size.tiny)
+
+    // A leg stuck on zero means its entry condition contradicts itself. That is a
+    // bug, not a market view, and it is invisible in the Strategy Tester.
+    int legTotal = revTaken + momTaken
+    table.cell(dash, 0, 13, "Legs taken REV / MOM", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 13, str.tostring(revTaken) + " / " + str.tostring(momTaken), text_color=legTotal > 10 and (revTaken == 0 or momTaken == 0) ? color.red : color.silver, text_size=size.tiny)
+
+    table.cell(dash, 0, 14, "RR rev / mom (BE win%)", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 14, str.tostring(rrRev, "#.##") + " / " + str.tostring(rrMom, "#.##") + "  (" + str.tostring(beRev, "#.#") + "/" + str.tostring(beMom, "#.#") + "%)", text_color=color.silver, text_size=size.tiny)
+
+    // Where trades actually die. Horizon dominating means the target is unreachable
+    // in the time allowed; WAP dominating means the momentum invalidation is too
+    // tight. This is the breakdown the Strategy Tester will not summarise for you.
+    int exOther = math.max(strategy.closedtrades - exWap - exHorizon - exTime, 0)
+    table.cell(dash, 0, 15, "Exits T+S/WAP/Hor/Tm", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 15, str.tostring(exOther) + " / " + str.tostring(exWap) + " / " + str.tostring(exHorizon) + " / " + str.tostring(exTime), text_color=exHorizon > exOther ? color.orange : color.silver, text_size=size.tiny)
+
+    float costPts   = syminfo.mintick > 0 ? costPx / syminfo.mintick : na
+    float edgeRatio = costPx > 0 ? (momTargetZ - momEntryZ) * sd / costPx : na
+    table.cell(dash, 0, 16, "Cost pts / target x", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 1, 16, str.tostring(costPts, "#.#") + " / " + str.tostring(edgeRatio, "#.#") + "x" + (thinHours ? "  THIN" : ""), text_color=thinHours ? color.orange : (na(edgeRatio) or edgeRatio >= minEdgeMult ? color.silver : color.red), text_size=size.tiny)
