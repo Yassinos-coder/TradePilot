@@ -20,6 +20,7 @@ import { RefundPage } from './pages/RefundPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TermsPage } from './pages/TermsPage';
 import { CopierPage } from './pages/CopierPage';
+import { CalculatorsPage } from './pages/CalculatorsPage';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -102,6 +103,7 @@ export default function App() {
           <Route path="/app" element={<DashboardPage />} />
           <Route path="/app/analytics" element={<AnalyticsPage />} />
           <Route path="/app/copier" element={<CopierPage />} />
+          <Route path="/app/calculators" element={<CalculatorsPage />} />
           <Route path="/app/open-trades" element={<OpenTradesPage />} />
           <Route path="/app/news" element={<NewsCalendarPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />

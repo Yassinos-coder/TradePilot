@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
+  Calculator,
   CalendarDays,
   CandlestickChart,
   Copy,
@@ -10,6 +11,8 @@ import {
   LogOut,
   Menu,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings2,
   Sun,
   Wallet,
@@ -26,6 +29,7 @@ const NAV = [
   { to: '/app', label: 'Overview', icon: LayoutDashboard },
   { to: '/app/copier', label: 'Trade Copier', icon: Copy },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/calculators', label: 'Calculators', icon: Calculator },
   { to: '/app/open-trades', label: 'Open Trades', icon: CandlestickChart },
   { to: '/app/news', label: 'News', icon: CalendarDays },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
@@ -36,6 +40,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app': 'Overview',
   '/app/copier': 'Trade Copier',
   '/app/analytics': 'Analytics',
+  '/app/calculators': 'Calculators',
   '/app/open-trades': 'Open Trades',
   '/app/news': 'Economic Calendar',
   '/app/accounts': 'Accounts',
@@ -45,9 +50,11 @@ const PAGE_TITLES: Record<string, string> = {
 interface SidebarProps {
   onNavigate?: () => void;
   versionLabel: string;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
+function SidebarContent({ onNavigate, versionLabel, collapsed = false, onToggleCollapsed }: SidebarProps) {
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
   const { theme, toggleTheme } = useThemeStore();
@@ -55,11 +62,27 @@ function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
 
   return (
     <div className="bg-sidebar flex h-full flex-col">
-      <div className="flex h-16 items-center gap-3 px-5">
+      <div className={cn('flex h-16 items-center gap-3 px-5', collapsed && 'justify-center px-3')}>
         <div className="bg-brand flex h-9 w-9 items-center justify-center rounded-xl">
           <Activity className="h-4 w-4 text-white" />
         </div>
-        <p className="text-base font-semibold tracking-tight text-white">TradePilot</p>
+        {!collapsed ? <p className="text-base font-semibold tracking-tight text-white">TradePilot</p> : null}
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapsed();
+            }}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={cn(
+              'text-sidebar-fg ml-auto hidden cursor-pointer rounded-lg p-2 transition-colors hover:bg-white/5 hover:text-white lg:inline-flex',
+              collapsed && 'ml-0',
+            )}
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+        ) : null}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
@@ -69,9 +92,11 @@ function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
             to={to}
             end={to === '/app'}
             onClick={onNavigate}
+            title={collapsed ? label : undefined}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                collapsed && 'justify-center px-2',
                 isActive
                   ? 'bg-brand text-white'
                   : 'text-sidebar-fg hover:bg-white/5 hover:text-white',
@@ -83,7 +108,7 @@ function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
                 <Icon
                   className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-sidebar-fg')}
                 />
-                {label}
+                {!collapsed ? label : null}
               </>
             )}
           </NavLink>
@@ -94,35 +119,42 @@ function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
         <button
           type="button"
           onClick={toggleTheme}
-          className="text-sidebar-fg flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-white/5 hover:text-white"
+          className={cn(
+            'text-sidebar-fg flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-white/5 hover:text-white',
+            collapsed && 'justify-center px-2',
+          )}
         >
           {theme === 'dark' ? (
             <Sun className="h-4 w-4 text-warning" />
           ) : (
             <Moon className="h-4 w-4" />
           )}
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          {!collapsed ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : null}
         </button>
 
-        <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+        <div className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5', collapsed && 'justify-center px-2')}>
           <div className="bg-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white">
             {initials}
           </div>
-          <span className="text-sidebar-fg min-w-0 flex-1 truncate text-xs">
-            {user?.email ?? '--'}
-          </span>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            title="Sign out"
-            aria-label="Sign out"
-            className="text-sidebar-fg cursor-pointer rounded-lg p-2 transition-colors hover:bg-white/5 hover:text-white"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+          {!collapsed ? (
+            <span className="text-sidebar-fg min-w-0 flex-1 truncate text-xs">
+              {user?.email ?? '--'}
+            </span>
+          ) : null}
+          {!collapsed ? (
+            <button
+              type="button"
+              onClick={() => void logout()}
+              title="Sign out"
+              aria-label="Sign out"
+              className="text-sidebar-fg cursor-pointer rounded-lg p-2 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
 
-        <p className="text-sidebar-fg px-3 pb-1 text-[11px]">{versionLabel}</p>
+        {!collapsed ? <p className="text-sidebar-fg px-3 pb-1 text-[11px]">{versionLabel}</p> : null}
       </div>
     </div>
   );
@@ -131,6 +163,7 @@ function SidebarContent({ onNavigate, versionLabel }: SidebarProps) {
 export function AppShell() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { currentManifest, availableManifest, hasUpdate, isRefreshing, dismiss, refreshToLatest } =
     useAppUpdate();
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'TradePilot';
@@ -138,8 +171,25 @@ export function AppShell() {
 
   return (
     <div className="bg-canvas min-h-screen">
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-64">
-        <SidebarContent versionLabel={versionLabel} />
+      <div
+        role="button"
+        tabIndex={sidebarCollapsed ? 0 : -1}
+        onClick={() => {
+          if (sidebarCollapsed) setSidebarCollapsed(false);
+        }}
+        onKeyDown={(event) => {
+          if (sidebarCollapsed && (event.key === 'Enter' || event.key === ' ')) setSidebarCollapsed(false);
+        }}
+        className={cn(
+          'hidden transition-[width] duration-200 lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block',
+          sidebarCollapsed ? 'lg:w-20 cursor-pointer' : 'lg:w-64',
+        )}
+      >
+        <SidebarContent
+          versionLabel={versionLabel}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        />
       </div>
 
       <AnimatePresence>
@@ -180,7 +230,7 @@ export function AppShell() {
         ) : null}
       </AnimatePresence>
 
-      <div className="flex min-h-screen flex-col lg:pl-64">
+      <div className={cn('flex min-h-screen flex-col transition-[padding] duration-200', sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-64')}>
         <header className="border-line bg-surface sticky top-0 z-30 border-b px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <button

@@ -1,16 +1,11 @@
 version: "3.9"
 
-services:
-  redis:
-    image: redis:7-alpine
-    container_name: tradepilot-redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
+# Redis is shared with cryptobot: external container `shared-redis`, reachable
+# as `redis` on the external `tradepilot_tradepilot_default` network (logical DB 0
+# for tradepilot, DB 1 for cryptobot). TradePilot no longer runs its own Redis
+# service.
 
+services:
   api:
     build:
       context: .
@@ -23,8 +18,6 @@ services:
       PORT: 4000
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
-    depends_on:
-      - redis
     ports:
       - "${API_PORT:-4000}:4000"
 
@@ -42,8 +35,16 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    networks:
+      - default
+      - nginx_proxy_manager
     ports:
       - "${WEB_PORT:-8080}:80"
 
-volumes:
-  redis-data:
+networks:
+  default:
+    external: true
+    name: tradepilot_tradepilot_default
+  nginx_proxy_manager:
+    external: true
+    name: nginx-proxy-manager_default

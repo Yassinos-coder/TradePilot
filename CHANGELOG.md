@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Calculators workspace** — new authenticated sidebar tab with trader calculators for lot sizing, pip value/P&L, compounding with Monte Carlo paths, risk-of-ruin simulation, and margin/leverage. Instrument defaults cover FX, metals, indices, crypto and energy CFDs while keeping broker-specific contract size, pip size and conversion fields editable.
+- **Lot-size templates** — lot sizing can save reusable stop-loss/risk/contract presets to browser storage so traders can reuse personal/prop-account risk settings without re-entering them. Account balance stays outside the template because it changes over time.
+
+### Changed
+
+- **Desktop sidebar is collapsible** — users can collapse the left navigation to icons, reopen it from the sidebar header toggle, or click the collapsed rail to expand it again.
+
 ## [1.2.0] - 2026-08-01
 
 ### Added
