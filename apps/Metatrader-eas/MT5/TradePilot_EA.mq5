@@ -3,15 +3,15 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.18"
+#property version   "3.20"
 #property strict
 
 #include <Trade/Trade.mqh>
 
 input group  "=== TradePilot Server ==="
-input string ServerHost          = "tradepilot.yassinecastro.com";
-input int    ServerPort          = 4000;
-input bool   UseSSL              = false;
+input string ServerHost          = "api.tradepilot.sidedevelopments.com";
+input int    ServerPort          = 443;
+input bool   UseSSL              = true;
 input string WsPath              = "/ws/ea";
 
 input group  "=== Authentication ==="
@@ -1306,7 +1306,11 @@ void Connect() {
       return;
    }
 
-   if (UseSSL) {
+   // MQL5 negotiates TLS automatically inside SocketConnect on port 443.
+   // Calling SocketTlsHandshake again attempts a second handshake and fails
+   // with ERR_NETSOCKET_HANDSHAKE_FAILED (5274). Non-standard TLS ports still
+   // require the explicit handshake.
+   if (UseSSL && ServerPort != 443) {
       if (!SocketTlsHandshake(g_socket, ServerHost)) {
          Log("TLS handshake failed: " + (string)GetLastError());
          Disconnect();

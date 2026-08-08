@@ -4,7 +4,7 @@
 //| Requires: Tools > Options > Expert Advisors > Allow DLL imports  |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.02"
+#property version   "3.03"
 #property strict
 
 #import "winhttp.dll"
@@ -22,7 +22,7 @@
    bool WinHttpCloseHandle(int handle);
 #import
 
-input string ServerHost          = "tradepilot.yassinecastro.com";
+input string ServerHost          = "api.tradepilot.sidedevelopments.com";
 input int    ServerPort          = 443;
 input bool   UseSSL              = true;
 input string WsPath              = "/ws/ea";

@@ -82,7 +82,7 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 
 ## Getting your API key
 
-1. Log into TradePilot at `https://tradepilot.yassinecastro.com`
+1. Log into TradePilot at `https://tradepilot.sidedevelopments.com`
 2. On the Dashboard, click **Rotate API Key** to generate a fresh key.
 3. Copy the full `tp_ea_...` (an EA key from Settings > API & Keys)xxxxx...` string — it is shown only once after rotation.
 4. Paste it into the **ApiKey** input field of the EA.
@@ -106,9 +106,9 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `ServerHost` | `tradepilot.yassinecastro.com` | WebSocket server hostname |
-| `ServerPort` | `443` | Port (443 = WSS, 80 = WS) |
-| `UseSSL` | `true` | Enable TLS |
+| `ServerHost` | `api.tradepilot.sidedevelopments.com` | WebSocket server hostname |
+| `ServerPort` | `443` | Public secure WebSocket port for MT5 and MT4 |
+| `UseSSL` | `true` | Use TLS (`wss://`) |
 | `WsPath` | `/ws/ea` | WebSocket endpoint path |
 | `ApiKey` | *(empty)* | Your TradePilot API key |
 | `LotSize` | `0.01` | Lot size per trade |
