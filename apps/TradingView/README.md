@@ -529,3 +529,228 @@ qualifying is **one trade**, and no amount of loosening the inputs will change t
 sample is bounded by the data, not the settings.
 
 Judge this strategy on 5m or 15m, where the same bar budget buys 5–15× the history.
+
+---
+
+## 4H / 15m Fibonacci Strategy
+
+`TradePilot_Fibonacci_71_Strategy.pine` is a Pine Script **v6 strategy** implementing the
+four-item checklist: higher timeframe alignment, liquidity sweep, break of structure plus
+imbalance, and a 71% retracement entry.
+
+**Defaults are set for an FX CFD on 15m with a 4H bias.** It works on any pair of timeframes
+where the bias frame is higher than the chart; the script blocks itself if it is not.
+
+### Trade logic
+
+1. **Higher timeframe alignment** — the 4H dealing range, split at its 50%. Above it is
+   premium and only shorts are allowed; below it is discount and only longs are. Two range
+   definitions: the last confirmed 4H swing high/low (default), or the highest/lowest of the
+   last N 4H bars. Read as `expr[1]` with `lookahead_on`, i.e. strictly the last *confirmed*
+   4H bar, so the bias cannot repaint itself onto trades it never allowed.
+2. **Liquidity sweep** — a confirmed swing high or low on the 15m is taken. The side that goes
+   is the side that was holding the resting money, so the trade is back the other way. A
+   **wick** through the level is a sweep; a **body close** through it is a break, and a break
+   is not this setup — `Sweep Must Close Back Inside The Level` is the source's own
+   distinction and is on by default.
+3. **Break of structure** — price then closes through the opposing structural level. Either
+   the one frozen at the sweep (default) or the most recent swing, which is stricter.
+4. **Imbalance** — the three-candle fair value gap left inside that leg. On by default,
+   because the checklist item is "break of structure *plus* imbalance".
+5. **Entry** — a pending **limit** order at the 71% retracement of the leg, measured from the
+   impulse extreme back toward the swept one.
+6. **Stop** — the fib 100%, i.e. the swept extreme, plus an ATR buffer.
+7. **Target** — the fib 0%, i.e. the impulse extreme. Or the next unbroken swing beyond it
+   (`Liquidity Draw`), or a fixed RR.
+
+### Why 71, and why it is not a magic level
+
+It is a **measurement**, not a reaction level, and the script does not treat it as one.
+Entering there puts 29% of the leg behind the stop and 71% in front of the target:
+
+```
+risk = (1 − 0.71) × leg      reward = 0.71 × leg      RR = 2.448
+```
+
+That ratio is the entire reason the number is 71 rather than 70 or 75. Lower it to 50 for 1:1
+and far more fills; raise it to 79 for 3.76:1 and far fewer.
+
+One useful side effect: with the default target the RR is fixed by geometry, so `Minimum RR`
+stops being a reward filter and becomes a **minimum leg size** filter. At the default 0.10 ATR
+stop buffer, a 3 ATR leg implies 2.19R and a 0.8 ATR leg implies 1.71R — so the 1.80 gate
+silently rejects legs shorter than about one ATR, which are the ones where the buffer is a
+large fraction of the risk. That is the intended behaviour, but know that it is what the input
+is doing.
+
+### The geometry is not the fill: why there is a cost gate
+
+`Minimum RR` scales with ATR and nothing else, so it has no opinion about whether a stop is
+large enough to survive its own spread. Drop to 5m on an FX pair and that bites immediately —
+a one-ATR leg on 5m NZDUSD is about 8 pips, whose 29% stop is **2.4 pips**. Against a ~1.5 pip
+round turn, more than half the risk per trade is cost, and a setup whose geometry says 2.45:1
+fills at roughly 1.5:1. A zero-cost backtest cannot see this and will happily report a profit
+factor above 1.5 on trades that lose money in an account.
+
+`Minimum Stop (x cost)` is the gate. `Assumed Round-Turn Cost` is spread plus commission in
+ticks (1 pip = 10 ticks on a 5-decimal feed), and a setup is skipped when its stop is not at
+least that multiple of it. At the default 15 ticks × 4 the floor is **6 pips**, which is
+passive on 15m and does most of the filtering on 5m. Set it to 0 to disable and watch the
+trade count rise and the profit factor fall.
+
+This feeds the pre-trade gate only. Actual costs belong in Properties → Commission and
+Slippage; modelling them in the script as well would double-count.
+
+### Premium and discount only mean something inside the range
+
+In a trend the swing range goes **stale**: no new higher-timeframe pivot confirms for hours,
+so price keeps climbing while the script still compares it against a high it left behind. Left
+alone, a breakout reads as "premium, sells only" — trend-fighting, which is the one thing the
+higher-timeframe filter exists to prevent. Seen live on NZDUSD 5m at **193%**, i.e. price a
+full range width above the range high, blocking a long in an uptrend.
+
+`When Price Is Outside The Range` decides what happens:
+
+| Option | Behaviour |
+|--------|-----------|
+| `Block` (default) | no trades on a reading that is known to be invalid |
+| `Follow Breakout` | above the range = longs only, below = shorts only — trade the higher timeframe *direction* instead of its range |
+| `Fade (premium/discount)` | the old behaviour, kept so you can measure what it costs |
+
+The dashboard's bias row now reports position and permission separately (`ABOVE range - no
+trade  193%`), because "above the range" and "premium" are not the same statement.
+
+Switching `Range Source` to `Lookback Range` sidesteps the problem entirely — price is inside
+that range by construction — at the cost of a cruder range.
+
+### The A+ confluence is measured, not assumed
+
+The source's "hidden confluence" is the 71% landing **inside** the imbalance, on the argument
+that entering where price is most likely to react is what keeps drawdown small. The script
+detects it, flags it live on the dashboard, and reports the share of filled trades that had it
+(`A+ %`). `Require The 71% To Sit Inside An Imbalance` makes it mandatory.
+
+Run it **off** first. The A+ percentage tells you how often the confluence appears in your
+sample, and comparing two runs tells you whether it is worth what it costs in trade count —
+which is the question, and it is answerable rather than a matter of belief.
+
+### The one genuine ambiguity: what happens when price runs further
+
+The source says the setup stays valid "until one of those two levels is violated". Taken
+literally, a new low past the fib 0% kills a short setup. In practice a trader re-draws the fib
+to the new extreme. Both are implemented, and it is the input most likely to change your
+results:
+
+| `Fib Leg` | Behaviour |
+|-----------|-----------|
+| `Extend To Newest Extreme` (default) | re-anchors to the new extreme; the order, the target and the size follow price, and risk grows with the leg |
+| `Fix At Break Of Structure` | the literal reading — a new extreme violates the 0% and the setup is dead |
+
+Fix is honest but discards every setup where price simply ran further before turning. Extend is
+what the tool in your hand does. Sweep both.
+
+### Key inputs
+
+| Group | What it controls |
+|-------|------------------|
+| `Higher Timeframe Alignment` | bias timeframe, swing vs lookback range, swing strength, a neutral band around the 50%, what happens when price is outside the range, and whether a bias flip pulls a working order |
+| `Liquidity Sweep` | execution-chart swing strength (2 = the Williams fractal), minimum sweep depth, wick-vs-body-close requirement, and the failed-grab kill |
+| `Break Of Structure` | which structure has to break, how long a sweep stays relevant, optional minimum break body |
+| `Imbalance` | require a gap in the leg, require the 71% inside it, minimum gap size |
+| `Fibonacci Entry` | the retracement percentage, leg extension behaviour, unfilled-order expiry |
+| `Stop Loss` | ATR length and the buffer beyond the fib 100% |
+| `Take Profit` | fib 0% / liquidity draw / fixed RR, plus the minimum RR gate |
+| `Position Sizing` | `Risk %` or `Fixed Qty`, plus `Max Position Notional (x Equity)` |
+| `Trade Management` | max hold, cooldown after a loss, optional entry session, optional breakeven |
+| `Costs & Viability` | assumed round-turn cost in ticks, and the minimum stop expressed as a multiple of it |
+
+### Defaults are tuned for 15m
+
+Every duration is specified in **minutes and converted to bars internally**. A "20 bar" window
+is 5 hours on 15m and 20 minutes on 1m, and a setting that changes meaning when you change
+chart is a trap, not a setting.
+
+| Input | 15m default | Why |
+|-------|-------------|-----|
+| `Higher Timeframe` | 240 | ~16 execution bars per bias bar — enough separation to mean something, little enough that it still changes inside a week |
+| `Structure Swing Strength` | 2 | the Williams fractal the source's arrows come from |
+| `Max Minutes From Sweep To Break` | 300 | 20 bars; a sweep that has not broken structure in five hours has been absorbed |
+| `Cancel Unfilled Order After` | 720 | 12 hours — roughly the far side of the next session |
+| `Stop Buffer` | 0.10 × ATR | the swept extreme is exactly where the stops that were just run sat; a stop resting on it with no buffer is resting on the noisiest price on the chart |
+| `Minimum RR` | 1.80 | passive against the 2.45 ceiling; it is really the minimum-leg-size gate described above |
+| `Max Hold` / `Cooldown` | off | the model has no time component — the trade runs to one of the two fib levels |
+| `Move Stop To Breakeven` | off | this model *expects* drawdown past the entry, which is the whole reason the 71% is a limit and not a market order |
+
+### Sizing
+
+`Max Position Notional (x Equity)` defaults to **10**. The stop here is 29% of the leg plus a
+buffer — 10–25 pips on 15m FX — so a 1% risk needs roughly 10× equity in notional. Below that
+the cap binds, TradingView silently cuts the order, and every figure in the report is a
+fraction of what the settings claim. The dashboard's `Last qty` row shows an orange
+`(capped)` when it is biting.
+
+### What is mechanised, and what is not
+
+Faithful: premium/discount on the higher timeframe, the sweep of a confirmed swing, the
+wick-versus-body-close distinction between a grab and a break, the break of structure, the
+fair value gap, the 71% pending limit with its stop and target on the fib extremes, the
+"valid until one of those two levels is violated" rule, and the fib/FVG confluence.
+
+**Not** mechanised: "relatively equal highs/lows" as a named liquidity pool — that is a
+judgement made by eye. The `Liquidity Draw` target approximates it with the nearest unbroken
+swing beyond the fib extreme, which is usually where those equal lows sit, but the script is
+not claiming to find them. The default target is the fib 0% the source actually uses.
+
+### Notes
+
+- Orders fill on candle **close** (`process_orders_on_close = true`); new orders require
+  `barstate.isconfirmed`, so nothing arms intrabar.
+- The working limit is **re-issued every bar** while it rests. In `Extend` mode the leg
+  deepens, so the 71%, the target and the position size all move with it —
+  `strategy.entry` with an existing ID modifies the resting order rather than adding one.
+- Limit fills are detected from the **bar's range**, not from `position_size`: the emulator
+  fills intrabar but the position is invisible to the script for a further bar, so cancelling
+  on "still flat" would race a cancel into an order that was filling. A stale-fill guard
+  releases the state if the two ever disagree.
+- Exit orders are attached on the **same bar as the entry order**, keyed on the trade's
+  direction rather than on an open position, so there is no bar where a filled trade runs
+  without a stop in the emulator.
+- One position at a time (`pyramiding = 0`). Single-symbol — add it to each chart separately.
+- On-chart: the fib 100 / 71 / 0 levels, the imbalance boxes, the 4H equilibrium, sweep and
+  break markers, live stop/target lines, and a dashboard — all toggleable.
+
+### Dashboard rows worth reading first
+
+- `Gates` — names the single condition currently blocking a setup (`4H bias blocks it`,
+  `no imbalance`, `71% not in imbalance`, `RR too low`), so a skipped signal can be explained
+  without adding lines to the chart.
+- `Swp>BOS>Ord>Fill` — **the funnel**, and the first row to read when the trade count looks
+  low. Read it left to right and stop at the first big drop; that stage is what is rejecting
+  your setups, and it is the only one worth changing a setting for.
+
+  | Drop at | Means | Do this |
+  |---------|-------|---------|
+  | Swp → BOS | sweeps are being absorbed without a structural break | raise `Structure Swing Strength`, or lengthen `Max Minutes From Sweep To Break` |
+  | BOS → Ord | breaks happen and the gates kill them | read `Gates`; usually the 4H bias, `Require An Imbalance`, or — below 15m — `stop too small vs cost` |
+  | Ord → Fill | orders rest and never fill | 71% is too deep a retracement for this symbol — lower `Retracement Entry`, and accept the worse RR |
+
+- `Orders S / L` — an all-time counter per direction. If one stays at **zero** while the other
+  climbs, that direction's condition is contradicting itself and you are running half the model
+  without knowing. The Strategy Tester cannot show you this.
+- `Cancel/Time  A+%` — cancelled orders, time stops, the share of fills that had the A+
+  confluence, and the break-even win rate your `Minimum RR` implies. If the tester's win rate
+  is below that figure, the settings cannot be profitable and sweeping anything else is wasted
+  time.
+
+### Install
+
+1. TradingView → **Pine Editor** → paste `TradePilot_Fibonacci_71_Strategy.pine` →
+   **Add to chart**.
+2. Run it on a **15m chart** with the higher timeframe left at 240.
+3. Set Properties → Commission and Slippage **before** judging anything. For IC Markets Raw
+   on NZDUSD: commission type `Percent`, value `0.006`, slippage `5` ticks for a baseline and
+   `15` for a stress run. A strategy that survives at 5 and dies at 15 is not robust to a
+   floating spread, which is what you actually trade against. This matters more the lower the
+   timeframe: on 5m the stop is a third of what it is on 15m and the spread is unchanged.
+4. If you are replacing an older version of the script on a chart, open **Properties → Reset
+   settings to defaults** — TradingView keeps your saved properties and they override the new
+   declaration.
