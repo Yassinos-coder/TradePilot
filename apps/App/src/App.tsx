@@ -22,6 +22,7 @@ import { TermsPage } from './pages/TermsPage';
 import { CopierPage } from './pages/CopierPage';
 import { CalculatorsPage } from './pages/CalculatorsPage';
 import { CotReportPage } from './pages/CotReportPage';
+import { SeoManager } from './components/seo/SeoManager';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -92,6 +93,7 @@ export default function App() {
         v7_relativeSplatPath: true,
       }}
     >
+      <SeoManager />
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />

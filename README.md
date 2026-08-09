@@ -2,7 +2,7 @@
 
 TradePilot is a production SaaS monorepo that copies trades from one MetaTrader account to your other MetaTrader accounts in real time, sizing each copy to the risk parameters you set per account.
 
-Live at: `https://tradepilot.yassinecastro.com`
+Live at: `https://tradepilot.sidedevelopments.com`
 
 ## Stack
 
@@ -83,10 +83,10 @@ Note: `docker compose` (v2 plugin) requires buildx 0.17+. Use `docker-compose` (
 
 ### Nginx Proxy Manager
 
-- Forward `tradepilot.yassinecastro.com` → `tradepilot-frontend:80`
+- Forward `tradepilot.sidedevelopments.com` → `tradepilot-frontend:80`
 - Enable WebSocket support in NPM
 - The frontend nginx proxies `/api/*` and `/ws/ea` to the backend internally
-- Supabase Auth redirect URL: `https://tradepilot.yassinecastro.com/auth/callback`
+- Supabase Auth redirect URL: `https://tradepilot.sidedevelopments.com/auth/callback`
 
 ### EC2 security group (required inbound rules)
 
@@ -112,10 +112,10 @@ MT5's built-in TLS stack is incompatible with Let's Encrypt/ECDSA certificates, 
 
 2. In MT5: **Tools → Options → Expert Advisors**
    - Check "Allow WebRequest for listed URL"
-   - Add `tradepilot.yassinecastro.com`
+   - Add `tradepilot.sidedevelopments.com`
 3. Open MetaEditor (F4) → compile TradePilot_EA (F7) → 0 errors
 4. Attach to any chart. Input settings:
-   - `ServerHost`: `tradepilot.yassinecastro.com`
+   - `ServerHost`: `api.tradepilot.sidedevelopments.com`
    - `ServerPort`: `4000`
    - `UseSSL`: `false`
    - `ApiKey`: an **EA key** created in Settings → API & Keys (`tp_ea_…`, shown once)

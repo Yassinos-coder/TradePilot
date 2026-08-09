@@ -4,12 +4,14 @@ interface TradePilotLogoProps {
   className?: string;
   compact?: boolean;
   showTagline?: boolean;
+  inverse?: boolean;
 }
 
 export function TradePilotLogo({
   className,
   compact = false,
   showTagline = true,
+  inverse = false,
 }: TradePilotLogoProps) {
   return (
     <div className={cn('flex items-center gap-3', className)}>
@@ -24,15 +26,15 @@ export function TradePilotLogo({
 
       {!compact ? (
         <div className="min-w-0">
+          <div className="flex items-baseline text-[1.4rem] font-bold tracking-[-0.045em]">
+            <span className={inverse ? 'text-white' : 'text-content-primary'}>Trade</span>
+            <span className="text-brand">Pilot</span>
+          </div>
           {showTagline ? (
-            <p className="text-[0.62rem] uppercase tracking-[0.32em] text-cyan-300/70">
-              Signal Execution
+            <p className={cn('mt-0.5 text-[0.55rem] font-semibold uppercase tracking-[0.22em]', inverse ? 'text-white/45' : 'text-content-tertiary')}>
+              Copy · Control · Scale
             </p>
           ) : null}
-          <div className="mt-1 flex items-baseline text-[1.65rem] font-semibold tracking-[-0.045em]">
-            <span className="text-white">Trade</span>
-            <span className="text-cyan-300">Pilot</span>
-          </div>
         </div>
       ) : null}
     </div>

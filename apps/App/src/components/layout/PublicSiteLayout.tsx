@@ -1,6 +1,7 @@
-import { Activity, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { TradePilotLogo } from '../brand/TradePilotLogo';
 
 export function PublicSiteLayout({
   title,
@@ -15,14 +16,8 @@ export function PublicSiteLayout({
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_35%),linear-gradient(180deg,#f6fbff_0%,#f8fafc_100%)]">
       <header className="border-b border-line bg-surface backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand text-content-inverse shadow-[0_16px_36px_-18px_rgba(2,132,199,0.85)]">
-              <Activity className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-content-primary">TradePilot</p>
-              <p className="text-[11px] text-content-tertiary">Automation software</p>
-            </div>
+          <Link to="/" aria-label="TradePilot home">
+            <TradePilotLogo showTagline={false} />
           </Link>
           <div className="flex items-center gap-2">
             <Link

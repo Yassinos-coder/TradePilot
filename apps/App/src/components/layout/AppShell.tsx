@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, Reorder, motion } from 'framer-motion';
 import {
-  Activity,
   BarChart3,
   Calculator,
   CalendarDays,
@@ -27,6 +26,7 @@ import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth-store';
 import { useThemeStore } from '@/store/theme-store';
+import { TradePilotLogo } from '@/components/brand/TradePilotLogo';
 
 const NAV = [
   { to: '/app', label: 'Overview', icon: LayoutDashboard },
@@ -118,10 +118,7 @@ function SidebarContent({
   return (
     <div className="bg-sidebar flex h-full flex-col">
       <div className={cn('flex h-16 items-center gap-3 px-5', collapsed && 'justify-center px-3')}>
-        <div className="bg-brand flex h-9 w-9 items-center justify-center rounded-xl">
-          <Activity className="h-4 w-4 text-white" />
-        </div>
-        {!collapsed ? <p className="text-base font-semibold tracking-tight text-white">TradePilot</p> : null}
+        <TradePilotLogo compact={collapsed} showTagline={false} inverse />
         {onToggleCollapsed ? (
           <button
             type="button"

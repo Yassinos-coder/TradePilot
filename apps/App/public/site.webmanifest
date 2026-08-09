@@ -1,0 +1,10 @@
+{
+  "name": "TradePilot",
+  "short_name": "TradePilot",
+  "description": "Professional MetaTrader trade copying and risk control.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0b0d0f",
+  "theme_color": "#091311",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

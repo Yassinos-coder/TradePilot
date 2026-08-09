@@ -1,4 +1,4 @@
-import { Activity, BarChart3, ShieldCheck, Signal, Workflow } from 'lucide-react';
+import { Activity, ArrowRight, BarChart3, Check, ShieldCheck, Signal, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { PublicSiteLayout } from '../components/layout/PublicSiteLayout';
@@ -32,6 +32,28 @@ export function LandingPage() {
       title="Copy trades across your MetaTrader accounts, with risk you control"
       subtitle="TradePilot mirrors every trade from your master account to your slave accounts over a live MT4/MT5 bridge, sizing each copy to the risk parameters you set per account."
     >
+      <section className="mb-10 overflow-hidden rounded-3xl border border-emerald-400/20 bg-[#07110f] px-6 py-8 text-white shadow-2xl shadow-emerald-950/10 sm:px-10 sm:py-10">
+        <div className="grid items-center gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Built for serious MetaTrader operators</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">Copy trades. Control risk. Scale smarter.</h2>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">One execution layer for MT4 and MT5 accounts, with real-time copying and risk rules that adapt to every account in your setup.</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/auth" className="inline-flex items-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-300">Start with TradePilot <ArrowRight className="h-4 w-4" /></Link>
+              <Link to="/pricing" className="rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-white/5">See pricing</Link>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {['Real-time MT4 & MT5 bridge', 'Independent risk per account', 'Execution history and analytics'].map((item) => (
+              <div key={item} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-400/15"><Check className="h-3.5 w-3.5 text-emerald-300" /></span>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-4 md:grid-cols-2">
         {FEATURES.map((feature) => (
           <article
@@ -53,13 +75,13 @@ export function LandingPage() {
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand">
-              Public Launch Ready
+              Professional trading infrastructure
             </p>
             <h3 className="mt-2 text-xl font-semibold text-content-primary">
-              Build trust with transparent risk controls and legal coverage.
+              Your strategy stays yours. TradePilot handles the execution layer.
             </h3>
             <p className="mt-2 text-sm text-content-secondary">
-              Terms, privacy, refund, pricing, profile security, and notification preferences are included in-platform.
+              Connect your MetaTrader accounts, define the risk each one can take, and monitor every copied execution from one focused workspace.
             </p>
           </div>
           <div className="flex items-center gap-2">

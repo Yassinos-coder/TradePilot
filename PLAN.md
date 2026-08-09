@@ -2,7 +2,7 @@
 
 ## Status: Production ✓
 
-All core features are live at `https://tradepilot.yassinecastro.com`.
+All core features are live at `https://tradepilot.sidedevelopments.com`.
 
 ---
 
@@ -39,7 +39,7 @@ All core features are live at `https://tradepilot.yassinecastro.com`.
 
 **Known MT5 setup steps**:
 
-1. Tools → Options → Expert Advisors → Allow WebRequest → add `tradepilot.yassinecastro.com`
+1. Tools → Options → Expert Advisors → Allow WebRequest → add `api.tradepilot.sidedevelopments.com`
 2. Compile in MetaEditor (F7)
 3. Inputs: `ServerPort=4000`, `UseSSL=false`, paste an EA key (`tp_ea_...`) from Settings > API & Keys
 
@@ -77,7 +77,7 @@ Internet
   │
   ▼ :443 (HTTPS)
 Nginx Proxy Manager (container, nginx-proxy-manager_default network)
-  │  proxies tradepilot.yassinecastro.com → tradepilot-frontend:80
+  │  proxies tradepilot.sidedevelopments.com → tradepilot-frontend:80
   ▼
 tradepilot-frontend (nginx, port 80)
   │  /api/*          → api:4000
@@ -134,8 +134,8 @@ Schema must be re-run after any pull that adds tables. Add `tradepilot` to Supab
 # Runtime
 NODE_ENV=production
 PORT=4000
-CORS_ORIGIN=https://tradepilot.yassinecastro.com
-ALLOWED_ORIGINS=https://tradepilot.yassinecastro.com
+CORS_ORIGIN=https://tradepilot.sidedevelopments.com
+ALLOWED_ORIGINS=https://tradepilot.sidedevelopments.com
 
 # Supabase
 SUPABASE_URL=https://<ref>.supabase.co
