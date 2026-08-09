@@ -21,6 +21,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { TermsPage } from './pages/TermsPage';
 import { CopierPage } from './pages/CopierPage';
 import { CalculatorsPage } from './pages/CalculatorsPage';
+import { CotReportPage } from './pages/CotReportPage';
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -106,6 +107,7 @@ export default function App() {
           <Route path="/app/calculators" element={<CalculatorsPage />} />
           <Route path="/app/open-trades" element={<OpenTradesPage />} />
           <Route path="/app/news" element={<NewsCalendarPage />} />
+          <Route path="/app/cot" element={<CotReportPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
           <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>

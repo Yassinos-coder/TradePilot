@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import compression from 'compression';
 
 import { AppModule } from './app.module';
 import { EaGatewayService } from './ea/ea-gateway.service';
@@ -15,6 +16,10 @@ async function bootstrap() {
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
+
+  // The COT history endpoint returns two decades of weekly rows; uncompressed
+  // that is a few hundred kilobytes, and it gzips to a fraction of it.
+  app.use(compression());
 
   app.setGlobalPrefix('api');
   app.enableCors({

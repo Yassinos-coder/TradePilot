@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CandlestickChart,
   Copy,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/app/calculators', label: 'Calculators', icon: Calculator },
   { to: '/app/open-trades', label: 'Open Trades', icon: CandlestickChart },
   { to: '/app/news', label: 'News', icon: CalendarDays },
+  { to: '/app/cot', label: 'COT Report', icon: Landmark },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
@@ -43,6 +45,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app/calculators': 'Calculators',
   '/app/open-trades': 'Open Trades',
   '/app/news': 'Economic Calendar',
+  '/app/cot': 'Commitments of Traders',
   '/app/accounts': 'Accounts',
   '/app/settings': 'Settings',
 };

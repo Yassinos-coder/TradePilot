@@ -690,6 +690,142 @@ export type NewsRange = z.infer<typeof newsRangeSchema>;
 export type EconomicEventDTO = z.infer<typeof economicEventSchema>;
 export type EconomicCalendarDTO = z.infer<typeof economicCalendarSchema>;
 
+/* ─── commitments of traders ─────────────────────────────────────────────── */
+
+export const cotReportModeSchema = z.enum(['futures', 'combined']);
+
+/**
+ * The CFTC publishes the same positions under three trader taxonomies. Legacy
+ * exists for every market; physical commodities also get `disaggregated` and
+ * financial futures get `financial`.
+ */
+export const cotTableKindSchema = z.enum(['legacy', 'disaggregated', 'financial']);
+export const cotBiasSchema = z.enum(['LONG', 'SHORT', 'FLAT']);
+
+export const cotMarketSchema = z.object({
+  /** CFTC contract market code — the stable join key across releases. */
+  code: z.string().min(1),
+  label: z.string().min(1),
+  group: z.string().min(1),
+  exchange: z.string().min(1),
+  contractUnit: z.string(),
+  /** The chart symbol traders know this contract by, when there is one. */
+  symbol: z.string().nullable().default(null),
+});
+
+export const cotCellSchema = z.object({
+  positions: z.number(),
+  change: z.number(),
+  pctOi: z.number(),
+  /** Null where the CFTC does not break traders out, as for nonreportables. */
+  traders: z.number().nullable().default(null),
+});
+
+export const cotCategorySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  long: cotCellSchema,
+  short: cotCellSchema,
+  /** Null for categories the CFTC does not publish a spreading column for. */
+  spreading: cotCellSchema.nullable().default(null),
+});
+
+export const cotTableSchema = z.object({
+  kind: cotTableKindSchema,
+  label: z.string(),
+  categories: z.array(cotCategorySchema),
+});
+
+/**
+ * The speculative bucket pulled to the top of the page: Managed Money for
+ * commodities, Leveraged Funds for financials, Non-Commercial as the fallback.
+ */
+export const cotSpeculatorSummarySchema = z.object({
+  label: z.string(),
+  long: z.number(),
+  short: z.number(),
+  net: z.number(),
+  netChange: z.number(),
+  longChange: z.number(),
+  shortChange: z.number(),
+  /** Null when nothing is held short, which would divide by zero. */
+  longShortRatio: z.number().nullable(),
+  netPctOi: z.number(),
+  bias: cotBiasSchema,
+});
+
+export const cotReportSchema = z.object({
+  market: cotMarketSchema,
+  mode: cotReportModeSchema,
+  reportDate: z.string(),
+  /** The Tuesday the change columns are measured against. */
+  previousDate: z.string(),
+  openInterest: z.number(),
+  openInterestChange: z.number(),
+  totalTraders: z.number().nullable().default(null),
+  tables: z.array(cotTableSchema),
+  speculators: cotSpeculatorSummarySchema,
+  fetchedAt: z.string(),
+});
+
+export const cotMarketListSchema = z.object({
+  markets: z.array(cotMarketSchema),
+});
+
+export const cotHistoryPointSchema = z.object({
+  reportDate: z.string(),
+  openInterest: z.number(),
+  /** Managed Money or Leveraged Funds, whichever covers this market. */
+  specLong: z.number(),
+  specShort: z.number(),
+  specNet: z.number(),
+  nonCommercialLong: z.number(),
+  nonCommercialShort: z.number(),
+  nonCommercialNet: z.number(),
+  commercialLong: z.number(),
+  commercialShort: z.number(),
+  commercialNet: z.number(),
+  nonReportableLong: z.number(),
+  nonReportableShort: z.number(),
+  nonReportableNet: z.number(),
+});
+
+/**
+ * The COT Index: where the current net position sits inside its own range over
+ * a lookback, 0 being the most bearish that window has seen and 100 the most
+ * bullish. Null when the window is flat or too short to be meaningful.
+ */
+export const cotIndexWindowSchema = z.object({
+  weeks: z.number(),
+  sampleWeeks: z.number(),
+  value: z.number().nullable(),
+  min: z.number(),
+  max: z.number(),
+});
+
+export const cotHistorySchema = z.object({
+  market: cotMarketSchema,
+  mode: cotReportModeSchema,
+  speculatorLabel: z.string(),
+  points: z.array(cotHistoryPointSchema),
+  indexes: z.array(cotIndexWindowSchema),
+  fetchedAt: z.string(),
+});
+
+export type CotReportMode = z.infer<typeof cotReportModeSchema>;
+export type CotTableKind = z.infer<typeof cotTableKindSchema>;
+export type CotBias = z.infer<typeof cotBiasSchema>;
+export type CotMarketDTO = z.infer<typeof cotMarketSchema>;
+export type CotCellDTO = z.infer<typeof cotCellSchema>;
+export type CotCategoryDTO = z.infer<typeof cotCategorySchema>;
+export type CotTableDTO = z.infer<typeof cotTableSchema>;
+export type CotSpeculatorSummaryDTO = z.infer<typeof cotSpeculatorSummarySchema>;
+export type CotReportDTO = z.infer<typeof cotReportSchema>;
+export type CotMarketListDTO = z.infer<typeof cotMarketListSchema>;
+export type CotHistoryPointDTO = z.infer<typeof cotHistoryPointSchema>;
+export type CotIndexWindowDTO = z.infer<typeof cotIndexWindowSchema>;
+export type CotHistoryDTO = z.infer<typeof cotHistorySchema>;
+
 /* ─── execution logs ─────────────────────────────────────────────────────── */
 
 export const executionStatusSchema = z.enum([

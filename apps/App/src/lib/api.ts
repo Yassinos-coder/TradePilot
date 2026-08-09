@@ -11,6 +11,10 @@ import {
   CopierLinkDTO,
   CopierOverviewDTO,
   CopyEventDTO,
+  CotHistoryDTO,
+  CotMarketListDTO,
+  CotReportDTO,
+  CotReportMode,
   CreateAccountInput,
   CreateApiKeyInput,
   CreateCopierLinkInput,
@@ -234,6 +238,24 @@ export const apiClient = {
   /* ── economic calendar ─────────────────────────────────────────────────── */
   async newsCalendar(range: NewsRange) {
     const { data } = await api.get<EconomicCalendarDTO>('/news/calendar', { params: { range } });
+    return data;
+  },
+
+  /* ── commitments of traders ────────────────────────────────────────────── */
+  async cotMarkets() {
+    const { data } = await api.get<CotMarketListDTO>('/cot/markets');
+    return data;
+  },
+
+  async cotReport(code: string, mode: CotReportMode) {
+    const { data } = await api.get<CotReportDTO>(`/cot/reports/${code}`, { params: { mode } });
+    return data;
+  },
+
+  async cotHistory(code: string, mode: CotReportMode) {
+    const { data } = await api.get<CotHistoryDTO>(`/cot/reports/${code}/history`, {
+      params: { mode },
+    });
     return data;
   },
 

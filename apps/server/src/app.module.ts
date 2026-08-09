@@ -9,6 +9,7 @@ import { ApiKeysModule } from './api-keys/api-keys.module';
 import { AssistantAnalyticsModule } from './assistant-analytics/assistant-analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { CopierModule } from './copier/copier.module';
+import { CotModule } from './cot/cot.module';
 import { DatabaseModule } from './database/database.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EaModule } from './ea/ea.module';
@@ -42,6 +43,7 @@ import { UsersModule } from './users/users.module';
     EaModule,
     AnalyticsModule,
     NewsModule,
+    CotModule,
     DashboardModule,
     AssistantAnalyticsModule,
   ],
