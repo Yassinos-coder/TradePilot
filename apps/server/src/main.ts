@@ -1,10 +1,71 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
 import compression from 'compression';
+import { timingSafeEqual } from 'node:crypto';
 
 import { AppModule } from './app.module';
+import { CotBackfillQueue } from './cot/queues/cot-backfill.queue';
 import { EaGatewayService } from './ea/ea-gateway.service';
+
+type MiddlewareRequest = { headers: { authorization?: string } };
+type MiddlewareResponse = {
+  status: (code: number) => MiddlewareResponse;
+  setHeader: (name: string, value: string) => void;
+  send: (body: string) => void;
+};
+
+function secureEqual(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
+function mountBullBoard(app: Awaited<ReturnType<typeof NestFactory.create>>, config: ConfigService) {
+  const username = config.get<string>('BULL_BOARD_USERNAME');
+  const password = config.get<string>('BULL_BOARD_PASSWORD');
+  const serverAdapter = new ExpressAdapter();
+
+  serverAdapter.setBasePath('/admin/queues');
+  createBullBoard({
+    queues: [new BullMQAdapter(app.get(CotBackfillQueue).getQueue())],
+    serverAdapter,
+  });
+
+  app.use(
+    '/admin/queues',
+    (request: MiddlewareRequest, response: MiddlewareResponse, next: () => void) => {
+      if (!username || !password) {
+        response.status(503).send('Bull Board is disabled: configure its credentials.');
+        return;
+      }
+
+      const authorization = request.headers.authorization;
+      if (authorization?.startsWith('Basic ')) {
+        const decoded = Buffer.from(authorization.slice(6), 'base64').toString('utf8');
+        const separator = decoded.indexOf(':');
+        const suppliedUsername = separator >= 0 ? decoded.slice(0, separator) : '';
+        const suppliedPassword = separator >= 0 ? decoded.slice(separator + 1) : '';
+
+        if (secureEqual(suppliedUsername, username) && secureEqual(suppliedPassword, password)) {
+          next();
+          return;
+        }
+      }
+
+      response.setHeader('WWW-Authenticate', 'Basic realm="TradePilot queues"');
+      response.status(401).send('Authentication required.');
+    },
+    serverAdapter.getRouter(),
+  );
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -27,6 +88,8 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Mount before app.init(), which installs Nest's final 404 handler.
+  mountBullBoard(app, configService);
   await app.init();
 
   // The EA WebSocket server shares the HTTP listener instead of binding its own port.

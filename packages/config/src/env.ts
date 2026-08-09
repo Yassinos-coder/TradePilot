@@ -22,6 +22,10 @@ const rawServerEnvSchema = z.object({
 
   REDIS_URL: z.string().min(1),
 
+  // Bull Board stays disabled unless both credentials are configured.
+  BULL_BOARD_USERNAME: z.string().min(1).optional(),
+  BULL_BOARD_PASSWORD: z.string().min(16).optional(),
+
   SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   SMTP_USER: z.string().min(1).optional(),

@@ -183,6 +183,12 @@ export class RedisService implements OnModuleDestroy {
     await this.client.del(key);
   }
 
+  async deleteMany(keys: string[]) {
+    if (keys.length > 0) {
+      await this.client.del(...keys);
+    }
+  }
+
   async scanKeys(pattern: string): Promise<string[]> {
     const keys: string[] = [];
     let cursor = '0';

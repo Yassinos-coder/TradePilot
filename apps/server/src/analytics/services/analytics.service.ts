@@ -1,4 +1,9 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
@@ -33,6 +38,8 @@ import { CacheService } from '../../redis/cache.service';
  */
 @Injectable()
 export class AnalyticsService {
+  private readonly logger = new Logger(AnalyticsService.name);
+
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly gateway: EaGatewayService,
@@ -47,9 +54,9 @@ export class AnalyticsService {
   private static readonly AGGREGATE_CACHE_TTL_MS = 45_000;
 
   async getAiAnalysis(userId: string, accountId?: string, startDate?: string, endDate?: string): Promise<string> {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
-      throw new InternalServerErrorException('OpenAI API key not configured');
+      throw new ServiceUnavailableException('Claude analytics coach is not configured');
     }
 
     const analytics = await this.getAnalytics(userId, accountId, startDate, endDate);
@@ -74,45 +81,61 @@ export class AnalyticsService {
       bySymbol: (analytics.bySymbol ?? []).slice(0, 5).map(s => ({ symbol: s.symbol, trades: s.trades, netProfit: s.netProfit, winRate: s.winRate })),
     };
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a professional trading performance coach. Analyze the provided trading metrics JSON and deliver an honest, direct assessment. Respond in EXACTLY 5 lines. Each line is one complete sentence. No bullets, numbers, or headers. Be specific — use actual numbers from the data. Highlight the most important strength and the most critical weakness.`,
-          },
-          {
-            role: 'user',
-            content: JSON.stringify(slim),
-          },
-        ],
-        max_tokens: 350,
-        temperature: 0.65,
-      }),
-    });
+    return this.requestClaudeCoach(apiKey, slim);
 
-    const responseText = await response.text().catch(() => '{}');
-    if (!response.ok) {
-      let parsed: { error?: { code?: string; message?: string } } = {};
-      try { parsed = JSON.parse(responseText); } catch { /* ignore */ }
-      const code = parsed.error?.code;
-      if (code === 'insufficient_quota' || response.status === 429) {
-        throw new InternalServerErrorException('OpenAI account has no remaining credits — add billing at platform.openai.com/settings/billing');
-      }
-      if (code === 'invalid_api_key' || response.status === 401) {
-        throw new InternalServerErrorException('OpenAI API key is invalid — update OPENAI_API_KEY in the server environment');
-      }
-      throw new InternalServerErrorException(`OpenAI error ${response.status}: ${parsed.error?.message ?? responseText}`);
+  }
+
+  private async requestClaudeCoach(apiKey: string, metrics: unknown): Promise<string> {
+    const model = this.configService.get<string>('ANTHROPIC_MODEL') ?? 'claude-sonnet-5';
+    let response: Response;
+
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 500,
+          temperature: 0.65,
+          system: 'You are a professional trading performance coach. Analyze only the supplied metrics. Deliver an honest, direct assessment in exactly five lines. Each line must be one complete sentence, with no bullets, numbering, or headers. Use specific numbers from the data and identify the most important strength and the most critical weakness.',
+          messages: [{ role: 'user', content: JSON.stringify(metrics) }],
+        }),
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch (error) {
+      this.logger.warn(`Claude analytics coach request failed: ${String(error)}`);
+      throw new ServiceUnavailableException('Claude analytics coach is temporarily unavailable');
     }
 
-    const result = JSON.parse(responseText) as { choices: Array<{ message: { content: string } }> };
-    return result.choices[0]?.message?.content?.trim() ?? 'Analysis unavailable.';
+    const result = (await response.json().catch(() => ({}))) as {
+      content?: Array<{ type: string; text?: string }>;
+      error?: { message?: string };
+    };
+
+    if (!response.ok) {
+      this.logger.warn(
+        `Claude analytics coach returned ${response.status}: ${result.error?.message ?? 'unknown error'}`,
+      );
+
+      if (response.status === 401) {
+        throw new InternalServerErrorException(
+          'ANTHROPIC_API_KEY is invalid — update it in the server environment',
+        );
+      }
+
+      throw new ServiceUnavailableException('Claude analytics coach is temporarily unavailable');
+    }
+
+    const analysis = result.content?.find((block) => block.type === 'text')?.text?.trim();
+    if (!analysis) {
+      throw new ServiceUnavailableException('Claude returned no analytics coaching');
+    }
+
+    return analysis;
   }
 
   async getDailyProfitSummary(

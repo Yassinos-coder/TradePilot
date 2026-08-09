@@ -37,6 +37,7 @@ import {
   TradeExecutionRecord,
 } from '../database/database.types';
 import { RedisService } from '../redis/redis.service';
+import { CacheService } from '../redis/cache.service';
 import { buildAlertTemplate } from '../notifications/email-templates';
 import { NotificationEventBusService } from '../notifications/notification-event-bus.service';
 
@@ -73,6 +74,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private heartbeatTimer?: NodeJS.Timeout;
   private readonly socketsByUser = new Map<string, Map<string, WebSocket>>();
   private readonly socketMetadata = new Map<WebSocket, SocketMetadata>();
+  private readonly messageQueues = new Map<WebSocket, Promise<void>>();
   private readonly pendingStateSyncs = new Map<string, PendingStateSync>();
   private readonly inFlightStateSyncs = new Map<string, Promise<void>>();
   private readonly recentStateSyncs = new Map<string, number>();
@@ -83,6 +85,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     private readonly apiKeysService: ApiKeysService,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
+    private readonly cacheService: CacheService,
     private readonly databaseService: DatabaseService,
     private readonly notificationEventBus: NotificationEventBusService,
     private readonly presenceService: EaPresenceService,
@@ -217,12 +220,23 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       lastServerPingAt: null,
     });
 
-    client.on('message', async (buffer) => {
-      try {
-        await this.handleMessage(client, buffer.toString());
-      } catch (error) {
-        this.logger.warn(`EA message handling failed: ${String(error)}`);
-      }
+    client.on('message', (buffer) => {
+      // State sync sends many lifecycle events in a burst. Process them in wire
+      // order so an OPEN upsert cannot race and overwrite the following CLOSED
+      // event for the same ticket.
+      const previous = this.messageQueues.get(client) ?? Promise.resolve();
+      const current = previous
+        .then(() => this.handleMessage(client, buffer.toString()))
+        .catch((error) => {
+          this.logger.warn(`EA message handling failed: ${String(error)}`);
+        })
+        .finally(() => {
+          if (this.messageQueues.get(client) === current) {
+            this.messageQueues.delete(client);
+          }
+        });
+
+      this.messageQueues.set(client, current);
     });
 
     client.on('close', () => {
@@ -660,6 +674,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     this.socketMetadata.delete(client);
+    this.messageQueues.delete(client);
   }
 
   private async upsertEaAccount(
@@ -805,6 +820,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     const existingRecord = (existing as TradeExecutionRecord | null) ?? null;
+
+    // History snapshots can arrive out of order (especially after login or an
+    // EA reconnect). A stale opening deal must never resurrect a position that
+    // Supabase already knows was closed.
+    if (existingRecord?.status === 'CLOSED' && payload.status === 'OPEN') {
+      return;
+    }
+
     const openingOrderType = this.resolveOpeningOrderType(existingRecord, payload);
     const positionDirection = this.resolvePositionDirection(existingRecord, payload);
     const closeReason =
@@ -860,6 +883,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     if (error) {
       throw new Error(error.message);
     }
+
+    await this.cacheService.invalidateUserAnalytics(userId);
 
     const status = this.tradeEventToExecutionStatus(payload.status);
     const message = this.tradeEventMessage(payload, accountId, positionDirection);

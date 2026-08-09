@@ -59,6 +59,11 @@ export class CotBackfillQueue implements OnModuleInit, OnModuleDestroy {
     await this.queue.add(COT_BACKFILL_JOB_NAME, {}, { ...COT_BACKFILL_JOB_OPTIONS });
   }
 
+  /** The queue instance used by operational tooling such as Bull Board. */
+  getQueue(): Queue {
+    return this.queue;
+  }
+
   async onModuleDestroy() {
     await this.queue.close();
     await this.connection.quit();

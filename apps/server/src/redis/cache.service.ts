@@ -27,6 +27,27 @@ export class CacheService {
     return value;
   }
 
+  /**
+   * A persisted EA event changes both the aggregate cards and date-range
+   * summaries. Remove every cached variant for this user (all accounts and
+   * date filters) so the next authenticated read comes straight from Supabase.
+   */
+  async invalidateUserAnalytics(userId: string): Promise<void> {
+    try {
+      const patterns = [
+        `tradepilot:cache:analytics:${userId}:*`,
+        `tradepilot:cache:daily:${userId}:*`,
+      ];
+      const keys = (await Promise.all(
+        patterns.map((pattern) => this.redisService.scanKeys(pattern)),
+      )).flat();
+
+      await this.redisService.deleteMany([...new Set(keys)]);
+    } catch (error) {
+      this.logger.warn(`Cache invalidation failed for user ${userId}: ${String(error)}`);
+    }
+  }
+
   /** Best-effort: a cache failure must never fail the request. */
   private async read<T>(key: string): Promise<T | undefined> {
     try {

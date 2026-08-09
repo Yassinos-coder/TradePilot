@@ -27,5 +27,6 @@ import { CotService } from './services/cot.service';
     CotBackfillQueue,
     CotBackfillProcessor,
   ],
+  exports: [CotBackfillQueue],
 })
 export class CotModule {}
