@@ -264,6 +264,20 @@ export const notificationPreferencesSchema = z.object({
   events: notificationEventPreferencesSchema,
 });
 
+export const sidebarItemSchema = z.enum([
+  '/app',
+  '/app/copier',
+  '/app/analytics',
+  '/app/calculators',
+  '/app/open-trades',
+  '/app/news',
+  '/app/cot',
+  '/app/accounts',
+  '/app/settings',
+]);
+
+export const sidebarOrderSchema = z.array(sidebarItemSchema).max(9);
+
 export const settingsDtoSchema = z.object({
   autoCopyEnabled: z.boolean().default(true),
   executionPaused: z.boolean().default(false),
@@ -276,6 +290,7 @@ export const settingsDtoSchema = z.object({
   copierDefaults: copierRiskParamsSchema,
   notificationChannels: notificationChannelPreferencesSchema,
   notificationEvents: notificationEventPreferencesSchema,
+  sidebarOrder: sidebarOrderSchema.default([]),
 });
 
 /* ─── accounts ───────────────────────────────────────────────────────────── */

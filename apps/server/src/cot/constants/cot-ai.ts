@@ -16,8 +16,8 @@ export const COT_AI_OUTPUT_SCHEMA = {
         // Claude structured outputs currently reject numeric range keywords.
         // The response DTO still enforces the 0–100 range after generation.
         conviction: { type: 'integer' },
-        title: { type: 'string' },
-        summary: { type: 'string' },
+        title: { type: 'string', description: 'Required, 1 to 80 characters.' },
+        summary: { type: 'string', description: 'Required, concise, 1 to 240 characters.' },
       },
     },
     signals: {
@@ -31,14 +31,14 @@ export const COT_AI_OUTPUT_SCHEMA = {
             type: 'string',
             enum: ['POSITIONING', 'MOMENTUM', 'EXTREME', 'COMMERCIALS', 'RISK'],
           },
-          title: { type: 'string' },
+          title: { type: 'string', description: 'Required, 1 to 70 characters.' },
           bias: { type: 'string', enum: ['BULLISH', 'BEARISH', 'NEUTRAL'] },
           strength: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
-          metric: { type: 'string' },
-          insight: { type: 'string' },
+          metric: { type: 'string', description: 'Required numeric metric, 1 to 90 characters.' },
+          insight: { type: 'string', description: 'Required, concise, 1 to 220 characters.' },
         },
       },
     },
-    disclaimer: { type: 'string' },
+    disclaimer: { type: 'string', description: 'Required risk disclaimer, 1 to 180 characters.' },
   },
 } as const;

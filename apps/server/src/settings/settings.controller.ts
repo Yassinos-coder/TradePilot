@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 
-import { SettingsDTO, settingsDtoSchema } from '@tradepilot/shared';
+import { SettingsDTO, settingsDtoSchema, sidebarOrderSchema } from '@tradepilot/shared';
 
 import { RequestUser } from '../auth/types/request-user.type';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -48,5 +48,14 @@ export class SettingsController {
     body: z.infer<typeof booleanToggleSchema>,
   ) {
     return this.settingsService.updateAllowApiTradeOpening(user.userId, body.enabled);
+  }
+
+  @Put('sidebar-order')
+  updateSidebarOrder(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(z.object({ order: sidebarOrderSchema })))
+    body: { order: string[] },
+  ) {
+    return this.settingsService.updateSidebarOrder(user.userId, body.order);
   }
 }

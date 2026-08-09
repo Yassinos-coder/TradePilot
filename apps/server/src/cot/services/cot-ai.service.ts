@@ -140,7 +140,7 @@ export class CotAiService {
     }
 
     const result = cotAiAnalysisSchema.safeParse({
-      ...(parsed as object),
+      ...this.normalizeAnalysis(parsed),
       marketCode: report.market.code,
       reportDate: report.reportDate,
       model,
@@ -153,5 +153,53 @@ export class CotAiService {
     }
 
     return result.data;
+  }
+
+  private normalizeAnalysis(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+    const analysis = value as Record<string, unknown>;
+    const overall = this.asRecord(analysis.overall);
+    const signals = Array.isArray(analysis.signals) ? analysis.signals.slice(0, 6) : analysis.signals;
+
+    return {
+      ...analysis,
+      overall: overall
+        ? {
+            ...overall,
+            conviction:
+              typeof overall.conviction === 'number'
+                ? Math.round(Math.min(100, Math.max(0, overall.conviction)))
+                : overall.conviction,
+            title: this.truncate(overall.title, 80),
+            summary: this.truncate(overall.summary, 240),
+          }
+        : analysis.overall,
+      signals: Array.isArray(signals)
+        ? signals.map((signal) => {
+            const item = this.asRecord(signal);
+            return item
+              ? {
+                  ...item,
+                  title: this.truncate(item.title, 70),
+                  metric: this.truncate(item.metric, 90),
+                  insight: this.truncate(item.insight, 220),
+                }
+              : signal;
+          })
+        : signals,
+      disclaimer: this.truncate(analysis.disclaimer, 180),
+    };
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private truncate(value: unknown, maximum: number): unknown {
+    if (typeof value !== 'string' || value.length <= maximum) return value;
+    return value.slice(0, maximum - 1).trimEnd() + '…';
   }
 }

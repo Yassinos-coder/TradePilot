@@ -222,6 +222,7 @@ create table if not exists tradepilot.settings (
   copier_defaults               jsonb       not null default '{}'::jsonb,
   notification_channels         jsonb       not null default '{"email":true,"whatsapp":false}'::jsonb,
   notification_events           jsonb       not null default '{"newTradeOpened":true,"tpHit":true,"slHit":true,"lowMargin":true,"eaDisconnected":true,"masterOffline":true,"copyFailed":true,"executionFailed":true,"dailySummary":false}'::jsonb,
+  sidebar_order                 jsonb       not null default '[]'::jsonb,
   created_at                    timestamptz not null default now(),
   updated_at                    timestamptz not null default now()
 );
@@ -232,6 +233,7 @@ alter table tradepilot.settings add column if not exists auto_copy_enabled      
 alter table tradepilot.settings add column if not exists execution_paused        boolean not null default false;
 alter table tradepilot.settings add column if not exists execution_pause_reason  text;
 alter table tradepilot.settings add column if not exists execution_paused_at     timestamptz;
+alter table tradepilot.settings add column if not exists sidebar_order           jsonb not null default '[]'::jsonb;
 
 -- Signal-era columns: per-trade risk now lives on each copier_link.
 alter table tradepilot.settings drop column if exists mode;

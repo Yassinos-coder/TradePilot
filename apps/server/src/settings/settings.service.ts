@@ -9,7 +9,12 @@ import {
   DEFAULT_NOTIFICATION_EVENTS,
   DEFAULT_SESSIONS,
 } from '@tradepilot/config';
-import { SettingsDTO, copierRiskParamsSchema, settingsDtoSchema } from '@tradepilot/shared';
+import {
+  SettingsDTO,
+  copierRiskParamsSchema,
+  settingsDtoSchema,
+  sidebarOrderSchema,
+} from '@tradepilot/shared';
 
 import { DatabaseService } from '../database/database.service';
 import { SettingsRecord } from '../database/database.types';
@@ -48,6 +53,7 @@ export class SettingsService {
         copier_defaults: DEFAULT_COPIER_RISK_PARAMS,
         notification_channels: DEFAULT_NOTIFICATION_CHANNELS,
         notification_events: DEFAULT_NOTIFICATION_EVENTS,
+        sidebar_order: [],
       })
       .select('*')
       .single();
@@ -78,6 +84,7 @@ export class SettingsService {
           copier_defaults: payload.copierDefaults,
           notification_channels: payload.notificationChannels,
           notification_events: payload.notificationEvents,
+          sidebar_order: payload.sidebarOrder,
         },
         { onConflict: 'user_id' },
       )
@@ -137,6 +144,26 @@ export class SettingsService {
     return this.toSettingsDto(data as SettingsRecord);
   }
 
+  async updateSidebarOrder(userId: string, order: string[]): Promise<SettingsDTO> {
+    await this.getSettings(userId);
+    const sidebarOrder = sidebarOrderSchema.parse(order);
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('settings')
+      .update({ sidebar_order: sidebarOrder })
+      .eq('user_id', userId)
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new InternalServerErrorException(
+        error?.message ?? 'Failed to update sidebar order',
+      );
+    }
+
+    return this.toSettingsDto(data as SettingsRecord);
+  }
+
   async setExecutionPause(
     userId: string,
     paused: boolean,
@@ -184,6 +211,7 @@ export class SettingsService {
         ...DEFAULT_NOTIFICATION_EVENTS,
         ...(settings.notification_events ?? {}),
       },
+      sidebarOrder: settings.sidebar_order ?? [],
     });
   }
 }

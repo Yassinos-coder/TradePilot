@@ -266,6 +266,10 @@ export const apiClient = {
     });
     return data;
   },
+  async updateSidebarOrder(order: string[]) {
+    const { data } = await api.put<SettingsDTO>('/settings/sidebar-order', { order });
+    return data;
+  },
 
   async cotAnalysis(code: string, mode: CotReportMode) {
     const { data } = await api.get<CotAiAnalysisDTO>(`/cot/reports/${code}/analysis`, {

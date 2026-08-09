@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, Reorder, motion, useDragControls } from 'framer-motion';
 import {
   Activity,
   BarChart3,
@@ -7,6 +8,7 @@ import {
   CalendarDays,
   CandlestickChart,
   Copy,
+  GripVertical,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -22,6 +24,7 @@ import {
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { useAppUpdate } from '@/hooks/useAppUpdate';
+import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth-store';
 import { useThemeStore } from '@/store/theme-store';
@@ -37,6 +40,18 @@ const NAV = [
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
+
+type NavPath = (typeof NAV)[number]['to'];
+const DEFAULT_NAV_ORDER = NAV.map((item) => item.to);
+
+function normalizeNavOrder(order: readonly string[] | undefined): NavPath[] {
+  const known = new Set<NavPath>(DEFAULT_NAV_ORDER);
+  const saved = (order ?? []).filter(
+    (path, index, values): path is NavPath =>
+      known.has(path as NavPath) && values.indexOf(path) === index,
+  );
+  return [...saved, ...DEFAULT_NAV_ORDER.filter((path) => !saved.includes(path))];
+}
 
 const PAGE_TITLES: Record<string, string> = {
   '/app': 'Overview',
@@ -55,9 +70,20 @@ interface SidebarProps {
   versionLabel: string;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  order: NavPath[];
+  onOrderChange: (order: NavPath[]) => void;
+  onOrderSave: () => void;
 }
 
-function SidebarContent({ onNavigate, versionLabel, collapsed = false, onToggleCollapsed }: SidebarProps) {
+function SidebarContent({
+  onNavigate,
+  versionLabel,
+  collapsed = false,
+  onToggleCollapsed,
+  order,
+  onOrderChange,
+  onOrderSave,
+}: SidebarProps) {
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
   const { theme, toggleTheme } = useThemeStore();
@@ -88,34 +114,21 @@ function SidebarContent({ onNavigate, versionLabel, collapsed = false, onToggleC
         ) : null}
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/app'}
-            onClick={onNavigate}
-            title={collapsed ? label : undefined}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-                collapsed && 'justify-center px-2',
-                isActive
-                  ? 'bg-brand text-white'
-                  : 'text-sidebar-fg hover:bg-white/5 hover:text-white',
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <Icon
-                  className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-sidebar-fg')}
-                />
-                {!collapsed ? label : null}
-              </>
-            )}
-          </NavLink>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <Reorder.Group axis="y" values={order} onReorder={onOrderChange} className="space-y-1">
+          {order.map((path) => {
+            const item = NAV.find(({ to }) => to === path);
+            return item ? (
+              <SidebarNavItem
+                key={item.to}
+                item={item}
+                collapsed={collapsed}
+                onNavigate={onNavigate}
+                onOrderSave={onOrderSave}
+              />
+            ) : null;
+          })}
+        </Reorder.Group>
       </nav>
 
       <div className="border-sidebar-line space-y-2 border-t p-3">
@@ -163,10 +176,98 @@ function SidebarContent({ onNavigate, versionLabel, collapsed = false, onToggleC
   );
 }
 
+function SidebarNavItem({
+  item: { to, label, icon: Icon },
+  collapsed,
+  onNavigate,
+  onOrderSave,
+}: {
+  item: (typeof NAV)[number];
+  collapsed: boolean;
+  onNavigate?: () => void;
+  onOrderSave: () => void;
+}) {
+  const dragControls = useDragControls();
+
+  return (
+    <Reorder.Item
+      value={to}
+      dragListener={false}
+      dragControls={dragControls}
+      onDragEnd={onOrderSave}
+      className="flex items-center"
+      whileDrag={{ scale: 1.02, zIndex: 50 }}
+    >
+      <NavLink
+        to={to}
+        end={to === '/app'}
+        onClick={onNavigate}
+        title={collapsed ? label : undefined}
+        className={({ isActive }) =>
+          cn(
+            'flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+            collapsed && 'justify-center px-2',
+            isActive
+              ? 'bg-brand text-white'
+              : 'text-sidebar-fg hover:bg-white/5 hover:text-white',
+          )
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-sidebar-fg')} />
+            {!collapsed ? <span className="truncate">{label}</span> : null}
+          </>
+        )}
+      </NavLink>
+      {!collapsed ? (
+        <button
+          type="button"
+          aria-label={`Reorder ${label}`}
+          title={`Drag to reorder ${label}`}
+          onPointerDown={(event) => dragControls.start(event)}
+          className="text-sidebar-fg ml-1 cursor-grab touch-none rounded-lg p-2 hover:bg-white/5 hover:text-white active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      ) : null}
+    </Reorder.Item>
+  );
+}
+
 export function AppShell() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOrder, setSidebarOrder] = useState<NavPath[]>(DEFAULT_NAV_ORDER);
+  const sidebarOrderRef = useRef<NavPath[]>(DEFAULT_NAV_ORDER);
+  const queryClient = useQueryClient();
+  const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: apiClient.settings });
+  const sidebarOrderMutation = useMutation({
+    mutationFn: apiClient.updateSidebarOrder,
+    onSuccess: (settings) => queryClient.setQueryData(['settings'], settings),
+    onError: () => {
+      const restored = normalizeNavOrder(settingsQuery.data?.sidebarOrder);
+      sidebarOrderRef.current = restored;
+      setSidebarOrder(restored);
+    },
+  });
+
+  useEffect(() => {
+    if (!settingsQuery.data) return;
+    const restored = normalizeNavOrder(settingsQuery.data.sidebarOrder);
+    sidebarOrderRef.current = restored;
+    setSidebarOrder(restored);
+  }, [settingsQuery.data]);
+
+  const reorderSidebar = (order: NavPath[]) => {
+    sidebarOrderRef.current = order;
+    setSidebarOrder(order);
+  };
+
+  const saveSidebarOrder = () => {
+    sidebarOrderMutation.mutate(sidebarOrderRef.current);
+  };
   const { currentManifest, availableManifest, hasUpdate, isRefreshing, dismiss, refreshToLatest } =
     useAppUpdate();
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'TradePilot';
@@ -192,6 +293,9 @@ export function AppShell() {
           versionLabel={versionLabel}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+          order={sidebarOrder}
+          onOrderChange={reorderSidebar}
+          onOrderSave={saveSidebarOrder}
         />
       </div>
 
@@ -227,6 +331,9 @@ export function AppShell() {
               <SidebarContent
                 onNavigate={() => setMobileNavOpen(false)}
                 versionLabel={versionLabel}
+                order={sidebarOrder}
+                onOrderChange={reorderSidebar}
+                onOrderSave={saveSidebarOrder}
               />
             </motion.aside>
           </>

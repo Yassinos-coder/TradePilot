@@ -128,6 +128,7 @@ export interface SettingsRecord {
     executionFailed?: boolean;
     dailySummary?: boolean;
   };
+  sidebar_order: string[] | null;
   created_at: string;
   updated_at: string;
 }
