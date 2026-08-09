@@ -143,8 +143,8 @@ export function CotReportPage() {
             </div>
           ) : analysisQuery.isError ? (
             <Alert tone="warning" title="AI interpretation is unavailable">
-              The COT tables remain available. Add or verify ANTHROPIC_API_KEY on the server to
-              enable Claude positioning cards.
+              The COT tables remain available. Claude could not generate the positioning cards
+              right now. Please try again shortly.
             </Alert>
           ) : analysisQuery.data ? (
             <CotAiAnalysis analysis={analysisQuery.data} />

@@ -31,5 +31,6 @@ FROM nginx:1.27-alpine AS runner
 
 COPY apps/App/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/apps/App/dist /usr/share/nginx/html
+RUN chmod -R a+rX /usr/share/nginx/html
 
 EXPOSE 80
