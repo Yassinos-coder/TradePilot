@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AnimatePresence, Reorder, motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, Reorder, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
@@ -8,7 +8,6 @@ import {
   CalendarDays,
   CandlestickChart,
   Copy,
-  GripVertical,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -51,6 +50,33 @@ function normalizeNavOrder(order: readonly string[] | undefined): NavPath[] {
       known.has(path as NavPath) && values.indexOf(path) === index,
   );
   return [...saved, ...DEFAULT_NAV_ORDER.filter((path) => !saved.includes(path))];
+}
+
+function sidebarStorageKey(userId: string | undefined) {
+  return userId ? `tradepilot:sidebar-order:${userId}` : null;
+}
+
+function readStoredNavOrder(userId: string | undefined): NavPath[] {
+  const key = sidebarStorageKey(userId);
+  if (!key) return DEFAULT_NAV_ORDER;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown;
+    return normalizeNavOrder(
+      Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [],
+    );
+  } catch {
+    return DEFAULT_NAV_ORDER;
+  }
+}
+
+function writeStoredNavOrder(userId: string | undefined, order: NavPath[]) {
+  const key = sidebarStorageKey(userId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(order));
+  } catch {
+    // Supabase remains the durable fallback when browser storage is unavailable.
+  }
 }
 
 const PAGE_TITLES: Record<string, string> = {
@@ -187,15 +213,11 @@ function SidebarNavItem({
   onNavigate?: () => void;
   onOrderSave: () => void;
 }) {
-  const dragControls = useDragControls();
-
   return (
     <Reorder.Item
       value={to}
-      dragListener={false}
-      dragControls={dragControls}
       onDragEnd={onOrderSave}
-      className="flex items-center"
+      className="flex cursor-grab touch-none items-center active:cursor-grabbing"
       whileDrag={{ scale: 1.02, zIndex: 50 }}
     >
       <NavLink
@@ -220,45 +242,37 @@ function SidebarNavItem({
           </>
         )}
       </NavLink>
-      {!collapsed ? (
-        <button
-          type="button"
-          aria-label={`Reorder ${label}`}
-          title={`Drag to reorder ${label}`}
-          onPointerDown={(event) => dragControls.start(event)}
-          className="text-sidebar-fg ml-1 cursor-grab touch-none rounded-lg p-2 hover:bg-white/5 hover:text-white active:cursor-grabbing"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      ) : null}
     </Reorder.Item>
   );
 }
 
 export function AppShell() {
   const location = useLocation();
+  const userId = useAuthStore((state) => state.user?.id ?? state.session?.user.id);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarOrder, setSidebarOrder] = useState<NavPath[]>(DEFAULT_NAV_ORDER);
-  const sidebarOrderRef = useRef<NavPath[]>(DEFAULT_NAV_ORDER);
+  const [sidebarOrder, setSidebarOrder] = useState<NavPath[]>(() => readStoredNavOrder(userId));
+  const sidebarOrderRef = useRef<NavPath[]>(sidebarOrder);
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: apiClient.settings });
   const sidebarOrderMutation = useMutation({
     mutationFn: apiClient.updateSidebarOrder,
     onSuccess: (settings) => queryClient.setQueryData(['settings'], settings),
-    onError: () => {
-      const restored = normalizeNavOrder(settingsQuery.data?.sidebarOrder);
-      sidebarOrderRef.current = restored;
-      setSidebarOrder(restored);
-    },
   });
+
+  useEffect(() => {
+    const restored = readStoredNavOrder(userId);
+    sidebarOrderRef.current = restored;
+    setSidebarOrder(restored);
+  }, [userId]);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
     const restored = normalizeNavOrder(settingsQuery.data.sidebarOrder);
     sidebarOrderRef.current = restored;
     setSidebarOrder(restored);
-  }, [settingsQuery.data]);
+    writeStoredNavOrder(userId, restored);
+  }, [settingsQuery.data, userId]);
 
   const reorderSidebar = (order: NavPath[]) => {
     sidebarOrderRef.current = order;
@@ -266,6 +280,7 @@ export function AppShell() {
   };
 
   const saveSidebarOrder = () => {
+    writeStoredNavOrder(userId, sidebarOrderRef.current);
     sidebarOrderMutation.mutate(sidebarOrderRef.current);
   };
   const { currentManifest, availableManifest, hasUpdate, isRefreshing, dismiss, refreshToLatest } =

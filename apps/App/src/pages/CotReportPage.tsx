@@ -77,6 +77,11 @@ export function CotReportPage() {
   const legacyTable = report?.tables.find((table) => table.kind === 'legacy');
   const detailTable = report?.tables.find((table) => table.kind !== 'legacy');
 
+  const refreshCot = async () => {
+    await Promise.all([reportQuery.refetch(), historyQuery.refetch()]);
+    await analysisQuery.refetch();
+  };
+
   const changeGroup = (next: string) => {
     setGroup(next);
 
@@ -95,8 +100,10 @@ export function CotReportPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void reportQuery.refetch()}
-            isLoading={reportQuery.isFetching}
+            onClick={() => void refreshCot()}
+            isLoading={
+              reportQuery.isFetching || historyQuery.isFetching || analysisQuery.isFetching
+            }
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
@@ -143,8 +150,20 @@ export function CotReportPage() {
             </div>
           ) : analysisQuery.isError ? (
             <Alert tone="warning" title="AI interpretation is unavailable">
-              The COT tables remain available. Claude could not generate the positioning cards
-              right now. Please try again shortly.
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  The COT tables remain available. Claude could not generate the positioning cards
+                  right now.
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void analysisQuery.refetch()}
+                  isLoading={analysisQuery.isFetching}
+                >
+                  Retry AI
+                </Button>
+              </div>
             </Alert>
           ) : analysisQuery.data ? (
             <CotAiAnalysis analysis={analysisQuery.data} />

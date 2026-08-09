@@ -43,10 +43,10 @@ interface BlsResponse {
 }
 
 const BLS_INDICATORS = [
-  { pattern: /core cpi m\/m/i, series: 'CUSR0000SA0L1E', change: 1, title: 'Core CPI m/m', measures: 'Monthly change in consumer prices excluding food and energy.' },
-  { pattern: /core cpi y\/y/i, series: 'CUSR0000SA0L1E', change: 12, title: 'Core CPI y/y', measures: 'Annual change in consumer prices excluding food and energy.' },
-  { pattern: /\bcpi m\/m/i, series: 'CUSR0000SA0', change: 1, title: 'CPI m/m', measures: 'Monthly change in prices paid by urban consumers.' },
-  { pattern: /\bcpi y\/y/i, series: 'CUSR0000SA0', change: 12, title: 'CPI y/y', measures: 'Annual change in prices paid by urban consumers.' },
+  { pattern: /core cpi m\/m/i, series: 'CUSR0000SA0L1E', fredSeries: 'CPILFESL', change: 1, title: 'Core CPI m/m', measures: 'Monthly change in consumer prices excluding food and energy.' },
+  { pattern: /core cpi y\/y/i, series: 'CUSR0000SA0L1E', fredSeries: 'CPILFESL', change: 12, title: 'Core CPI y/y', measures: 'Annual change in consumer prices excluding food and energy.' },
+  { pattern: /\bcpi m\/m/i, series: 'CUSR0000SA0', fredSeries: 'CPIAUCSL', change: 1, title: 'CPI m/m', measures: 'Monthly change in prices paid by urban consumers.' },
+  { pattern: /\bcpi y\/y/i, series: 'CUSR0000SA0', fredSeries: 'CPIAUCSL', change: 12, title: 'CPI y/y', measures: 'Annual change in prices paid by urban consumers.' },
 ] as const;
 
 @Injectable()
@@ -59,9 +59,21 @@ export class NewsService {
   ) {}
 
   async getCalendar(range: NewsRange): Promise<EconomicCalendarDTO> {
-    return this.cacheService.remember(`tradepilot:cache:news:${range}`, CACHE_TTL_MS, () =>
-      this.fetchCalendar(range),
-    );
+    const staleKey = `tradepilot:cache:news:stale:${range}`;
+    return this.cacheService.remember(`tradepilot:cache:news:${range}`, CACHE_TTL_MS, async () => {
+      try {
+        const calendar = await this.fetchCalendar(range);
+        await this.cacheService.set(staleKey, calendar, 7 * 24 * 60 * 60_000);
+        return calendar;
+      } catch (error) {
+        const stale = await this.cacheService.get<EconomicCalendarDTO>(staleKey);
+        if (stale) {
+          this.logger.warn(`Economic calendar feed unavailable for ${range}; serving stale cache`);
+          return stale;
+        }
+        throw error;
+      }
+    });
   }
 
   async getIndicatorDetail(title: string): Promise<EconomicIndicatorDetailDTO> {
@@ -87,36 +99,23 @@ export class NewsService {
       `tradepilot:cache:news:indicator:${indicator.series}:${indicator.change}`,
       12 * 60 * 60_000,
       async () => {
-        const response = await fetch('https://api.bls.gov/publicAPI/v1/timeseries/data/', {
-          method: 'POST',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seriesid: [indicator.series] }),
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-        const responseText = await response.text();
-        let payload: BlsResponse = {};
-        try {
-          payload = JSON.parse(responseText) as BlsResponse;
-        } catch {
-          this.logger.warn(`BLS returned a non-JSON response (${response.status})`);
-        }
-        if (!response.ok || payload.status !== 'REQUEST_SUCCEEDED') {
-          throw new ServiceUnavailableException('BLS indicator history is unavailable');
-        }
-
-        const observations = (payload.Results?.series?.[0]?.data ?? [])
-          .filter((row) => /^M(0[1-9]|1[0-2])$/.test(row.period ?? '') && Number.isFinite(Number(row.value)))
-          .map((row) => ({ date: `${row.year}-${row.period!.slice(1)}-01`, index: Number(row.value) }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        const history = observations.slice(indicator.change).map((point, index) => ({
+        const blsObservations = await this.fetchBlsObservations(indicator.series);
+        const observations = blsObservations ?? await this.fetchFredObservations(indicator.fredSeries);
+        const recent = observations.slice(-(60 + indicator.change));
+        const history = recent.slice(indicator.change).map((point, index) => ({
           date: point.date,
-          actual: Number((((point.index / observations[index]!.index) - 1) * 100).toFixed(2)),
+          actual: Number((((point.index / recent[index]!.index) - 1) * 100).toFixed(2)),
         }));
+        const usedBls = blsObservations !== null;
 
         return {
           title: indicator.title,
-          source: 'U.S. Bureau of Labor Statistics',
-          sourceUrl: `https://data.bls.gov/timeseries/${indicator.series}`,
+          source: usedBls
+            ? 'U.S. Bureau of Labor Statistics'
+            : 'Federal Reserve Bank of St. Louis (FRED)',
+          sourceUrl: usedBls
+            ? `https://data.bls.gov/timeseries/${indicator.series}`
+            : `https://fred.stlouisfed.org/series/${indicator.fredSeries}`,
           measures: indicator.measures,
           frequency: 'Monthly',
           whyItMatters: 'Inflation affects interest-rate expectations, bond yields, and currency valuation.',
@@ -125,6 +124,59 @@ export class NewsService {
         };
       },
     );
+  }
+
+  private async fetchBlsObservations(series: string): Promise<Array<{ date: string; index: number }> | null> {
+    try {
+      const response = await fetch('https://api.bls.gov/publicAPI/v1/timeseries/data/', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'TradePilot/0.7',
+        },
+        body: JSON.stringify({ seriesid: [series] }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      const responseText = await response.text();
+      const payload = JSON.parse(responseText) as BlsResponse;
+      if (!response.ok || payload.status !== 'REQUEST_SUCCEEDED') {
+        this.logger.warn(`BLS indicator API unavailable (${response.status}); using FRED fallback`);
+        return null;
+      }
+
+      return (payload.Results?.series?.[0]?.data ?? [])
+        .filter((row) => /^M(0[1-9]|1[0-2])$/.test(row.period ?? '') && Number.isFinite(Number(row.value)))
+        .map((row) => ({ date: `${row.year}-${row.period!.slice(1)}-01`, index: Number(row.value) }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    } catch (error) {
+      this.logger.warn(`BLS indicator API failed; using FRED fallback: ${String(error)}`);
+      return null;
+    }
+  }
+
+  private async fetchFredObservations(series: string): Promise<Array<{ date: string; index: number }>> {
+    const response = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}`, {
+      headers: { Accept: 'text/csv', 'User-Agent': 'TradePilot/0.7' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new ServiceUnavailableException('Official CPI history is unavailable');
+    }
+
+    const csv = await response.text();
+    const observations = csv.trim().split(/\r?\n/).slice(1)
+      .map((line) => {
+        const [date, rawValue] = line.split(',');
+        return { date: date ?? '', index: Number(rawValue) };
+      })
+      .filter((row) => /^\d{4}-\d{2}-01$/.test(row.date) && Number.isFinite(row.index));
+
+    if (observations.length < 13) {
+      throw new ServiceUnavailableException('Official CPI history is unavailable');
+    }
+
+    return observations;
   }
 
   private async getRetailSalesDetail(title: string): Promise<EconomicIndicatorDetailDTO> {
@@ -191,7 +243,7 @@ export class NewsService {
     try {
       const response = await fetch(FEED_URLS[range], {
         signal: controller.signal,
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradePilot/0.7' },
       });
 
       if (!response.ok) {

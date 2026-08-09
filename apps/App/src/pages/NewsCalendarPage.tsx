@@ -300,7 +300,7 @@ export function NewsCalendarPage() {
                     <tr>
                       <th className="w-24 px-5 py-2.5 font-medium">Time</th>
                       <th className="w-20 px-3 py-2.5 font-medium">Currency</th>
-                      <th className="w-24 px-3 py-2.5 font-medium">Impact</th>
+                      <th className="w-36 px-3 py-2.5 font-medium">Impact</th>
                       <th className="px-3 py-2.5 font-medium">Event</th>
                       <th className="w-24 px-3 py-2.5 text-right font-medium">Actual</th>
                       <th className="w-24 px-3 py-2.5 text-right font-medium">Forecast</th>
@@ -319,7 +319,7 @@ export function NewsCalendarPage() {
                           <td className="text-content-primary px-3 py-2.5 text-xs font-semibold">
                             {event.currency}
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="w-36 min-w-36 px-3 py-2.5">
                             <span
                               className={cn(
                                 'inline-flex items-center gap-1.5 text-xs font-medium',
