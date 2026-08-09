@@ -12,6 +12,9 @@ const rawServerEnvSchema = z.object({
   LLM_MODEL: z.string().min(1).default('gpt-4.1'),
   LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.1),
 
+  ANTHROPIC_API_KEY: z.string().min(20).optional(),
+  ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5'),
+
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_SCHEMA: z.string().min(1).default('tradepilot'),

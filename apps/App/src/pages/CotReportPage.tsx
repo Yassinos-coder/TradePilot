@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import type { CotReportMode } from '@tradepilot/shared';
 
 import { CotCategoryHistoryChart } from '@/components/cot/CotCategoryHistoryChart';
+import { CotAiAnalysis } from '@/components/cot/CotAiAnalysis';
 import { CotDetailTable } from '@/components/cot/CotDetailTable';
 import { CotIndexTiles } from '@/components/cot/CotIndexTiles';
 import { CotLegacyTable } from '@/components/cot/CotLegacyTable';
@@ -57,6 +58,16 @@ export function CotReportPage() {
     queryKey: ['cot', 'history', code, mode],
     queryFn: () => apiClient.cotHistory(code, mode),
     staleTime: 60 * 60_000,
+  });
+
+  const analysisQuery = useQuery({
+    queryKey: ['cot', 'analysis', code, mode],
+    queryFn: () => apiClient.cotAnalysis(code, mode),
+    // Avoid racing the first historical backfill with an identical request from
+    // the analysis endpoint. Once both datasets exist, Claude can read them.
+    enabled: reportQuery.isSuccess && historyQuery.isSuccess,
+    staleTime: 6 * 60 * 60_000,
+    retry: 1,
   });
 
   const markets = marketsQuery.data?.markets ?? [];
@@ -120,6 +131,24 @@ export function CotReportPage() {
           <CotReportHeader report={report} />
 
           <CotSpeculatorSummary speculators={report.speculators} />
+
+          {analysisQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-32 w-full" />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <Skeleton className="h-48 w-full" />
+                <Skeleton className="h-48 w-full" />
+                <Skeleton className="h-48 w-full" />
+              </div>
+            </div>
+          ) : analysisQuery.isError ? (
+            <Alert tone="warning" title="AI interpretation is unavailable">
+              The COT tables remain available. Add or verify ANTHROPIC_API_KEY on the server to
+              enable Claude positioning cards.
+            </Alert>
+          ) : analysisQuery.data ? (
+            <CotAiAnalysis analysis={analysisQuery.data} />
+          ) : null}
 
           {historyQuery.isLoading ? (
             <div className="space-y-3">

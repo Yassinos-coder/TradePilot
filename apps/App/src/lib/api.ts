@@ -12,6 +12,7 @@ import {
   CopierOverviewDTO,
   CopyEventDTO,
   CotHistoryDTO,
+  CotAiAnalysisDTO,
   CotMarketListDTO,
   CotReportDTO,
   CotReportMode,
@@ -254,6 +255,13 @@ export const apiClient = {
 
   async cotHistory(code: string, mode: CotReportMode) {
     const { data } = await api.get<CotHistoryDTO>(`/cot/reports/${code}/history`, {
+      params: { mode },
+    });
+    return data;
+  },
+
+  async cotAnalysis(code: string, mode: CotReportMode) {
+    const { data } = await api.get<CotAiAnalysisDTO>(`/cot/reports/${code}/analysis`, {
       params: { mode },
     });
     return data;

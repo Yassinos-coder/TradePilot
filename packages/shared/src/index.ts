@@ -812,6 +812,33 @@ export const cotHistorySchema = z.object({
   fetchedAt: z.string(),
 });
 
+export const cotAiBiasSchema = z.enum(['BULLISH', 'BEARISH', 'NEUTRAL']);
+export const cotAiStrengthSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+
+export const cotAiSignalSchema = z.object({
+  category: z.enum(['POSITIONING', 'MOMENTUM', 'EXTREME', 'COMMERCIALS', 'RISK']),
+  title: z.string().min(1).max(70),
+  bias: cotAiBiasSchema,
+  strength: cotAiStrengthSchema,
+  metric: z.string().min(1).max(90),
+  insight: z.string().min(1).max(220),
+});
+
+export const cotAiAnalysisSchema = z.object({
+  marketCode: z.string().min(1),
+  reportDate: z.string(),
+  model: z.string(),
+  overall: z.object({
+    bias: cotAiBiasSchema,
+    conviction: z.number().int().min(0).max(100),
+    title: z.string().min(1).max(80),
+    summary: z.string().min(1).max(240),
+  }),
+  signals: z.array(cotAiSignalSchema).min(4).max(6),
+  disclaimer: z.string().min(1).max(180),
+  generatedAt: z.string(),
+});
+
 export type CotReportMode = z.infer<typeof cotReportModeSchema>;
 export type CotTableKind = z.infer<typeof cotTableKindSchema>;
 export type CotBias = z.infer<typeof cotBiasSchema>;
@@ -825,6 +852,10 @@ export type CotMarketListDTO = z.infer<typeof cotMarketListSchema>;
 export type CotHistoryPointDTO = z.infer<typeof cotHistoryPointSchema>;
 export type CotIndexWindowDTO = z.infer<typeof cotIndexWindowSchema>;
 export type CotHistoryDTO = z.infer<typeof cotHistorySchema>;
+export type CotAiBias = z.infer<typeof cotAiBiasSchema>;
+export type CotAiStrength = z.infer<typeof cotAiStrengthSchema>;
+export type CotAiSignalDTO = z.infer<typeof cotAiSignalSchema>;
+export type CotAiAnalysisDTO = z.infer<typeof cotAiAnalysisSchema>;
 
 /* ─── execution logs ─────────────────────────────────────────────────────── */
 

@@ -41,6 +41,8 @@ API_KEY_ROTATION_GRACE_HOURS=24
 # OpenAI — optional, only powers the analytics AI coach
 OPENAI_API_KEY=sk-...
 LLM_MODEL=gpt-4.1
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-sonnet-5
 LLM_TEMPERATURE=0.1
 
 # Redis
