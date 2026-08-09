@@ -27,6 +27,16 @@ export class CacheService {
     return value;
   }
 
+  /** Best-effort cache priming for data already persisted in Supabase. */
+  async set(key: string, value: unknown, ttlMs: number): Promise<void> {
+    await this.write(key, value, ttlMs);
+  }
+
+  /** Reads a pre-warmed value without invoking a fallback computation. */
+  async get<T>(key: string): Promise<T | undefined> {
+    return this.read<T>(key);
+  }
+
   /**
    * A persisted EA event changes both the aggregate cards and date-range
    * summaries. Remove every cached variant for this user (all accounts and
@@ -37,6 +47,8 @@ export class CacheService {
       const patterns = [
         `tradepilot:cache:analytics:${userId}:*`,
         `tradepilot:cache:daily:${userId}:*`,
+        `tradepilot:cache:coach:${userId}:*`,
+        `tradepilot:cache:trades:${userId}`,
       ];
       const keys = (await Promise.all(
         patterns.map((pattern) => this.redisService.scanKeys(pattern)),

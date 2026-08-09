@@ -18,10 +18,11 @@ export class AuthController {
     @Req() request: any,
     @Res({ passthrough: true }) response: any,
   ) {
-    await this.authService.authenticateAccessToken(accessToken, {
+    const user = await this.authService.authenticateAccessToken(accessToken, {
       ipAddress: request.ip ?? request.socket?.remoteAddress ?? null,
       userAgent: request.headers['user-agent'] ?? null,
     });
+    await this.authService.warmTradeHistoryCache(user.userId);
     response.setHeader('Set-Cookie', buildAuthCookies(accessToken, refreshToken, request));
     return { success: true };
   }

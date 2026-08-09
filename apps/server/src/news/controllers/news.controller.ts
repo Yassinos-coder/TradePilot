@@ -17,4 +17,9 @@ export class NewsController {
 
     return this.newsService.getCalendar(resolved);
   }
+
+  @Get('indicator')
+  getIndicator(@Query('title') title?: string) {
+    return this.newsService.getIndicatorDetail(title ?? '');
+  }
 }

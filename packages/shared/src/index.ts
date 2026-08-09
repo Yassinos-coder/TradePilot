@@ -685,10 +685,27 @@ export const economicCalendarSchema = z.object({
   events: z.array(economicEventSchema),
 });
 
+export const economicIndicatorPointSchema = z.object({
+  date: z.string(),
+  actual: z.number(),
+});
+
+export const economicIndicatorDetailSchema = z.object({
+  title: z.string(),
+  source: z.string(),
+  sourceUrl: z.string().url(),
+  measures: z.string(),
+  frequency: z.string(),
+  whyItMatters: z.string(),
+  history: z.array(economicIndicatorPointSchema),
+  unit: z.string(),
+});
+
 export type NewsImpact = z.infer<typeof newsImpactSchema>;
 export type NewsRange = z.infer<typeof newsRangeSchema>;
 export type EconomicEventDTO = z.infer<typeof economicEventSchema>;
 export type EconomicCalendarDTO = z.infer<typeof economicCalendarSchema>;
+export type EconomicIndicatorDetailDTO = z.infer<typeof economicIndicatorDetailSchema>;
 
 /* ─── commitments of traders ─────────────────────────────────────────────── */
 

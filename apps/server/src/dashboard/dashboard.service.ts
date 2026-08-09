@@ -18,7 +18,9 @@ export class DashboardService {
   ) {}
 
   async getOverview(userId: string): Promise<DashboardOverviewDTO> {
-    await this.analyticsService.syncLiveExecutionData(userId);
+    // Return persisted/cache-warmed data immediately. The EA refresh continues
+    // in the background and invalidates these caches when it stores an update.
+    void this.analyticsService.syncLiveExecutionData(userId).catch(() => undefined);
 
     const [
       connectedAccounts,

@@ -52,6 +52,8 @@ export class AnalyticsService {
    * enough that a closed trade shows up promptly.
    */
   private static readonly AGGREGATE_CACHE_TTL_MS = 45_000;
+  private static readonly TRADE_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+  private static readonly AI_COACH_CACHE_TTL_MS = 30 * 60_000;
 
   async getAiAnalysis(userId: string, accountId?: string, startDate?: string, endDate?: string): Promise<string> {
     const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
@@ -81,7 +83,11 @@ export class AnalyticsService {
       bySymbol: (analytics.bySymbol ?? []).slice(0, 5).map(s => ({ symbol: s.symbol, trades: s.trades, netProfit: s.netProfit, winRate: s.winRate })),
     };
 
-    return this.requestClaudeCoach(apiKey, slim);
+    return this.cacheService.remember(
+      `tradepilot:cache:coach:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
+      AnalyticsService.AI_COACH_CACHE_TTL_MS,
+      () => this.requestClaudeCoach(apiKey, slim),
+    );
 
   }
 
@@ -99,9 +105,10 @@ export class AnalyticsService {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 500,
-          temperature: 0.65,
-          system: 'You are a professional trading performance coach. Analyze only the supplied metrics. Deliver an honest, direct assessment in exactly five lines. Each line must be one complete sentence, with no bullets, numbering, or headers. Use specific numbers from the data and identify the most important strength and the most critical weakness.',
+          max_tokens: 350,
+          thinking: { type: 'disabled' },
+          cache_control: { type: 'ephemeral' },
+          system: 'Analyze only the supplied trading metrics. Return exactly five concise sentences on separate lines, without bullets or headings. Cite relevant numbers, the strongest result, the main weakness, and one risk-aware improvement. Do not invent data or give trade instructions.',
           messages: [{ role: 'user', content: JSON.stringify(metrics) }],
         }),
         signal: AbortSignal.timeout(45_000),
@@ -254,31 +261,31 @@ export class AnalyticsService {
     limit = 10,
     accountId?: string,
   ): Promise<TradeExecutionDTO[]> {
-    if (!accountId?.startsWith('upload:')) {
-      await this.syncLiveExecutionData(userId, accountId);
-    }
+    const trades = await this.cacheService.remember(
+      `tradepilot:cache:trades:${userId}`,
+      AnalyticsService.TRADE_CACHE_TTL_MS,
+      async () => {
+        const { data, error } = await this.databaseService
+          .getClient()
+          .from('trade_executions')
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false })
+          .limit(5_000);
 
-    let query = this.databaseService
-      .getClient()
-      .from('trade_executions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false })
-      .limit(limit);
+        if (error) {
+          throw new InternalServerErrorException(error.message);
+        }
 
-    if (accountId) {
-      query = query.eq('account_id', accountId);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw new InternalServerErrorException(error.message);
-    }
+        return (data ?? []) as TradeExecutionRecord[];
+      },
+    );
 
     const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
-    return ((data ?? []) as TradeExecutionRecord[])
+    return trades
+      .filter((trade) => !accountId || trade.account_id === accountId)
       .filter((trade) => !hiddenAccountIds.includes(trade.account_id))
+      .slice(0, limit)
       .map((trade) => this.toTradeExecutionDto(trade));
   }
 

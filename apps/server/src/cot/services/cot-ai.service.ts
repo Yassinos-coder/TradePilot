@@ -94,7 +94,9 @@ export class CotAiService {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1_800,
+          max_tokens: 900,
+          thinking: { type: 'disabled' },
+          cache_control: { type: 'ephemeral' },
           system: COT_AI_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
           output_config: {

@@ -22,6 +22,7 @@ import {
   DailyTradeSummaryDTO,
   DashboardOverviewDTO,
   EconomicCalendarDTO,
+  EconomicIndicatorDetailDTO,
   ExecutionLogDTO,
   NewsRange,
   NotificationPreferencesDTO,
@@ -256,6 +257,12 @@ export const apiClient = {
   async cotHistory(code: string, mode: CotReportMode) {
     const { data } = await api.get<CotHistoryDTO>(`/cot/reports/${code}/history`, {
       params: { mode },
+    });
+    return data;
+  },
+  async newsIndicator(title: string) {
+    const { data } = await api.get<EconomicIndicatorDetailDTO>('/news/indicator', {
+      params: { title },
     });
     return data;
   },

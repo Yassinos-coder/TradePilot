@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarDays, RefreshCw } from 'lucide-react';
+import { BarChart3, Bell, CalendarDays, Clock3, RefreshCw } from 'lucide-react';
 
 import type { EconomicEventDTO, NewsImpact, NewsRange } from '@tradepilot/shared';
 
@@ -8,8 +8,10 @@ import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Modal } from '@/components/ui/Modal';
 import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useToastStore } from '@/store/toast-store';
 
 const RANGES = [
   { key: 'lastweek' as const, label: 'Last week' },
@@ -58,16 +60,90 @@ function isToday(iso: string) {
   );
 }
 
+function countdown(iso: string, now: number) {
+  const remaining = new Date(iso).getTime() - now;
+  if (remaining <= 0) return null;
+  const minutes = Math.floor(remaining / 60_000);
+  if (minutes >= 60) return null;
+  return minutes > 0 ? `${minutes}m ${Math.floor((remaining % 60_000) / 1000)}s` : `${Math.ceil(remaining / 1000)}s`;
+}
+
+function HistoryChart({ points }: { points: Array<{ date: string; actual: number }> }) {
+  if (points.length < 2) return null;
+  const visible = points.slice(-24);
+  const values = visible.map((point) => point.actual);
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 0);
+  const range = max - min || 1;
+  const width = 720;
+  const height = 220;
+  const path = visible.map((point, index) => {
+    const x = (index / (visible.length - 1)) * width;
+    const y = height - ((point.actual - min) / range) * (height - 24) - 12;
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+
+  return (
+    <div className="border-line bg-surface-inset mt-4 overflow-hidden rounded-xl border p-3">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-52 w-full" role="img" aria-label="Official indicator history">
+        <line x1="0" x2={width} y1={height - ((0 - min) / range) * (height - 24) - 12} y2={height - ((0 - min) / range) * (height - 24) - 12} className="stroke-line" />
+        <path d={path} fill="none" className="stroke-brand" strokeWidth="3" />
+        {visible.map((point, index) => {
+          const x = (index / (visible.length - 1)) * width;
+          const y = height - ((point.actual - min) / range) * (height - 24) - 12;
+          return <circle key={point.date} cx={x} cy={y} r="3" className="fill-brand" />;
+        })}
+      </svg>
+      <div className="text-content-tertiary flex justify-between text-xs">
+        <span>{new Date(visible[0]!.date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>
+        <span>{new Date(visible.at(-1)!.date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>
+      </div>
+    </div>
+  );
+}
+
 export function NewsCalendarPage() {
   const [range, setRange] = useState<NewsRange>('thisweek');
   const [impacts, setImpacts] = useState<Set<NewsImpact>>(new Set(['HIGH', 'MEDIUM']));
   const [currencies, setCurrencies] = useState<Set<string>>(new Set());
+  const [selectedEvent, setSelectedEvent] = useState<EconomicEventDTO | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const pushToast = useToastStore((state) => state.push);
 
   const calendarQuery = useQuery({
     queryKey: ['news', 'calendar', range],
     queryFn: () => apiClient.newsCalendar(range),
     staleTime: 5 * 60_000,
   });
+
+  const indicatorQuery = useQuery({
+    queryKey: ['news', 'indicator', selectedEvent?.title],
+    queryFn: () => apiClient.newsIndicator(selectedEvent!.title),
+    enabled: Boolean(selectedEvent),
+    staleTime: 12 * 60 * 60_000,
+  });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    for (const event of calendarQuery.data?.events ?? []) {
+      if (event.allDay || !['HIGH', 'MEDIUM'].includes(event.impact)) continue;
+      const remaining = new Date(event.date).getTime() - now;
+      const reminderKey = `tradepilot:news-reminder:${event.id}`;
+      if (remaining > 0 && remaining <= 10 * 60_000 && !sessionStorage.getItem(reminderKey)) {
+        sessionStorage.setItem(reminderKey, 'shown');
+        pushToast({
+          tone: 'info',
+          title: `${event.currency} news in 10 minutes`,
+          description: `${event.title} is scheduled for ${timeLabel(event)}.`,
+          durationMs: 10_000,
+        });
+      }
+    }
+  }, [calendarQuery.data, now, pushToast]);
 
   const grouped = useMemo(() => {
     const events = (calendarQuery.data?.events ?? []).filter((event) => {
@@ -254,7 +330,16 @@ export function NewsCalendarPage() {
                               {impact?.label}
                             </span>
                           </td>
-                          <td className="text-content-primary px-3 py-2.5">{event.title}</td>
+                          <td className="px-3 py-2.5">
+                            <button type="button" onClick={() => setSelectedEvent(event)} className="text-content-primary hover:text-brand cursor-pointer text-left font-medium">
+                              {event.title}
+                            </button>
+                            {countdown(event.date, now) ? (
+                              <span className="text-warning-content mt-1 flex items-center gap-1 text-xs font-medium tabular-nums">
+                                <Clock3 className="h-3 w-3" /> Releases in {countdown(event.date, now)}
+                              </span>
+                            ) : null}
+                          </td>
                           <td
                             className={cn(
                               'tabular px-3 py-2.5 text-right text-xs font-semibold',
@@ -284,6 +369,38 @@ export function NewsCalendarPage() {
         Times shown in your local timezone. Data from the Forex Factory public calendar feed,
         cached for 10 minutes.
       </p>
+
+      <Modal
+        open={Boolean(selectedEvent)}
+        onClose={() => setSelectedEvent(null)}
+        title={`${selectedEvent?.currency ?? ''} · ${selectedEvent?.title ?? ''}`}
+        description={selectedEvent ? `${timeLabel(selectedEvent)} · ${selectedEvent.impact.toLowerCase()} impact` : undefined}
+      >
+        {indicatorQuery.isLoading ? <Skeleton className="h-72 w-full" /> : indicatorQuery.isError ? (
+          <Alert tone="danger" title="Could not load indicator details">The official history source is temporarily unavailable.</Alert>
+        ) : indicatorQuery.data ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              {[['Actual', selectedEvent?.actual], ['Forecast', selectedEvent?.forecast], ['Previous', selectedEvent?.previous]].map(([label, value]) => (
+                <div key={label} className="bg-surface-inset rounded-xl p-3 text-center">
+                  <p className="text-content-tertiary text-xs">{label}</p><p className="text-content-primary mt-1 font-semibold">{value ?? '—'}</p>
+                </div>
+              ))}
+            </div>
+            <dl className="space-y-3 text-sm">
+              <div><dt className="text-content-tertiary text-xs font-medium">Source</dt><dd><a className="text-brand hover:underline" href={indicatorQuery.data.sourceUrl} target="_blank" rel="noreferrer">{indicatorQuery.data.source}</a></dd></div>
+              <div><dt className="text-content-tertiary text-xs font-medium">Measures</dt><dd className="text-content-secondary">{indicatorQuery.data.measures}</dd></div>
+              <div><dt className="text-content-tertiary text-xs font-medium">Why traders care</dt><dd className="text-content-secondary">{indicatorQuery.data.whyItMatters}</dd></div>
+              <div><dt className="text-content-tertiary text-xs font-medium">Frequency</dt><dd className="text-content-secondary">{indicatorQuery.data.frequency}</dd></div>
+            </dl>
+            {indicatorQuery.data.history.length > 0 ? (
+              <><div className="flex items-center gap-2"><BarChart3 className="text-brand h-4 w-4" /><h3 className="text-content-primary text-sm font-semibold">Official history</h3></div><HistoryChart points={indicatorQuery.data.history} /></>
+            ) : (
+              <div className="border-line rounded-xl border border-dashed p-4 text-center"><Bell className="text-content-tertiary mx-auto h-5 w-5" /><p className="text-content-tertiary mt-2 text-xs">No verified official history series is connected for this event yet.</p></div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }
