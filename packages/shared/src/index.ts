@@ -675,53 +675,6 @@ export const dailyTradeSummaryItemSchema = z.object({
 
 export const dailyTradeSummarySchema = z.array(dailyTradeSummaryItemSchema);
 
-/* ─── economic calendar ──────────────────────────────────────────────────── */
-
-export const newsImpactSchema = z.enum(['HIGH', 'MEDIUM', 'LOW', 'HOLIDAY']);
-export const newsRangeSchema = z.enum(['lastweek', 'thisweek', 'nextweek']);
-
-export const economicEventSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  currency: z.string().min(2).max(6),
-  impact: newsImpactSchema,
-  /** ISO instant; the client renders it in the viewer's timezone. */
-  date: z.string(),
-  /** True when the source gave a day without a usable time (All Day, Tentative). */
-  allDay: z.boolean().default(false),
-  forecast: z.string().nullable().default(null),
-  previous: z.string().nullable().default(null),
-  actual: z.string().nullable().default(null),
-});
-
-export const economicCalendarSchema = z.object({
-  range: newsRangeSchema,
-  fetchedAt: z.string(),
-  events: z.array(economicEventSchema),
-});
-
-export const economicIndicatorPointSchema = z.object({
-  date: z.string(),
-  actual: z.number(),
-});
-
-export const economicIndicatorDetailSchema = z.object({
-  title: z.string(),
-  source: z.string(),
-  sourceUrl: z.string().url(),
-  measures: z.string(),
-  frequency: z.string(),
-  whyItMatters: z.string(),
-  history: z.array(economicIndicatorPointSchema),
-  unit: z.string(),
-});
-
-export type NewsImpact = z.infer<typeof newsImpactSchema>;
-export type NewsRange = z.infer<typeof newsRangeSchema>;
-export type EconomicEventDTO = z.infer<typeof economicEventSchema>;
-export type EconomicCalendarDTO = z.infer<typeof economicCalendarSchema>;
-export type EconomicIndicatorDetailDTO = z.infer<typeof economicIndicatorDetailSchema>;
-
 /* ─── commitments of traders ─────────────────────────────────────────────── */
 
 export const cotReportModeSchema = z.enum(['futures', 'combined']);

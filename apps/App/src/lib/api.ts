@@ -21,10 +21,7 @@ import {
   CreateCopierLinkInput,
   DailyTradeSummaryDTO,
   DashboardOverviewDTO,
-  EconomicCalendarDTO,
-  EconomicIndicatorDetailDTO,
   ExecutionLogDTO,
-  NewsRange,
   NotificationPreferencesDTO,
   RequestEmailChangeInput,
   SettingsDTO,
@@ -237,12 +234,6 @@ export const apiClient = {
     return data;
   },
 
-  /* ── economic calendar ─────────────────────────────────────────────────── */
-  async newsCalendar(range: NewsRange) {
-    const { data } = await api.get<EconomicCalendarDTO>('/news/calendar', { params: { range } });
-    return data;
-  },
-
   /* ── commitments of traders ────────────────────────────────────────────── */
   async cotMarkets() {
     const { data } = await api.get<CotMarketListDTO>('/cot/markets');
@@ -257,12 +248,6 @@ export const apiClient = {
   async cotHistory(code: string, mode: CotReportMode) {
     const { data } = await api.get<CotHistoryDTO>(`/cot/reports/${code}/history`, {
       params: { mode },
-    });
-    return data;
-  },
-  async newsIndicator(title: string) {
-    const { data } = await api.get<EconomicIndicatorDetailDTO>('/news/indicator', {
-      params: { title },
     });
     return data;
   },

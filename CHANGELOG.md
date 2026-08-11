@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-11
+
+### Removed
+
+- **Economic calendar shelved** — the page now shows a "coming soon" placeholder. The upstream schedule feed carried no `actual` field on any row, so released figures could never appear, and only its current-week endpoint still resolved: the last-week and next-week tabs were serving cached data up to a week old as though it were live. Rather than keep presenting a calendar that could not report results, the feature is parked until it can be rebuilt on a source that publishes them.
+- **Economic indicator lookups** — the CPI, PPI and retail-sales history charts are gone with the calendar. They were only reachable from a calendar row, so the Bureau of Labor Statistics, FRED and Census integrations behind them no longer had a consumer. `CENSUS_API_KEY` is no longer read and has been dropped from the environment files.
+
 ## [1.3.0] - 2026-08-11
 
 ### Added
