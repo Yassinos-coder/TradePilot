@@ -13,5 +13,16 @@ into hashed `api_keys` rows so terminals already in the field keep working.
 
 After applying it, add `tradepilot` to Supabase → Settings → API → Exposed schemas.
 
-`migrations/` holds the dated v1 migrations for historical reference only. Do not
-run them against a v2 database — they recreate tables v2 removes.
+## Migrations
+
+`migrations/` holds dated SQL either side of the v2 rewrite, so check the date
+before running anything.
+
+| File | Run it? |
+| ---- | ------- |
+| `2026-05-06-backend-hardening.sql` | No — pre-v2, already folded into the schema file. It recreates tables v2 removes. |
+| `2026-06-09-trade-history-imports.sql` | No — pre-v2, already folded in. |
+| `2026-08-09-cot-history.sql` | **Yes** — post-v2. `cot_history` is not in the schema file, so the COT feature has no table without it. |
+| `2026-08-09-sidebar-order.sql` | Optional — post-v2, but the schema file already adds `sidebar_order`. Re-running is harmless. |
+
+Anything dated after the v2 schema file has to be applied on top of it.

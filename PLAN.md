@@ -33,7 +33,7 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 | `apps/Metatrader-eas/MT5/TradePilot_EA.mq5` | MT5 build 2265+ | Native MQL5 socket functions |
 | `apps/Metatrader-eas/MT4/TradePilot_EA.mq4` | MT4 (Windows) | `winhttp.dll` WinHTTP WS API |
 
-**Connection**: plain WS on port 4000 (no TLS — MT5's Schannel is incompatible with Let's Encrypt ECDSA certs; API key secures the session)
+**Connection**: secure WebSocket (`wss://`) to `api.tradepilot.sidedevelopments.com` on port 443, through Berth's proxy. The API key authenticates the session.
 
 **MT5 EA features**: grouped inputs (Server / Auth / Trade Execution / Connection), `CTrade` order placement, multi-TP splitting, account status push every 10s, trade event reporting (OPEN / CLOSED / REJECTED), exponential backoff reconnect, 4s HTTP upgrade wait loop
 
@@ -41,7 +41,7 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 
 1. Tools → Options → Expert Advisors → Allow WebRequest → add `api.tradepilot.sidedevelopments.com`
 2. Compile in MetaEditor (F7)
-3. Inputs: `ServerPort=4000`, `UseSSL=false`, paste an EA key (`tp_ea_...`) from Settings > API & Keys
+3. Inputs: `ServerPort=443`, `UseSSL=true`, paste an EA key (`tp_ea_...`) from Settings > API & Keys
 
 ### Backend modules
 
@@ -51,10 +51,14 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 | Users | `GET/PUT /api/users/me`, email change, password change, sessions |
 | API keys | `GET/POST /api/api-keys`, `POST /api/api-keys/:id/rotate`, `DELETE /api/api-keys/:id` |
 | Accounts | `GET/POST /api/accounts`, `DELETE /api/accounts/:id`, `POST /api/accounts/:id/promote-master` |
-| Settings | `GET/PUT /api/settings`, `PUT /api/settings/auto-copy`, `PUT /api/settings/api-trade-opening` |
+| Settings | `GET/PUT /api/settings`, `PUT /api/settings/auto-copy`, `PUT /api/settings/api-trade-opening`, `PUT /api/settings/sidebar-order` |
 | Copier | `GET /api/copier/overview`, `GET/POST/PUT/DELETE /api/copier/links`, `PUT /api/copier/master`, `GET /api/copier/events` |
+| Manual trade | Manual order entry against a connected terminal |
 | Trade API | `POST /api/v1/trades/open|close|modify`, `GET /api/v1/trades/positions` (REST key auth) |
 | Analytics | `GET /api/analytics/summary`, `daily-summary`, `ai-analysis`, `trades`, `logs`, `history-files` |
+| Assistant analytics | Conversational analytics over the same trade history |
+| COT | `GET /api/cot/markets`, `GET /api/cot/reports/:code`, `GET /api/cot/reports/:code/history` |
+| Notifications | `GET/PUT /api/notifications/preferences` |
 | Dashboard | `GET /api/dashboard/overview` |
 | Health | `GET /api/health` → `{status, api, database, redis}` |
 
@@ -63,6 +67,10 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 - **Overview**: copier status strip, monthly/annual net, unrealized P&L, trading calendar, trade history
 - **Trade Copier**: master selector, per-slave link cards with a risk drawer, live copy feed
 - **Analytics**: full performance metrics, equity curve, drawdown, AI coach, history import
+- **Calculators**: lot sizing, pip value/P&L, compounding with Monte Carlo paths, risk of ruin, margin/leverage
+- **Open Trades**: live positions with manual close and modify
+- **COT**: weekly Commitments of Traders positioning, index windows and AI interpretation
+- **News**: placeholder — the economic calendar is shelved until it can be rebuilt on a source that publishes released figures
 - **Accounts**: connected terminals, role badges, promote to master
 - **Settings**: My Account, Security & Sign-in, API & Keys, Copier Defaults, Notifications
 
@@ -70,42 +78,44 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 
 ## Infrastructure
 
-### EC2 + Docker
+### VPS + Berth
+
+Everything runs on a single VPS managed by [Berth](https://berth.sh), a
+self-hosted deployment panel. Berth's proxy terminates TLS with automatic
+Let's Encrypt certificates, so no container handles certificates itself.
 
 ```text
 Internet
   │
-  ▼ :443 (HTTPS)
-Nginx Proxy Manager (container, nginx-proxy-manager_default network)
-  │  proxies tradepilot.sidedevelopments.com → tradepilot-frontend:80
+  ▼ :443 (HTTPS / WSS)
+Berth proxy (Caddy, automatic Let's Encrypt)
+  │  tradepilot.sidedevelopments.com      → tradepilot-frontend:80
+  │  api.tradepilot.sidedevelopments.com  → tradepilot-backend:4000
   ▼
-tradepilot-frontend (nginx, port 80)
-  │  /api/*          → api:4000
-  │  /ws/ea          → api:4000  (WebSocket upgrade)
+tradepilot-frontend (stock nginx serving the built SPA)
+  │  /api/*  and  /ws/ea   → tradepilot-backend:4000
   ▼
 tradepilot-backend (NestJS, port 4000)
-  │  also exposed directly on 0.0.0.0:4000 for EA plain WS
+  │  REST API + the /ws/ea gateway MetaTrader terminals connect to
   ▼
-tradepilot-redis (EA presence + copy dispatch pub/sub, port 6379)
+redis (EA presence + copy dispatch pub/sub, port 6379)
 ```
 
-### Build workaround
+### Deploying
 
-EC2 has Docker Compose v5.1.1 which requires buildx 0.17+ (only 0.12.1 installed). Use:
+Push to `production`. Berth rebuilds the changed service from its Dockerfile
+(`apps/server/Dockerfile`, `apps/App/Dockerfile`) and rolls it over. Build logs,
+rollbacks and per-service CPU/RAM limits live in the panel. There is no CI
+workflow in the repo and no SSH step.
 
-```bash
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker-compose -f docker-compose.prod.yml build
-docker-compose -f docker-compose.prod.yml up -d
-```
+### Configuration
 
-### Required EC2 security group ports
+Environment values are set per service under **Variables** in Berth rather than
+from a `.env` file on the host. Managed dependencies are provisioned as their own
+Berth services and reached over the internal Docker network by service name, so
+they need no public exposure.
 
-| Port | Use |
-| ---- | --- |
-| 80 | HTTP (NPM) |
-| 443 | HTTPS (web app) |
-| 4000 | Direct WS for EA (no TLS) |
-| 8083 | NPM → frontend container |
+The compose files in the repo are for local development only.
 
 ---
 
@@ -123,46 +133,32 @@ docker-compose -f docker-compose.prod.yml up -d
 | `execution_logs` | per-attempt dispatch log with details JSON |
 | `ea_account_status_snapshots` | balance/equity/drawdown snapshots from EA |
 | `trade_executions` | ticket, symbol, P&L, lifecycle status from EA |
+| `user_symbols` | per-account broker symbol map, for symbol resolution |
+| `user_sessions` | one row per browser session, folded by device on read |
+| `notification_preferences` | per-user channel and event toggles |
+| `trade_history_files` | uploaded statement imports and their parse results |
+| `cot_history` | weekly CFTC Commitments of Traders rows, no user dimension |
 
 Schema must be re-run after any pull that adds tables. Add `tradepilot` to Supabase Exposed Schemas in API settings.
 
 ---
 
-## Environment variables (full list)
+## Environment variables
 
-```bash
-# Runtime
-NODE_ENV=production
-PORT=4000
-CORS_ORIGIN=https://tradepilot.sidedevelopments.com
-ALLOWED_ORIGINS=https://tradepilot.sidedevelopments.com
+`.env.example` is the authoritative list and is kept current; this file
+deliberately does not duplicate it, because the copy that used to live here
+drifted out of date. In production these are set per service under **Variables**
+in Berth rather than in a file on the host.
 
-# Supabase
-SUPABASE_URL=https://<ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<key>
-SUPABASE_SCHEMA=tradepilot
-VITE_SUPABASE_URL=https://<ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<key>
-VITE_MAGIC_LINK_REDIRECT_PATH=/auth/callback
+Groups, and what each is for:
 
-# API keys
-API_KEY_ROTATION_GRACE_HOURS=24
-API_KEY_LAST_USED_THROTTLE_MS=60000
-
-# OpenAI - optional, only powers the analytics AI coach
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4.1
-LLM_TEMPERATURE=0.1
-
-# Redis
-REDIS_URL=redis://redis:6379
-
-# EA tuning (defaults shown)
-EA_SERVER_PING_INTERVAL_MS=10000
-EA_HEARTBEAT_TIMEOUT_MS=30000
-EA_PRESENCE_TTL_MS=45000
-
-# Frontend (Vite build args)
-VITE_API_BASE_URL=/api
-VITE_WS_BASE_URL=auto
-```
+| Group | Purpose |
+| ----- | ------- |
+| Runtime | `NODE_ENV`, ports, `CORS_ORIGIN` / `ALLOWED_ORIGINS`, `PUBLIC_APP_URL` |
+| Supabase | Service-role credentials plus the `tradepilot` schema, and the anon key the browser uses |
+| Redis | `REDIS_URL`, and the Bull Board dashboard credentials |
+| SMTP | Transactional email — magic links, email-change and password-reset |
+| EA tuning | Heartbeat, ping interval, presence TTL and dispatch ack timeout |
+| API keys | Rotation grace window and the last-used write throttle |
+| LLM | Anthropic and OpenAI keys and models, for the analytics coach and COT interpretation |
+| Frontend | `VITE_*` build args baked into the SPA at build time |
