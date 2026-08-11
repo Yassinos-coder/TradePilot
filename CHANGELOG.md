@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Economic calendar shelved** — the page now shows a "coming soon" placeholder. The upstream schedule feed carried no `actual` field on any row, so released figures could never appear, and only its current-week endpoint still resolved: the last-week and next-week tabs were serving cached data up to a week old as though it were live. Rather than keep presenting a calendar that could not report results, the feature is parked until it can be rebuilt on a source that publishes them.
 - **Economic indicator lookups** — the CPI, PPI and retail-sales history charts are gone with the calendar. They were only reachable from a calendar row, so the Bureau of Labor Statistics, FRED and Census integrations behind them no longer had a consumer. `CENSUS_API_KEY` is no longer read and has been dropped from the environment files.
+- **Dead EC2 deploy workflow** — the GitHub Actions job deployed over SSH to a host that no longer exists. Deployment runs through Berth.
+
+### Changed
+
+- **One version across the monorepo** — the root, both apps and all three packages now share a single version number instead of drifting on separate lines, so the version the app reports matches the one in the changelog. Internal `@tradepilot/*` dependency pins were updated alongside it to keep the workspace resolving locally.
+- **Deployment docs describe Berth** — the README documented an EC2 host behind Nginx Proxy Manager that no longer exists, including SSH steps and security-group rules. It now describes the actual flow: push to `production`, Berth rebuilds from the Dockerfiles, and its proxy handles TLS.
+- **Corrected the MetaTrader connection details** — the README still claimed the EA used plain WebSocket on port 4000 with TLS bypassed. Both EAs have defaulted to `wss://` on port 443 since the secure gateway change, and the setup steps now match.
 
 ## [1.3.0] - 2026-08-11
 

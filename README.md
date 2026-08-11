@@ -54,53 +54,52 @@ VITE_WS_BASE_URL=ws://localhost:4000
 VITE_MAGIC_LINK_REDIRECT_PATH=/auth/callback
 ```
 
-## EC2 deployment (Nginx Proxy Manager)
+## Deployment (Berth)
 
-Uses `docker-compose.prod.yml` behind Nginx Proxy Manager on the EC2 server.
+Production runs on a VPS managed by [Berth](https://berth.sh), a self-hosted
+deployment panel. There is no CI workflow in this repo and no SSH step: Berth
+watches the `production` branch and redeploys on push.
 
-### Initial setup
+Two services are built straight from the Dockerfiles in this repo:
 
-1. SSH to EC2 and clone the repo to `/home/ec2-user/tradepilot`
-2. Copy `.env.production.example` to `.env` and fill in all values
-3. Run the Supabase schema SQL
-4. Add `tradepilot` to Supabase Exposed Schemas
-5. Build and start:
+| Service  | Dockerfile               | Serves                                         |
+| -------- | ------------------------ | ---------------------------------------------- |
+| Backend  | `apps/server/Dockerfile` | NestJS API and the `/ws/ea` gateway            |
+| Frontend | `apps/App/Dockerfile`    | Built SPA on stock nginx, behind Berth's proxy |
+
+Berth's reverse proxy terminates TLS and issues Let's Encrypt certificates
+automatically, so neither container handles certificates itself.
+
+### Deploying
+
+Push to `production`. Berth builds the changed service and rolls it over. Build
+logs, rollbacks and per-service resource limits live in the panel.
+
+### Configuration
+
+Environment values are set per service under **Variables** in Berth, not from a
+`.env` file on the host. `.env.production.example` lists everything the backend
+reads. Managed dependencies (Postgres, Redis, object storage) are provisioned as
+their own Berth services and addressed over the internal network by service
+name, so they need no public exposure.
+
+### First-time database setup
+
+1. Run the schema SQL in `supabase/tradepilot-schema-v2.sql`
+2. Add `tradepilot` to the Supabase **Exposed schemas** list under Settings → API
+
+### Local development
+
+The compose files are for running the stack locally, not for deploying:
 
 ```bash
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker-compose -f docker-compose.prod.yml build
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose up -d
 ```
-
-### Updating production
-
-```bash
-git pull origin production
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker-compose -f docker-compose.prod.yml build
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-Note: `docker compose` (v2 plugin) requires buildx 0.17+. Use `docker-compose` (standalone) instead.
-
-### Nginx Proxy Manager
-
-- Forward `tradepilot.sidedevelopments.com` → `tradepilot-frontend:80`
-- Enable WebSocket support in NPM
-- The frontend nginx proxies `/api/*` and `/ws/ea` to the backend internally
-- Supabase Auth redirect URL: `https://tradepilot.sidedevelopments.com/auth/callback`
-
-### EC2 security group (required inbound rules)
-
-| Port | Protocol | Source    | Purpose                        |
-|------|----------|-----------|--------------------------------|
-| 80   | TCP      | 0.0.0.0/0 | HTTP (NPM redirect to HTTPS)   |
-| 443  | TCP      | 0.0.0.0/0 | HTTPS (web app)                |
-| 4000 | TCP      | 0.0.0.0/0 | Direct WS for MetaTrader EA    |
-| 8083 | TCP      | 0.0.0.0/0 | NPM → frontend container       |
 
 ## MetaTrader EA setup
 
-The EA connects directly to the backend on port 4000 (plain WebSocket — no TLS).
-MT5's built-in TLS stack is incompatible with Let's Encrypt/ECDSA certificates, so TLS is bypassed at the socket level while the API key provides authentication security.
+The EA connects over a secure WebSocket (`wss://`) to
+`api.tradepilot.sidedevelopments.com` on port 443, authenticating with an EA key.
 
 ### MT5
 
@@ -112,12 +111,13 @@ MT5's built-in TLS stack is incompatible with Let's Encrypt/ECDSA certificates, 
 
 2. In MT5: **Tools → Options → Expert Advisors**
    - Check "Allow WebRequest for listed URL"
-   - Add `tradepilot.sidedevelopments.com`
+   - Add `api.tradepilot.sidedevelopments.com`
 3. Open MetaEditor (F4) → compile TradePilot_EA (F7) → 0 errors
-4. Attach to any chart. Input settings:
+4. Attach to any chart. The server inputs already default to production; the only
+   one you must set is the key:
    - `ServerHost`: `api.tradepilot.sidedevelopments.com`
-   - `ServerPort`: `4000`
-   - `UseSSL`: `false`
+   - `ServerPort`: `443`
+   - `UseSSL`: `true`
    - `ApiKey`: an **EA key** created in Settings → API & Keys (`tp_ea_…`, shown once)
 5. Check **Experts tab** — should show `Auth success, ready for signals`
 6. In Settings → Trade Copier, set this account as the master, or link it as a slave
@@ -174,10 +174,10 @@ strand open exposure.
 
 ## Docker services
 
-| Service               | Container            | Port  | Notes                          |
-|-----------------------|----------------------|-------|--------------------------------|
-| NestJS backend        | tradepilot-backend   | 4000  | Also exposes EA WS directly    |
-| React frontend (nginx)| tradepilot-frontend  | 8083  | Proxied by NPM                 |
-| Redis                 | tradepilot-redis     | 6379  | EA presence + dispatch pub/sub |
+| Service                | Container           | Port | Notes                          |
+| ---------------------- | ------------------- | ---- | ------------------------------ |
+| NestJS backend         | tradepilot-backend  | 4000 | Serves the API and `/ws/ea`    |
+| React frontend (nginx) | tradepilot-frontend | 8083 | Behind Berth's proxy           |
+| Redis                  | tradepilot-redis    | 6379 | EA presence + dispatch pub/sub |
 
 - Health check: `GET /api/health` → `{status, api, database, redis}`
