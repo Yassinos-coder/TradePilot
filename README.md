@@ -16,7 +16,7 @@ Live at: `https://tradepilot.sidedevelopments.com`
 ## Quick start (local)
 
 1. Copy `.env.example` to `.env` and fill in all values
-2. Create the Supabase schema: paste `supabase/tradepilot-schema-v2.sql` into the Supabase SQL editor
+2. Create the Supabase schema: paste `supabase/schema.sql` into the Supabase SQL editor
 3. In Supabase → API settings → Exposed schemas: add `tradepilot`
 4. In Supabase Auth, add `http://localhost:5173/auth/callback` as a redirect URL
 5. `npm install`
@@ -85,7 +85,8 @@ name, so they need no public exposure.
 
 ### First-time database setup
 
-1. Run the schema SQL in `supabase/tradepilot-schema-v2.sql`
+1. Run `supabase/schema.sql` in the Supabase SQL editor — it is the only SQL
+   file, and it is safe to re-run
 2. Add `tradepilot` to the Supabase **Exposed schemas** list under Settings → API
 
 ### Local development

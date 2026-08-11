@@ -1,13 +1,9 @@
--- TradePilot — full database setup (v2: multi-account trade copier)
+-- TradePilot — complete database setup.
 --
--- Re-run safe: every statement uses IF NOT EXISTS / CREATE OR REPLACE /
--- DROP IF EXISTS / DO $$ … $$. Safe to run on a fresh database or on an
--- existing v1 (Telegram signal router) database.
---
--- DESTRUCTIVE for the Telegram/signal era: telegram_connections,
--- telegram_channels, signals, copier_programs, copier_invite_codes and
--- follower_devices are dropped. Analytics data (trade_executions,
--- ea_account_status_snapshots, trade_history_files, user_symbols) is preserved.
+-- This is the only SQL file: there are no migrations to apply alongside it.
+-- Every statement is idempotent (IF NOT EXISTS / CREATE OR REPLACE /
+-- DROP IF EXISTS / DO $$ … $$), so it is safe to run on a fresh database and
+-- safe to re-run on a live one. Re-run it after any pull that adds tables.
 --
 -- Remember to add `tradepilot` to Supabase → Settings → API → Exposed schemas.
 
@@ -115,32 +111,6 @@ create index if not exists idx_api_keys_lookup
 create index if not exists idx_api_keys_user_kind
   on tradepilot.api_keys(user_id, kind, created_at desc);
 
--- Carry existing EAs over: hash the legacy plaintext users.api_key into an EA
--- key so terminals in the field keep authenticating after the migration.
-do $$
-begin
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'tradepilot'
-      and table_name = 'users'
-      and column_name = 'api_key'
-  ) then
-    insert into tradepilot.api_keys (user_id, kind, name, prefix, key_hash)
-    select u.id,
-           'EA',
-           'Migrated EA key',
-           left(u.api_key, 11),
-           tradepilot.hash_secret(u.api_key)
-    from tradepilot.users u
-    where u.api_key is not null
-    on conflict (key_hash) do nothing;
-
-    alter table tradepilot.users drop column api_key;
-  end if;
-end $$;
-
-drop function if exists tradepilot.generate_api_key();
-
 -- ─── accounts ────────────────────────────────────────────────────────────────
 
 create table if not exists tradepilot.accounts (
@@ -234,23 +204,6 @@ alter table tradepilot.settings add column if not exists execution_paused       
 alter table tradepilot.settings add column if not exists execution_pause_reason  text;
 alter table tradepilot.settings add column if not exists execution_paused_at     timestamptz;
 alter table tradepilot.settings add column if not exists sidebar_order           jsonb not null default '[]'::jsonb;
-
--- Signal-era columns: per-trade risk now lives on each copier_link.
-alter table tradepilot.settings drop column if exists mode;
-alter table tradepilot.settings drop column if exists allowed_symbols;
-alter table tradepilot.settings drop column if exists risk_percent;
-alter table tradepilot.settings drop column if exists max_trades;
-alter table tradepilot.settings drop column if exists max_simultaneous_trades;
-alter table tradepilot.settings drop column if exists max_daily_loss_percent;
-alter table tradepilot.settings drop column if exists max_trades_per_day;
-alter table tradepilot.settings drop column if exists low_margin_threshold_percent;
-
-update tradepilot.settings
-set notification_channels = (notification_channels - 'telegram'),
-    notification_events   = (notification_events - 'telegramDisconnected')
-                            || '{"masterOffline":true,"copyFailed":true}'::jsonb
-where notification_channels ? 'telegram'
-   or notification_events ? 'telegramDisconnected';
 
 -- ─── copier links ────────────────────────────────────────────────────────────
 -- One row per master → slave route. This is the risk-aware parameter set the
@@ -449,7 +402,6 @@ create table if not exists tradepilot.execution_logs (
 
 alter table tradepilot.execution_logs
   add column if not exists copy_event_id uuid references tradepilot.copy_events(id) on delete set null;
-alter table tradepilot.execution_logs drop column if exists signal_id;
 
 create index if not exists idx_execution_logs_user_created
   on tradepilot.execution_logs(user_id, created_at desc);
@@ -508,7 +460,6 @@ alter table tradepilot.trade_executions
   add column if not exists copy_event_id uuid references tradepilot.copy_events(id) on delete set null;
 alter table tradepilot.trade_executions
   add column if not exists entry_type text not null default 'MARKET';
-alter table tradepilot.trade_executions drop column if exists signal_id;
 
 do $$
 begin
@@ -569,8 +520,6 @@ alter table tradepilot.notification_preferences
   add column if not exists notify_master_offline boolean not null default true;
 alter table tradepilot.notification_preferences
   add column if not exists notify_copy_failed    boolean not null default true;
-alter table tradepilot.notification_preferences drop column if exists telegram_enabled;
-alter table tradepilot.notification_preferences drop column if exists notify_telegram_disconnected;
 
 -- ─── user sessions ───────────────────────────────────────────────────────────
 
@@ -646,14 +595,71 @@ begin
     check (status in ('UPLOADED', 'PARSED', 'FAILED'));
 end $$;
 
--- ─── drop the Telegram / signal / cross-user-copier era ──────────────────────
+-- ─── foreign-key index coverage ──────────────────────────────────────────────
+-- Postgres indexes primary keys and unique constraints automatically, but never
+-- foreign keys. Without these, every ON DELETE CASCADE from a parent row makes
+-- the child table sequential-scan — which is what deleting an account or
+-- resetting a workspace does. The partial indexes above do not count: the
+-- planner cannot use them for rows outside their WHERE clause.
 
-drop table if exists tradepilot.telegram_channels    cascade;
-drop table if exists tradepilot.telegram_connections cascade;
-drop table if exists tradepilot.signals              cascade;
-drop table if exists tradepilot.follower_devices     cascade;
-drop table if exists tradepilot.copier_invite_codes  cascade;
-drop table if exists tradepilot.copier_programs      cascade;
+create index if not exists idx_accounts_user
+  on tradepilot.accounts(user_id);
+
+create index if not exists idx_api_keys_rotated_from
+  on tradepilot.api_keys(rotated_from_id)
+  where rotated_from_id is not null;
+
+create index if not exists idx_copy_orders_link
+  on tradepilot.copy_orders(copier_link_id);
+
+create index if not exists idx_copy_orders_slave_account
+  on tradepilot.copy_orders(slave_account_id);
+
+create index if not exists idx_trade_executions_copy_event
+  on tradepilot.trade_executions(copy_event_id)
+  where copy_event_id is not null;
+
+create index if not exists idx_trade_history_files_user_created
+  on tradepilot.trade_history_files(user_id, created_at desc);
+
+-- ─── commitments of traders history ──────────────────────────────────────────
+-- Weekly CFTC data, backfilled from the public Socrata datasets. Public market
+-- data with no user dimension: every row is the same for every account, so it
+-- is read by all and written only by the service role.
+
+create table if not exists tradepilot.cot_history (
+  contract_code text not null,
+  report_date   date not null,
+  mode          text not null check (mode in ('futures', 'combined')),
+
+  open_interest bigint not null default 0,
+
+  -- The speculative bucket for whichever taxonomy covers this market:
+  -- Managed Money for commodities, Leveraged Funds for financials.
+  spec_long  bigint not null default 0,
+  spec_short bigint not null default 0,
+
+  -- Legacy categories, which exist for every market and every year on record.
+  noncomm_long  bigint not null default 0,
+  noncomm_short bigint not null default 0,
+  comm_long     bigint not null default 0,
+  comm_short    bigint not null default 0,
+  nonrept_long  bigint not null default 0,
+  nonrept_short bigint not null default 0,
+
+  spec_net    bigint generated always as (spec_long - spec_short) stored,
+  noncomm_net bigint generated always as (noncomm_long - noncomm_short) stored,
+  comm_net    bigint generated always as (comm_long - comm_short) stored,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  primary key (contract_code, mode, report_date)
+);
+
+-- Every read is "one contract, one mode, most recent N weeks".
+create index if not exists idx_cot_history_contract_mode_date
+  on tradepilot.cot_history(contract_code, mode, report_date desc);
 
 -- ─── triggers ────────────────────────────────────────────────────────────────
 
@@ -747,6 +753,11 @@ end;
 $$ language plpgsql security definer
 set search_path = tradepilot, extensions, public;
 
+drop trigger if exists trg_cot_history_updated_at on tradepilot.cot_history;
+create trigger trg_cot_history_updated_at
+  before update on tradepilot.cot_history
+  for each row execute function tradepilot.set_updated_at();
+
 drop trigger if exists trg_tradepilot_users_default_settings on tradepilot.users;
 create trigger trg_tradepilot_users_default_settings
   after insert on tradepilot.users
@@ -791,6 +802,11 @@ alter table tradepilot.user_symbols                enable row level security;
 alter table tradepilot.notification_preferences    enable row level security;
 alter table tradepilot.user_sessions               enable row level security;
 alter table tradepilot.trade_history_files         enable row level security;
+alter table tradepilot.cot_history                 enable row level security;
+
+-- cot_history deliberately gets no policies: it carries no user dimension, so
+-- anon and authenticated see nothing and the service-role key the API uses
+-- bypasses RLS entirely. Ingestion and reads both go through the backend.
 
 -- service_role bypass (the API uses the service-role key)
 
@@ -802,7 +818,7 @@ begin
     'users', 'api_keys', 'accounts', 'settings', 'copier_links', 'copy_events',
     'copy_orders', 'execution_logs', 'ea_account_status_snapshots',
     'trade_executions', 'user_symbols', 'notification_preferences',
-    'user_sessions', 'trade_history_files'
+    'user_sessions', 'trade_history_files', 'cot_history'
   ]
   loop
     execute format('drop policy if exists service_role_%1$s on tradepilot.%1$s', table_name);
