@@ -5,12 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-08-11
 
 ### Added
 
 - **Calculators workspace** — new authenticated sidebar tab with trader calculators for lot sizing, pip value/P&L, compounding with Monte Carlo paths, risk-of-ruin simulation, and margin/leverage. Instrument defaults cover FX, metals, indices, crypto and energy CFDs while keeping broker-specific contract size, pip size and conversion fields editable.
 - **Lot-size templates** — lot sizing can save reusable stop-loss/risk/contract presets to browser storage so traders can reuse personal/prop-account risk settings without re-entering them. Account balance stays outside the template because it changes over time.
+- **Full instrument coverage in the calculators** — the instrument list now spans every major and G10 cross plus the commonly offered exotic and regional pairs, additional metals (platinum, palladium, gold priced in EUR/GBP/JPY), and a much wider index set including the Russell 2000, VIX, and the main European and Asian cash indices. Each instrument carries its own contract size, pip size and quote-to-USD conversion, so results stay correct on non-USD-quoted symbols.
+- **Searchable instrument picker** — instruments can be filtered by name or symbol instead of scrolled, which the expanded list makes necessary.
 
 ### Changed
 

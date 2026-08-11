@@ -7,18 +7,18 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 
 type CalculatorTab = 'lot-size' | 'pip-value' | 'compound' | 'risk-of-ruin' | 'margin';
 type RiskMode = 'percent' | 'money';
-type AssetClass = 'Forex' | 'Metals' | 'Indices' | 'Crypto' | 'Energy';
+type AssetClass = 'Forex' | 'Metals' | 'Indices' | 'Crypto' | 'Energy' | 'Commodities';
 
 type Instrument = {
   symbol: string;
@@ -44,23 +44,83 @@ type LotTemplate = {
 
 const TEMPLATE_KEY = 'tradepilot.calculators.lotTemplates.v1';
 
+const USD_PER_QUOTE: Record<string, number> = {
+  USD: 1, EUR: 1.09, GBP: 1.28, AUD: 0.66, NZD: 0.61, CAD: 0.73, CHF: 1.12,
+  JPY: 0.0068, CNH: 0.14, HKD: 0.128, SGD: 0.75, NOK: 0.094, SEK: 0.096,
+  DKK: 0.146, PLN: 0.25, CZK: 0.043, HUF: 0.0028, TRY: 0.031, ZAR: 0.055,
+  MXN: 0.059, BRL: 0.20, ILS: 0.27, THB: 0.028, INR: 0.012, AED: 0.272,
+  SAR: 0.267,
+};
+
+const FX_SYMBOLS = [
+  // Majors and the complete set of commonly traded G10 crosses.
+  'EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF', 'USDJPY',
+  'EURGBP', 'EURAUD', 'EURNZD', 'EURCAD', 'EURCHF', 'EURJPY',
+  'GBPAUD', 'GBPNZD', 'GBPCAD', 'GBPCHF', 'GBPJPY',
+  'AUDNZD', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'NZDCAD', 'NZDCHF', 'NZDJPY',
+  'CADCHF', 'CADJPY', 'CHFJPY',
+  // Widely offered spot-CFD exotic and regional pairs.
+  'USDCNH', 'USDHKD', 'USDSGD', 'USDNOK', 'USDSEK', 'USDDKK', 'USDPLN',
+  'USDCZK', 'USDHUF', 'USDTRY', 'USDZAR', 'USDMXN', 'USDBRL', 'USDILS',
+  'USDTHB', 'USDINR', 'USDAED', 'USDSAR', 'EURCNH', 'EURHKD', 'EURSGD',
+  'EURNOK', 'EURSEK', 'EURDKK', 'EURPLN', 'EURCZK', 'EURHUF', 'EURTRY',
+  'EURZAR', 'EURMXN', 'GBPSGD', 'GBPNOK', 'GBPSEK', 'GBPDKK', 'GBPPLN',
+  'GBPTRY', 'GBPZAR', 'AUDSGD', 'AUDCNH', 'AUDHKD', 'AUDNOK', 'AUDSEK',
+  'NZDSGD', 'NZDCNH', 'NZDHKD', 'CADSGD', 'CADNOK', 'CADSEK', 'CHFSGD',
+  'CHFPLN', 'SGDJPY', 'NOKJPY', 'SEKJPY', 'ZARJPY', 'TRYJPY', 'MXNJPY',
+] as const;
+
+function forexInstrument(symbol: string): Instrument {
+  const base = symbol.slice(0, 3);
+  const quote = symbol.slice(3);
+  return {
+    symbol,
+    label: `${base}/${quote}`,
+    assetClass: 'Forex',
+    contractSize: 100_000,
+    pipSize: quote === 'JPY' ? 0.01 : 0.0001,
+    quoteToUsd: USD_PER_QUOTE[quote] ?? 1,
+    typicalSpreadPips: ['USD', 'EUR', 'GBP', 'AUD', 'NZD', 'CAD', 'CHF', 'JPY'].includes(base) && ['USD', 'EUR', 'GBP', 'AUD', 'NZD', 'CAD', 'CHF', 'JPY'].includes(quote) ? 1.5 : 8,
+  };
+}
+
 const INSTRUMENTS: Instrument[] = [
-  { symbol: 'EURUSD', label: 'EUR/USD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 1, typicalSpreadPips: 0.8 },
-  { symbol: 'GBPUSD', label: 'GBP/USD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 1, typicalSpreadPips: 1.1 },
-  { symbol: 'AUDUSD', label: 'AUD/USD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 1, typicalSpreadPips: 1 },
-  { symbol: 'NZDUSD', label: 'NZD/USD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 1, typicalSpreadPips: 1.2 },
-  { symbol: 'USDCAD', label: 'USD/CAD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 0.73, typicalSpreadPips: 1.3 },
-  { symbol: 'USDJPY', label: 'USD/JPY', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.01, quoteToUsd: 0.0068, typicalSpreadPips: 1 },
-  { symbol: 'GBPJPY', label: 'GBP/JPY', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.01, quoteToUsd: 0.0068, typicalSpreadPips: 1.8 },
-  { symbol: 'GBPCAD', label: 'GBP/CAD', assetClass: 'Forex', contractSize: 100_000, pipSize: 0.0001, quoteToUsd: 0.73, typicalSpreadPips: 1.8 },
+  ...FX_SYMBOLS.map(forexInstrument),
   { symbol: 'XAUUSD', label: 'Gold / USD', assetClass: 'Metals', contractSize: 100, pipSize: 0.01, quoteToUsd: 1, typicalSpreadPips: 20 },
   { symbol: 'XAGUSD', label: 'Silver / USD', assetClass: 'Metals', contractSize: 5_000, pipSize: 0.001, quoteToUsd: 1, typicalSpreadPips: 3 },
+  { symbol: 'XPTUSD', label: 'Platinum / USD', assetClass: 'Metals', contractSize: 100, pipSize: 0.01, quoteToUsd: 1 },
+  { symbol: 'XPDUSD', label: 'Palladium / USD', assetClass: 'Metals', contractSize: 100, pipSize: 0.01, quoteToUsd: 1 },
+  { symbol: 'XAUEUR', label: 'Gold / EUR', assetClass: 'Metals', contractSize: 100, pipSize: 0.01, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'XAUGBP', label: 'Gold / GBP', assetClass: 'Metals', contractSize: 100, pipSize: 0.01, quoteToUsd: USD_PER_QUOTE.GBP! },
+  { symbol: 'XAUJPY', label: 'Gold / JPY', assetClass: 'Metals', contractSize: 100, pipSize: 1, quoteToUsd: USD_PER_QUOTE.JPY! },
   { symbol: 'US30', label: 'Dow Jones CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: 1, typicalSpreadPips: 3 },
   { symbol: 'NAS100', label: 'Nasdaq 100 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: 1, typicalSpreadPips: 1.5 },
   { symbol: 'SPX500', label: 'S&P 500 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: 1, typicalSpreadPips: 0.6 },
+  { symbol: 'US2000', label: 'Russell 2000 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 0.1, quoteToUsd: 1 },
+  { symbol: 'VIX', label: 'Volatility Index CFD', assetClass: 'Indices', contractSize: 1, pipSize: 0.01, quoteToUsd: 1 },
+  { symbol: 'UK100', label: 'FTSE 100 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.GBP! },
+  { symbol: 'GER40', label: 'Germany 40 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'FRA40', label: 'France 40 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'EU50', label: 'Euro Stoxx 50 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'ESP35', label: 'Spain 35 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'ITA40', label: 'Italy 40 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.EUR! },
+  { symbol: 'SWI20', label: 'Switzerland 20 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.CHF! },
+  { symbol: 'JPN225', label: 'Japan 225 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.JPY! },
+  { symbol: 'HK50', label: 'Hong Kong 50 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.HKD! },
+  { symbol: 'CHINA50', label: 'China A50 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: 1 },
+  { symbol: 'AUS200', label: 'Australia 200 CFD', assetClass: 'Indices', contractSize: 1, pipSize: 1, quoteToUsd: USD_PER_QUOTE.AUD! },
   { symbol: 'BTCUSD', label: 'Bitcoin CFD', assetClass: 'Crypto', contractSize: 1, pipSize: 1, quoteToUsd: 1, typicalSpreadPips: 30 },
   { symbol: 'ETHUSD', label: 'Ethereum CFD', assetClass: 'Crypto', contractSize: 1, pipSize: 0.1, quoteToUsd: 1, typicalSpreadPips: 8 },
+  ...['SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'DOT', 'LINK', 'AVAX', 'BNB', 'UNI', 'XLM'].map((coin) => ({ symbol: `${coin}USD`, label: `${coin} / USD`, assetClass: 'Crypto' as const, contractSize: 1, pipSize: 0.01, quoteToUsd: 1 })),
   { symbol: 'USOIL', label: 'WTI Oil CFD', assetClass: 'Energy', contractSize: 1_000, pipSize: 0.01, quoteToUsd: 1, typicalSpreadPips: 3 },
+  { symbol: 'UKOIL', label: 'Brent Oil CFD', assetClass: 'Energy', contractSize: 1_000, pipSize: 0.01, quoteToUsd: 1 },
+  { symbol: 'NGAS', label: 'Natural Gas CFD', assetClass: 'Energy', contractSize: 10_000, pipSize: 0.001, quoteToUsd: 1 },
+  { symbol: 'GASOIL', label: 'Low Sulphur Gasoil CFD', assetClass: 'Energy', contractSize: 100, pipSize: 0.01, quoteToUsd: 1 },
+  { symbol: 'COPPER', label: 'Copper CFD', assetClass: 'Commodities', contractSize: 25_000, pipSize: 0.0001, quoteToUsd: 1 },
+  ...[
+    ['COCOA', 'Cocoa'], ['COFFEE', 'Coffee'], ['CORN', 'Corn'], ['COTTON', 'Cotton'],
+    ['SOYBEAN', 'Soybeans'], ['SUGAR', 'Sugar'], ['WHEAT', 'Wheat'],
+  ].map(([symbol, label]) => ({ symbol: symbol!, label: `${label} CFD`, assetClass: 'Commodities' as const, contractSize: 1, pipSize: 0.01, quoteToUsd: 1 })),
 ];
 
 const TABS: Array<{ id: CalculatorTab; label: string; description: string }> = [
@@ -182,6 +242,65 @@ function ToggleButton({ active, children, onClick }: { active: boolean; children
   );
 }
 
+function InstrumentPicker({ value, onChange }: { value: string; onChange: (symbol: string) => void }) {
+  const selected = INSTRUMENTS.find((item) => item.symbol === value) ?? DEFAULT_INSTRUMENT;
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const needle = query.trim().toLowerCase();
+  const matches = INSTRUMENTS.filter((item) =>
+    !needle || `${item.symbol} ${item.label} ${item.assetClass}`.toLowerCase().includes(needle),
+  );
+
+  function choose(symbol: string) {
+    onChange(symbol);
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative grid gap-1.5">
+      <label className="pl-0.5 text-xs font-medium text-content-secondary">Instrument</label>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-tertiary" />
+        <input
+          role="combobox"
+          aria-label="Search instruments"
+          aria-expanded={open}
+          autoComplete="off"
+          value={open ? query : `${selected.symbol} · ${selected.label}`}
+          onFocus={() => { setQuery(''); setOpen(true); }}
+          onBlur={() => setOpen(false)}
+          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && matches[0]) { event.preventDefault(); choose(matches[0].symbol); }
+            if (event.key === 'Escape') setOpen(false);
+          }}
+          placeholder="Search EURUSD, gold, indices…"
+          className="h-11 w-full rounded-xl border border-line-strong bg-surface pl-10 pr-3 text-sm text-content-primary outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
+        />
+      </div>
+      {open ? (
+        <div role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-card">
+          {matches.length ? matches.map((item) => (
+            <button
+              key={item.symbol}
+              type="button"
+              role="option"
+              aria-selected={item.symbol === value}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(item.symbol)}
+              className={cn('flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-surface-muted', item.symbol === value && 'bg-brand-subtle')}
+            >
+              <span><span className="font-semibold text-content-primary">{item.symbol}</span><span className="ml-2 text-xs text-content-tertiary">{item.label}</span></span>
+              <span className="shrink-0 text-[11px] font-medium text-content-tertiary">{item.assetClass}</span>
+            </button>
+          )) : <p className="px-3 py-4 text-center text-sm text-content-tertiary">No matching instrument</p>}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function LotSizeCalculator() {
   const [instrumentSymbol, setInstrumentSymbol] = useState('XAUUSD');
   const instrument = INSTRUMENTS.find((item) => item.symbol === instrumentSymbol) ?? DEFAULT_INSTRUMENT;
@@ -246,7 +365,7 @@ function LotSizeCalculator() {
     <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
       <Card title="Lot size calculator" eyebrow="Position sizing" description="Calculate volume from stop loss, balance, risk, contract size and pip size.">
         <div className="grid gap-4 md:grid-cols-2">
-          <Select label="Instrument" value={instrumentSymbol} onChange={(e) => applyInstrument(e.target.value)} options={INSTRUMENTS.map((item) => ({ value: item.symbol, label: `${item.label} · ${item.assetClass}` }))} />
+          <InstrumentPicker value={instrumentSymbol} onChange={applyInstrument} />
           <Input label="Account balance" type="number" value={balance} onChange={(e) => setBalance(numberValue(e.target.value))} prefix="$" />
           <Input label="Stop loss" type="number" value={stopLossPips} onChange={(e) => setStopLossPips(numberValue(e.target.value))} suffix="pips" />
           <div className="grid gap-1.5">
@@ -330,7 +449,7 @@ function PipValueCalculator() {
     <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
       <Card title="Pip value / P&L calculator" eyebrow="Instrument math" description="Use broker-specific contract size and pip size when your broker differs from the defaults.">
         <div className="grid gap-4 md:grid-cols-2">
-          <Select label="Instrument" value={instrumentSymbol} onChange={(e) => applyInstrument(e.target.value)} options={INSTRUMENTS.map((item) => ({ value: item.symbol, label: `${item.label} · ${item.assetClass}` }))} />
+          <InstrumentPicker value={instrumentSymbol} onChange={applyInstrument} />
           <Input label="Lots" type="number" value={lots} onChange={(e) => setLots(numberValue(e.target.value))} />
           <Input label="Pips" type="number" value={pips} onChange={(e) => setPips(numberValue(e.target.value))} />
           <Input label="Contract size" type="number" value={contractSize} onChange={(e) => setContractSize(numberValue(e.target.value))} />
@@ -517,7 +636,7 @@ function MarginCalculator() {
     <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
       <Card title="Margin calculator" eyebrow="Leverage control" description="Estimate notional exposure and required margin before opening a position.">
         <div className="grid gap-4 md:grid-cols-2">
-          <Select label="Instrument" value={instrumentSymbol} onChange={(e) => applyInstrument(e.target.value)} options={INSTRUMENTS.map((item) => ({ value: item.symbol, label: `${item.label} · ${item.assetClass}` }))} />
+          <InstrumentPicker value={instrumentSymbol} onChange={applyInstrument} />
           <Input label="Lots" type="number" value={lots} onChange={(e) => setLots(numberValue(e.target.value))} />
           <Input label="Market price" type="number" value={price} onChange={(e) => setPrice(numberValue(e.target.value))} />
           <Input label="Contract size" type="number" value={contractSize} onChange={(e) => setContractSize(numberValue(e.target.value))} />
