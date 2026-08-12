@@ -946,7 +946,7 @@ bool ExecuteTradePayload(string data, double lotPerTrade, int tradeIndex) {
    // The execution key goes in the order comment so the server can trace this
    // fill back to the copy order that requested it, which is how a later close
    // or SL/TP change on the master finds the right position here.
-   string comment = (executionKey != "") ? executionKey : StringFormat("TradePilot-%d", tradeIndex);
+   string comment = (executionKey != "") ? executionKey : "TradeCopier by Yassine Castro";
    bool isBuy = (side == "BUY");
    bool success = false;
 

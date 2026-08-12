@@ -12,4 +12,7 @@ apps/server/prisma/migrations
 *.log
 .worktrees
 *.ex5
+*.ex4
+!apps/App/public/downloads/*.ex5
+!apps/App/public/downloads/*.ex4
 PUSH_INSTRUCTIONS.md

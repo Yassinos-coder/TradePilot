@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { TradingCalendar } from '@/components/dashboard/TradingCalendar';
 import { DayDetailDrawer } from '@/components/dashboard/DayDetailDrawer';
 import { IcPartnerCard } from '@/components/dashboard/IcPartnerCard';
+import { DownloadEaBanner } from '@/components/dashboard/DownloadEaBanner';
 import { usePagination } from '@/hooks/usePagination';
 
 type StatusFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'REJECTED';
@@ -183,6 +184,8 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <DownloadEaBanner />
+
       {copier ? (
         <Link
           to="/app/copier"

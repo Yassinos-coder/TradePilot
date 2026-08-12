@@ -17,6 +17,7 @@ import {
   Settings2,
   Sun,
   Wallet,
+  Wrench,
   X,
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
@@ -37,6 +38,7 @@ const NAV = [
   { to: '/app/news', label: 'News', icon: CalendarDays },
   { to: '/app/cot', label: 'COT Report', icon: Landmark },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet },
+  { to: '/app/tools', label: 'Tools', icon: Wrench },
   { to: '/app/settings', label: 'Settings', icon: Settings2 },
 ] as const;
 
@@ -88,6 +90,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/app/news': 'Economic Calendar',
   '/app/cot': 'Commitments of Traders',
   '/app/accounts': 'Accounts',
+  '/app/tools': 'Tools',
   '/app/settings': 'Settings',
 };
 

@@ -22,6 +22,7 @@ import { TermsPage } from './pages/TermsPage';
 import { CopierPage } from './pages/CopierPage';
 import { CalculatorsPage } from './pages/CalculatorsPage';
 import { CotReportPage } from './pages/CotReportPage';
+import { ToolsPage } from './pages/ToolsPage';
 import { SeoManager } from './components/seo/SeoManager';
 
 function ProtectedLayout() {
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="/app/open-trades" element={<OpenTradesPage />} />
           <Route path="/app/news" element={<NewsCalendarPage />} />
           <Route path="/app/cot" element={<CotReportPage />} />
+          <Route path="/app/tools" element={<ToolsPage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
           <Route path="/app/accounts" element={<AccountsPage />} />
         </Route>
