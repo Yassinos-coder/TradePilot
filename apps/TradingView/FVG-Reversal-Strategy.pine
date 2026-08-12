@@ -1,0 +1,162 @@
+// Derivative work — FVG detection logic adapted from LuxAlgo's "FVG Sessions [LuxAlgo]" indicator
+// (CC BY-NC-SA 4.0 — https://creativecommons.org/licenses/by-nc-sa/4.0/), extended into a full entry/exit strategy.
+
+//@version=5
+strategy("FVG Reversal Strategy", shorttitle = "FVG Reversal", overlay = true,
+     pyramiding = 20, initial_capital = 10000, currency = currency.USD,
+     commission_type = strategy.commission.percent, commission_value = 0.05,
+     process_orders_on_close = true,
+     max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+
+//-----------------------------------------------------------------------------
+//Inputs
+//-----------------------------------------------------------------------------{
+grpRisk = "Risk Management"
+riskPct    = input.float(1.0, "Risk % Per Trade", minval = 0.1, maxval = 100, group = grpRisk)
+tpMode     = input.string("Fixed R:R", "Take Profit Mode", options = ["Fixed R:R", "Prior Swing Liquidity"], group = grpRisk)
+rrMultiple = input.float(3.0, "Risk:Reward Multiple", minval = 0.1, group = grpRisk)
+maxTracked = input.int(50, "Max Unfilled FVGs Tracked", minval = 5, group = grpRisk)
+
+grpTrend = "Trend Filter (EMA 20/50/100)"
+useEmaFilter = input.bool(true, "Require Price Above/Below All 3 EMAs", group = grpTrend)
+
+grpMom = "Momentum Filter (RSI Slowdown)"
+useRsiFilter  = input.bool(true, "Require RSI Reversal From Extreme", group = grpMom)
+rsiLen        = input.int(14, "RSI Length", group = grpMom)
+rsiLookback   = input.int(5, "Lookback For RSI Extreme (bars)", group = grpMom)
+rsiOversold   = input.float(35, "RSI Oversold Level", group = grpMom)
+rsiOverbought = input.float(65, "RSI Overbought Level", group = grpMom)
+
+grpCss = "Colors"
+bullCss     = input.color(color.teal, "Bullish FVG", inline = "bull", group = grpCss)
+bullAreaCss = input.color(color.new(color.teal, 55), "Area", inline = "bull", group = grpCss)
+bearCss     = input.color(color.red, "Bearish FVG", inline = "bear", group = grpCss)
+bearAreaCss = input.color(color.new(color.red, 55), "Area", inline = "bear", group = grpCss)
+
+//-----------------------------------------------------------------------------}
+//Timeframe guard — entries require 1H chart or higher, FVGs get stronger on higher TFs
+//-----------------------------------------------------------------------------{
+tfOk = timeframe.in_seconds(timeframe.period) >= timeframe.in_seconds("60")
+
+if barstate.islast and not tfOk
+    label.new(bar_index, high, "Chart TF below 1H — entries disabled\n(FVG strength requires 1H+)",
+      style = label.style_label_down, color = color.orange, textcolor = color.white)
+
+//-----------------------------------------------------------------------------}
+//Indicators
+//-----------------------------------------------------------------------------{
+ema20  = ta.ema(close, 20)
+ema50  = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+rsi    = ta.rsi(close, rsiLen)
+
+plot(ema20,  "EMA 20",  color = color.yellow)
+plot(ema50,  "EMA 50",  color = color.orange)
+plot(ema100, "EMA 100", color = color.purple)
+
+emaBullOk = not useEmaFilter or (close > ema20 and close > ema50 and close > ema100)
+emaBearOk = not useEmaFilter or (close < ema20 and close < ema50 and close < ema100)
+
+rsiWasOversold   = ta.lowest(rsi, rsiLookback) < rsiOversold
+rsiWasOverbought = ta.highest(rsi, rsiLookback) > rsiOverbought
+rsiBullOk = not useRsiFilter or (rsiWasOversold and rsi > rsi[1])
+rsiBearOk = not useRsiFilter or (rsiWasOverbought and rsi < rsi[1])
+
+//-----------------------------------------------------------------------------}
+//Prior-session liquidity levels (used when Take Profit Mode = "Prior Swing Liquidity")
+//-----------------------------------------------------------------------------{
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_off)
+prevDayLow  = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_off)
+
+//-----------------------------------------------------------------------------}
+//FVG type & detection
+//-----------------------------------------------------------------------------{
+type FVG
+    float top
+    float btm
+    float stop
+    bool  isbull
+    box   area
+    line  lvl
+
+var array<FVG> activeFvgs = array.new<FVG>()
+
+bull_fvg = low > high[2] and close[1] > high[2]
+bear_fvg = high < low[2] and close[1] < low[2]
+
+if bull_fvg
+    if array.size(activeFvgs) >= maxTracked
+        array.shift(activeFvgs)
+    top = low
+    btm = high[2]
+    avg = math.avg(top, btm)
+    newFvg = FVG.new(top, btm, low[2], true,
+      box.new(bar_index - 2, top, bar_index, btm, border_color = bullCss, bgcolor = bullAreaCss),
+      line.new(bar_index - 2, avg, bar_index, avg, color = bullCss, style = line.style_dashed))
+    array.push(activeFvgs, newFvg)
+
+if bear_fvg
+    if array.size(activeFvgs) >= maxTracked
+        array.shift(activeFvgs)
+    top = low[2]
+    btm = high
+    avg = math.avg(top, btm)
+    newFvg = FVG.new(top, btm, high[2], false,
+      box.new(bar_index - 2, top, bar_index, btm, border_color = bearCss, bgcolor = bearAreaCss),
+      line.new(bar_index - 2, avg, bar_index, avg, color = bearCss, style = line.style_dashed))
+    array.push(activeFvgs, newFvg)
+
+//-----------------------------------------------------------------------------}
+//Manage active FVGs — invalidate on close-through, trigger entries on touch, extend drawings
+//-----------------------------------------------------------------------------{
+if array.size(activeFvgs) > 0
+    for i = array.size(activeFvgs) - 1 to 0
+        f = array.get(activeFvgs, i)
+        removed = false
+
+        if f.isbull
+            if close < f.btm
+                //Price closed back through the gap before ever being tapped — invalidated
+                f.area.set_bgcolor(color.new(bullCss, 90))
+                f.area.set_border_color(color.new(bullCss, 70))
+                array.remove(activeFvgs, i)
+                removed := true
+            else if low <= f.top and high >= f.btm and emaBullOk and rsiBullOk and tfOk
+                riskDist = close - f.stop
+                if riskDist > 0
+                    qty = (strategy.equity * riskPct / 100) / riskDist
+                    target = tpMode == "Fixed R:R" ? close + riskDist * rrMultiple : (prevDayHigh > close ? prevDayHigh : close + riskDist * rrMultiple)
+                    id = "BullFVG_" + str.tostring(bar_index) + "_" + str.tostring(i)
+                    strategy.entry(id, strategy.long, qty = qty)
+                    strategy.exit(id, id, stop = f.stop, limit = target)
+                    line.new(bar_index, f.stop, bar_index + 1, f.stop, color = color.red,   style = line.style_dashed, extend = extend.right)
+                    line.new(bar_index, target, bar_index + 1, target, color = color.green, style = line.style_dashed, extend = extend.right)
+                    f.area.set_bgcolor(color.new(bullCss, 30))
+                    f.area.set_border_width(2)
+                    array.remove(activeFvgs, i)
+                    removed := true
+        else
+            if close > f.top
+                //Price closed back through the gap before ever being tapped — invalidated
+                f.area.set_bgcolor(color.new(bearCss, 90))
+                f.area.set_border_color(color.new(bearCss, 70))
+                array.remove(activeFvgs, i)
+                removed := true
+            else if low <= f.top and high >= f.btm and emaBearOk and rsiBearOk and tfOk
+                riskDist = f.stop - close
+                if riskDist > 0
+                    qty = (strategy.equity * riskPct / 100) / riskDist
+                    target = tpMode == "Fixed R:R" ? close - riskDist * rrMultiple : (prevDayLow < close ? prevDayLow : close - riskDist * rrMultiple)
+                    id = "BearFVG_" + str.tostring(bar_index) + "_" + str.tostring(i)
+                    strategy.entry(id, strategy.short, qty = qty)
+                    strategy.exit(id, id, stop = f.stop, limit = target)
+                    line.new(bar_index, f.stop, bar_index + 1, f.stop, color = color.red,   style = line.style_dashed, extend = extend.right)
+                    line.new(bar_index, target, bar_index + 1, target, color = color.green, style = line.style_dashed, extend = extend.right)
+                    f.area.set_bgcolor(color.new(bearCss, 30))
+                    f.area.set_border_width(2)
+                    array.remove(activeFvgs, i)
+                    removed := true
+
+        if not removed
+            f.area.set_right(bar_index)
+            f.lvl.set_x2(bar_index)
