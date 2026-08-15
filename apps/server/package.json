@@ -1,6 +1,6 @@
 {
   "name": "@tradepilot/server",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "scripts": {
     "build": "nest build",
@@ -16,9 +16,9 @@
     "@nestjs/core": "11.1.6",
     "@nestjs/platform-express": "11.1.6",
     "@supabase/supabase-js": "^2.57.4",
-    "@tradepilot/config": "1.4.0",
-    "@tradepilot/shared": "1.4.0",
-    "@tradepilot/trading": "1.4.0",
+    "@tradepilot/config": "1.4.1",
+    "@tradepilot/shared": "1.4.1",
+    "@tradepilot/trading": "1.4.1",
     "bullmq": "^6.0.9",
     "compression": "^1.8.1",
     "ioredis": "^5.7.0",

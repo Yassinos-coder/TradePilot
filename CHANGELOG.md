@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-15
+
+### Fixed
+
+- **Claude's COT interpretation never rendered** — the positioning cards always fell back to the "AI interpretation is unavailable" notice. Two faults compounded: the request capped output at 900 tokens when a full six-card analysis measures around 1650, and it disabled thinking, which sent the model into a repeat loop that burned the remaining budget on a repeating digit. Every response came back truncated mid-string, so parsing the JSON threw and the endpoint returned a 503. The request now allows 4096 output tokens and uses adaptive thinking at low effort. A response that still hits the cap is reported as an incomplete analysis instead of surfacing as a generic parse failure.
+- **Dropped a cache directive that never applied** — the analysis request asked for ephemeral prompt caching, but its prefix sits near 500 tokens, under the 1024-token minimum the model requires, so nothing was ever cached.
+
+### Changed
+
+- **The COT report header names the release you are reading** — it now reads "Report week ending" with the weekday spelled out, confirming at a glance that the snapshot is the CFTC's Tuesday rather than a date shifted by the viewer's timezone. Underneath it, a new "Loaded" line shows the date and time the data was fetched, so a fresh pull is distinguishable from the half-hour cache. The report date stays pinned to UTC while the load time renders in local time with its zone attached.
+
 ## [1.4.0] - 2026-08-11
 
 ### Removed

@@ -1,5 +1,8 @@
 export const COT_AI_CACHE_TTL_MS = 6 * 24 * 60 * 60_000;
 
+/** A full six-card analysis measures ~1650 output tokens before thinking. */
+export const COT_AI_MAX_TOKENS = 4096;
+
 export const COT_AI_SYSTEM_PROMPT = `Analyze only the supplied CFTC positioning data; never invent market data or give trade instructions. Treat Managed Money or Leveraged Funds as the primary speculative cohort and commercials as contrarian context. Separate current positioning, weekly momentum, crowding/extremes, and risk. High COT Index means positioning is near its bullish historical range; low means bearish. Reduce conviction when signals conflict. Return only the requested structure with 4–6 concise, numeric, non-duplicative cards, including POSITIONING, MOMENTUM, EXTREME, and RISK; add COMMERCIALS only when supported.`;
 
 export const COT_AI_OUTPUT_SCHEMA = {

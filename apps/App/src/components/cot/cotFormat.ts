@@ -41,6 +41,28 @@ export function formatReportDate(date: string) {
   });
 }
 
+/** The header names the exact release, so it spells the weekday out. */
+export function formatReportDateLong(date: string) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Unlike the report date, the fetch time is an instant and belongs in local time. */
+export function formatFetchedAt(timestamp: string) {
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
 export function findCategory(table: CotTableDTO, key: string): CotCategoryDTO | undefined {
   return table.categories.find((category) => category.key === key);
 }

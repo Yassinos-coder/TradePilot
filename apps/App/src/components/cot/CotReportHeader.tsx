@@ -1,7 +1,7 @@
 import type { CotReportDTO } from '@tradepilot/shared';
 
 import { CotChangeChip } from './CotChangeChip';
-import { formatContracts, formatReportDate } from './cotFormat';
+import { formatContracts, formatFetchedAt, formatReportDateLong } from './cotFormat';
 
 interface CotReportHeaderProps {
   report: CotReportDTO;
@@ -26,9 +26,12 @@ export function CotReportHeader({ report }: CotReportHeaderProps) {
         </div>
 
         <div className="text-right">
-          <p className="text-content-tertiary text-xs font-medium">As of</p>
+          <p className="text-content-tertiary text-xs font-medium">Report week ending</p>
           <p className="text-content-primary text-sm font-semibold">
-            {formatReportDate(report.reportDate)}
+            {formatReportDateLong(report.reportDate)}
+          </p>
+          <p className="text-content-tertiary mt-0.5 text-xs">
+            Loaded {formatFetchedAt(report.fetchedAt)}
           </p>
         </div>
       </div>

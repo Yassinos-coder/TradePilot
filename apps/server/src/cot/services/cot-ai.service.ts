@@ -15,6 +15,7 @@ import {
 import { CacheService } from '../../redis/cache.service';
 import {
   COT_AI_CACHE_TTL_MS,
+  COT_AI_MAX_TOKENS,
   COT_AI_OUTPUT_SCHEMA,
   COT_AI_SYSTEM_PROMPT,
 } from '../constants/cot-ai';
@@ -24,6 +25,7 @@ import { CotService } from './cot.service';
 
 interface ClaudeMessageResponse {
   content?: Array<{ type: string; text?: string }>;
+  stop_reason?: string;
   error?: { message?: string };
 }
 
@@ -94,12 +96,14 @@ export class CotAiService {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 900,
-          thinking: { type: 'disabled' },
-          cache_control: { type: 'ephemeral' },
+          // Six cards run past 1600 output tokens, and disabled thinking made the
+          // model loop on a digit until it hit the cap, so the JSON never closed.
+          max_tokens: COT_AI_MAX_TOKENS,
+          thinking: { type: 'adaptive' },
           system: COT_AI_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
           output_config: {
+            effort: 'low',
             format: {
               type: 'json_schema',
               schema: COT_AI_OUTPUT_SCHEMA,
@@ -129,6 +133,12 @@ export class CotAiService {
 
     if (!text) {
       throw new ServiceUnavailableException('Claude returned no COT analysis');
+    }
+
+    // Truncated JSON fails to parse a few lines down; name the real cause instead.
+    if (body.stop_reason === 'max_tokens') {
+      this.logger.warn(`Claude COT analysis was cut off at ${COT_AI_MAX_TOKENS} output tokens`);
+      throw new ServiceUnavailableException('Claude returned an incomplete COT analysis');
     }
 
     let parsed: unknown;
