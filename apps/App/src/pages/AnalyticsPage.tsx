@@ -24,6 +24,7 @@ import type { DirectionBreakdownDTO, PeriodBreakdownDTO, TradeTypeBreakdownDTO }
 
 import { accountLabel } from '../lib/account-label';
 import { apiClient } from '../lib/api';
+import { probabilityOfLosingStreak } from '../lib/probability';
 import {
   cn,
   formatCurrency,
@@ -168,6 +169,102 @@ function MetricMatrixCard({
         ))}
       </div>
     </Card>
+  );
+}
+
+const STREAK_TABLE_TRADES = 50;
+const STREAK_TABLE_WIN_RATES = Array.from({ length: 19 }, (_, i) => 5 + i * 5); // 5..95
+const STREAK_TABLE_LENGTHS = Array.from({ length: 10 }, (_, i) => i + 2); // 2..11
+
+function nearestStep(value: number, steps: number[]) {
+  return steps.reduce((closest, step) =>
+    Math.abs(step - value) < Math.abs(closest - value) ? step : closest,
+  );
+}
+
+function LossStreakProbabilityCard({ winRate }: { winRate: number | null | undefined }) {
+  const highlightRow =
+    typeof winRate === 'number' && !Number.isNaN(winRate)
+      ? nearestStep(winRate, STREAK_TABLE_WIN_RATES)
+      : null;
+
+  return (
+    <Card
+      title="Losing Streak Probability"
+      eyebrow="Streak Risk"
+      description={`Probability of hitting at least (x) consecutive losing trades within a ${STREAK_TABLE_TRADES}-trade sample, by win rate.`}
+    >
+      <div className="-mx-5 overflow-x-auto px-5">
+        <div
+          className="grid min-w-[720px] gap-1.5"
+          style={{ gridTemplateColumns: `72px repeat(${STREAK_TABLE_LENGTHS.length}, minmax(64px, 1fr))` }}
+        >
+          <div />
+          {STREAK_TABLE_LENGTHS.map((length) => (
+            <div
+              key={`head-${length}`}
+              className="rounded-lg border border-line-subtle bg-surface-muted px-2 py-1.5 text-center text-xs font-semibold text-content-tertiary"
+            >
+              {length}
+            </div>
+          ))}
+
+          {STREAK_TABLE_WIN_RATES.map((rate) => (
+            <ProbabilityRow key={rate} rate={rate} highlighted={rate === highlightRow} />
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
+        <span>
+          Rows are win rate, columns are consecutive losses.{' '}
+          {highlightRow !== null ? (
+            <>
+              Highlighted row (
+              <span className="font-semibold text-brand">{highlightRow}%</span>) is closest to
+              this account&apos;s actual win rate.
+            </>
+          ) : null}
+        </span>
+        <span>*Based on binomial probability modeling.</span>
+      </div>
+    </Card>
+  );
+}
+
+function ProbabilityRow({ rate, highlighted }: { rate: number; highlighted: boolean }) {
+  return (
+    <>
+      <div
+        className={cn(
+          'rounded-lg border px-2 py-1.5 text-center text-xs font-semibold',
+          highlighted
+            ? 'border-brand/40 bg-brand-subtle text-brand'
+            : 'border-line-subtle bg-surface-muted text-content-tertiary',
+        )}
+      >
+        {rate}%
+      </div>
+      {STREAK_TABLE_LENGTHS.map((length) => {
+        const probability = probabilityOfLosingStreak(STREAK_TABLE_TRADES, length, rate);
+        const mix = `color-mix(in srgb, var(--color-positive) ${probability}%, var(--color-negative))`;
+        return (
+          <div
+            key={`${rate}-${length}`}
+            className={cn(
+              'rounded-lg border px-2 py-1.5 text-center text-xs font-semibold tabular',
+              highlighted && 'ring-1 ring-inset ring-brand/30',
+            )}
+            style={{
+              backgroundColor: `color-mix(in srgb, ${mix} 16%, var(--color-surface))`,
+              borderColor: `color-mix(in srgb, ${mix} 45%, var(--color-line))`,
+              color: mix,
+            }}
+          >
+            {formatPercent(probability, 1)}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -1105,6 +1202,8 @@ export function AnalyticsPage() {
         description="Current and historical win/loss streaks by count and dollars."
         items={streakItems}
       />
+
+      <LossStreakProbabilityCard winRate={a.winRate} />
 
       <MetricMatrixCard
         title="Trade Quality"
