@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-08-15
+
+### Removed
+
+- **The TradingView Pine scripts** — `FVG-Reversal-Strategy.pine` and `Fair-value-gap-detector.pine` are deleted, emptying `apps/TradingView/`. Both derive from LuxAlgo's "FVG Sessions" indicator, published under CC BY-NC-SA 4.0, whose non-commercial term sits badly with vendoring the source into this repository. Neither file was part of any build. They remain in history at `bfb759b` if the strategy logic is needed again.
+
 ## [1.4.1] - 2026-08-15
 
 ### Fixed
