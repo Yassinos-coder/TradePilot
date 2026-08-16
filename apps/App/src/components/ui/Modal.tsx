@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useId } from 'react';
+
+import { useOverlayBehavior } from '@/hooks/useOverlayBehavior';
 
 import { Button } from './Button';
 
@@ -14,20 +16,9 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, description, footer, children }: ModalProps) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  const panelRef = useOverlayBehavior<HTMLDivElement>(open, onClose);
+  const titleId = useId();
+  const descriptionId = useId();
 
   return (
     <AnimatePresence>
@@ -35,6 +26,7 @@ export function Modal({ open, onClose, title, description, footer, children }: M
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             key="backdrop"
+            aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -44,32 +36,39 @@ export function Modal({ open, onClose, title, description, footer, children }: M
           />
           <motion.div
             key="panel"
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label={title}
+            aria-labelledby={titleId}
+            aria-describedby={description ? descriptionId : undefined}
+            tabIndex={-1}
             initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 4 }}
             transition={{ duration: 0.16, ease: 'easeOut' }}
-            className="border-line bg-surface rounded-card relative z-10 flex max-h-[86vh] w-full max-w-lg flex-col border shadow-2xl"
+            className="border-line bg-surface rounded-card relative z-10 flex max-h-[86vh] w-full max-w-lg flex-col border shadow-2xl focus:outline-none"
           >
             <header className="border-line-subtle flex items-start justify-between gap-3 border-b px-5 py-4">
               <div className="min-w-0">
-                <h2 className="text-content-primary text-sm font-semibold">{title}</h2>
+                <h2 id={titleId} className="text-content-primary text-sm font-semibold text-balance">
+                  {title}
+                </h2>
                 {description ? (
-                  <p className="text-content-tertiary mt-0.5 text-xs leading-5">{description}</p>
+                  <p id={descriptionId} className="text-content-tertiary mt-0.5 text-xs leading-5">
+                    {description}
+                  </p>
                 ) : null}
               </div>
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors"
+                className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary focus-visible:ring-brand shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none"
               >
-                <X className="h-4 w-4" />
+                <X aria-hidden className="h-4 w-4" />
               </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-5">{children}</div>
+            <div className="flex-1 overflow-y-auto overscroll-contain p-5">{children}</div>
             {footer ? (
               <footer className="border-line-subtle bg-surface-inset flex items-center justify-end gap-2 border-t px-5 py-4">
                 {footer}
@@ -125,7 +124,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <p className="text-content-secondary text-sm leading-6">{description}</p>
+      <p className="text-content-secondary text-sm leading-6 text-pretty">{description}</p>
     </Modal>
   );
 }

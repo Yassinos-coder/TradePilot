@@ -42,7 +42,7 @@ function WinRateRing({ value }: { value: number }) {
     <div className="relative flex h-16 w-16 items-center justify-center">
       <svg className="-rotate-90" width={64} height={64}>
         <circle cx={32} cy={32} r={r} strokeWidth={5} className="stroke-line" fill="none" />
-        <circle cx={32} cy={32} r={r} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="stroke-brand transition-all duration-500" fill="none" />
+        <circle cx={32} cy={32} r={r} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="stroke-brand transition-[stroke-dashoffset] duration-500" fill="none" />
       </svg>
       <span className="absolute text-[11px] font-bold text-content-primary">{value.toFixed(0)}%</span>
     </div>
@@ -69,7 +69,7 @@ function FilterSelect({
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 rounded-lg border border-line bg-surface px-2 text-xs text-content-secondary outline-none"
+        className="focus-visible:ring-brand h-8 rounded-lg border border-line bg-surface px-2 text-xs text-content-secondary focus-visible:ring-2 focus-visible:outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>

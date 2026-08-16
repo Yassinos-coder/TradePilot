@@ -26,17 +26,22 @@ export function ToastViewport() {
   const dismiss = useToastStore((state) => state.dismiss);
 
   return (
-    <div className="pointer-events-none fixed right-0 top-0 z-50 flex w-full max-w-sm flex-col gap-3 p-4">
+    <div
+      aria-live="polite"
+      aria-atomic="false"
+      className="pointer-events-none fixed top-0 right-0 z-50 flex w-full max-w-sm flex-col gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          role={toast.tone === 'error' ? 'alert' : 'status'}
           className={cn(
             'pointer-events-auto rounded-xl border shadow-lg backdrop-blur',
             toneStyles[toast.tone],
           )}
         >
           <div className="flex items-start gap-3 p-4">
-            <div className="mt-0.5 shrink-0">
+            <div aria-hidden className="mt-0.5 shrink-0">
               <ToneIcon tone={toast.tone} />
             </div>
             <div className="min-w-0 flex-1">
@@ -48,10 +53,10 @@ export function ToastViewport() {
             <button
               type="button"
               onClick={() => dismiss(toast.id)}
-              className="shrink-0 cursor-pointer rounded-md p-1 opacity-70 transition hover:opacity-100"
+              className="shrink-0 cursor-pointer rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-current focus-visible:outline-none"
               aria-label="Dismiss notification"
             >
-              <X className="h-4 w-4" />
+              <X aria-hidden className="h-4 w-4" />
             </button>
           </div>
         </div>

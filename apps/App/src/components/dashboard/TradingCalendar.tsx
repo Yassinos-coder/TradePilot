@@ -33,8 +33,20 @@ function calendarDays(year: number, month: number): Array<{ date: string | null;
   return cells;
 }
 
+function dayLabel(date: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`));
+}
+
 export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClick }: TradingCalendarProps) {
-  const monthLabel = new Date(year, month, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+  const monthLabel = new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(year, month, 1));
   const cells = calendarDays(year, month);
 
   function prevMonth() {
@@ -58,27 +70,36 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <button
+          type="button"
           onClick={prevMonth}
-          className="rounded-lg p-2 text-content-tertiary transition-colors hover:bg-surface-muted hover:text-content-secondary"
+          aria-label="Previous month"
+          className="text-content-tertiary hover:bg-surface-muted hover:text-content-secondary focus-visible:ring-brand cursor-pointer rounded-lg p-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft aria-hidden className="h-4 w-4" />
         </button>
-        <h3 className="text-sm font-semibold text-content-primary">{monthLabel}</h3>
+        <h3 aria-live="polite" className="text-content-primary text-sm font-semibold">
+          {monthLabel}
+        </h3>
         <button
+          type="button"
           onClick={nextMonth}
           disabled={isCurrentOrFuture}
+          aria-label="Next month"
           className={cn(
-            'rounded-lg p-2 text-content-tertiary transition-colors hover:bg-surface-muted hover:text-content-secondary',
+            'text-content-tertiary hover:bg-surface-muted hover:text-content-secondary focus-visible:ring-brand cursor-pointer rounded-lg p-2 transition-colors focus-visible:ring-2 focus-visible:outline-none',
             isCurrentOrFuture && 'pointer-events-none opacity-30',
           )}
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight aria-hidden className="h-4 w-4" />
         </button>
       </div>
 
       <div className="grid grid-cols-7 gap-1">
         {DAY_HEADERS.map((h) => (
-          <div key={h} className="py-1 text-center text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+          <div
+            key={h}
+            className="text-content-tertiary py-1 text-center text-[10px] font-semibold tracking-wider uppercase"
+          >
             {h}
           </div>
         ))}
@@ -106,41 +127,45 @@ export function TradingCalendar({ year, month, summaryMap, onNavigate, onDayClic
             </div>
           ) : null;
 
-          const cell_ = (
+          if (!hasTrades) {
+            return (
+              <div
+                key={cell.date}
+                className="bg-surface-muted text-content-tertiary flex aspect-square w-full items-center justify-center rounded-lg p-1 text-[11px] font-medium"
+              >
+                {cell.day}
+              </div>
+            );
+          }
+
+          const dayButton = (
             <button
-              key={cell.date}
-              onClick={() => summary && onDayClick(cell.date!)}
+              type="button"
+              onClick={() => onDayClick(cell.date!)}
+              aria-label={`${dayLabel(cell.date)} — ${summary.tradeCount} ${
+                summary.tradeCount === 1 ? 'trade' : 'trades'
+              }, ${formatCurrency(summary.netProfit)}`}
               className={cn(
-                'flex aspect-square w-full flex-col items-center justify-center rounded-lg p-1 transition-all',
-                hasTrades ? 'cursor-pointer' : 'cursor-default',
-                isProfit && 'bg-positive hover:bg-positive',
-                isLoss && 'bg-negative hover:bg-negative',
-                !hasTrades && 'bg-surface-muted',
+                'flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border p-1 transition-colors',
+                'focus-visible:ring-brand focus-visible:ring-2 focus-visible:outline-none',
+                isProfit &&
+                  'border-positive/25 bg-positive-subtle text-positive-content hover:border-positive/50',
+                isLoss &&
+                  'border-negative/25 bg-negative-subtle text-negative-content hover:border-negative/50',
               )}
             >
-              <span className="text-[11px] font-medium text-content-secondary">
-                {cell.day}
+              <span className="text-content-primary text-[11px] font-medium">{cell.day}</span>
+              <span className="tabular mt-0.5 text-[9px] leading-none font-semibold">
+                {summary.netProfit >= 0 ? '+' : ''}
+                {summary.netProfit.toFixed(0)}
               </span>
-              {hasTrades && (
-                <span
-                  className={cn(
-                    'mt-0.5 text-[9px] font-semibold leading-none',
-                    isProfit ? 'text-positive' : 'text-negative',
-                  )}
-                >
-                  {summary.netProfit >= 0 ? '+' : ''}
-                  {summary.netProfit.toFixed(0)}
-                </span>
-              )}
             </button>
           );
 
-          return tooltipContent ? (
+          return (
             <Tooltip key={cell.date} content={tooltipContent}>
-              {cell_}
+              {dayButton}
             </Tooltip>
-          ) : (
-            <div key={cell.date}>{cell_}</div>
           );
         })}
       </div>

@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useId } from 'react';
+
+import { useOverlayBehavior } from '@/hooks/useOverlayBehavior';
 
 interface DrawerProps {
   open: boolean;
@@ -12,20 +14,9 @@ interface DrawerProps {
 }
 
 export function Drawer({ open, onClose, title, description, footer, children }: DrawerProps) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  const panelRef = useOverlayBehavior<HTMLElement>(open, onClose);
+  const titleId = useId();
+  const descriptionId = useId();
 
   return (
     <AnimatePresence>
@@ -33,6 +24,7 @@ export function Drawer({ open, onClose, title, description, footer, children }: 
         <>
           <motion.div
             key="backdrop"
+            aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -42,34 +34,45 @@ export function Drawer({ open, onClose, title, description, footer, children }: 
           />
           <motion.aside
             key="drawer"
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label={title}
+            aria-labelledby={title ? titleId : undefined}
+            aria-label={title ? undefined : 'Details'}
+            aria-describedby={description ? descriptionId : undefined}
+            tabIndex={-1}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="border-line bg-surface fixed top-0 right-0 z-50 flex h-full w-full max-w-md flex-col border-l shadow-2xl"
+            className="border-line bg-surface fixed top-0 right-0 z-50 flex h-full w-full max-w-md flex-col border-l pb-[env(safe-area-inset-bottom)] shadow-2xl focus:outline-none"
           >
-            <header className="border-line-subtle flex items-start justify-between gap-3 border-b px-5 py-4">
+            <header className="border-line-subtle flex items-start justify-between gap-3 border-b px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))]">
               <div className="min-w-0">
                 {title ? (
-                  <h2 className="text-content-primary text-sm font-semibold">{title}</h2>
+                  <h2
+                    id={titleId}
+                    className="text-content-primary text-sm font-semibold text-balance"
+                  >
+                    {title}
+                  </h2>
                 ) : null}
                 {description ? (
-                  <p className="text-content-tertiary mt-0.5 text-xs leading-5">{description}</p>
+                  <p id={descriptionId} className="text-content-tertiary mt-0.5 text-xs leading-5">
+                    {description}
+                  </p>
                 ) : null}
               </div>
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors"
+                className="text-content-tertiary hover:bg-surface-muted hover:text-content-primary focus-visible:ring-brand shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none"
               >
-                <X className="h-4 w-4" />
+                <X aria-hidden className="h-4 w-4" />
               </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-5">{children}</div>
+            <div className="flex-1 overflow-y-auto overscroll-contain p-5">{children}</div>
             {footer ? (
               <footer className="border-line-subtle bg-surface-inset border-t px-5 py-4">
                 {footer}

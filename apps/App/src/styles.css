@@ -177,6 +177,7 @@ body {
   font-family: var(--font-sans);
   background-color: var(--canvas);
   color: var(--content-primary);
+  -webkit-tap-highlight-color: transparent;
 }
 
 button,
@@ -184,6 +185,18 @@ input,
 textarea,
 select {
   font: inherit;
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 ::selection {

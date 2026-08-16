@@ -966,7 +966,7 @@ export function AnalyticsPage() {
             type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-content-secondary shadow-sm transition-all hover:bg-surface-muted active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="focus-visible:ring-brand flex items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-content-secondary shadow-sm transition-[background-color,transform] hover:bg-surface-muted active:scale-95 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           >
             <motion.span
               animate={{ rotate: isRefreshing ? 360 : 0 }}
@@ -1035,7 +1035,7 @@ export function AnalyticsPage() {
                 id="analytics-account"
                 value={selectedAccountId}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="h-11 rounded-2xl border border-line bg-surface px-4 text-sm text-content-secondary outline-none transition-colors focus:border-brand"
+                className="focus-visible:ring-brand h-11 rounded-2xl border border-line bg-surface px-4 text-sm text-content-secondary transition-colors focus-visible:border-brand focus-visible:ring-2 focus-visible:outline-none"
               >
                 {accountOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -1058,7 +1058,7 @@ export function AnalyticsPage() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadHistoryMutation.isPending}
-                className="flex items-center gap-2 rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-2.5 text-sm font-medium text-brand transition-all hover:bg-brand-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                className="focus-visible:ring-brand flex items-center gap-2 rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-2.5 text-sm font-medium text-brand transition-[background-color,transform] hover:bg-brand-subtle active:scale-95 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <UploadCloud className="h-4 w-4" />
                 {uploadHistoryMutation.isPending ? 'Importing…' : 'Upload history'}
@@ -1089,7 +1089,7 @@ export function AnalyticsPage() {
                     type="button"
                     onClick={() => handleHideAccount(selectedLiveAccount)}
                     disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
-                    className="flex items-center gap-2 rounded-2xl border border-warning bg-warning-subtle px-4 py-2.5 text-sm font-medium text-warning transition-all hover:bg-warning-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="focus-visible:ring-warning flex items-center gap-2 rounded-2xl border border-warning bg-warning-subtle px-4 py-2.5 text-sm font-medium text-warning transition-[background-color,transform] hover:bg-warning-subtle active:scale-95 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <EyeOff className="h-4 w-4" />
                     {hideAccountMutation.isPending ? 'Hiding…' : 'Hide account'}
@@ -1098,7 +1098,7 @@ export function AnalyticsPage() {
                     type="button"
                     onClick={() => handleDeleteAccountRecords(selectedLiveAccount)}
                     disabled={hideAccountMutation.isPending || deleteAccountRecordsMutation.isPending}
-                    className="flex items-center gap-2 rounded-2xl border border-negative bg-negative-subtle px-4 py-2.5 text-sm font-medium text-negative transition-all hover:bg-negative-subtle active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="focus-visible:ring-negative flex items-center gap-2 rounded-2xl border border-negative bg-negative-subtle px-4 py-2.5 text-sm font-medium text-negative transition-[background-color,transform] hover:bg-negative-subtle active:scale-95 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Trash2 className="h-4 w-4" />
                     {deleteAccountRecordsMutation.isPending ? 'Deleting…' : 'Delete records'}
@@ -1155,7 +1155,7 @@ export function AnalyticsPage() {
                     aria-label={`Delete ${file.displayName}`}
                     onClick={() => handleDeleteHistoryFile(file.id)}
                     disabled={deleteHistoryMutation.isPending}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-content-tertiary opacity-0 transition-all hover:bg-negative-subtle hover:text-negative disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100"
+                    className="focus-visible:ring-negative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-content-tertiary opacity-0 transition-[background-color,color,opacity] hover:bg-negative-subtle hover:text-negative focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

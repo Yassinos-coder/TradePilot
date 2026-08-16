@@ -1,30 +1,42 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import axios from 'axios';
 import { useQuery } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
-import { AppShell } from './components/layout/AppShell';
 import { apiClient } from './lib/api';
 import { useAuthStore } from './store/auth-store';
-import { AccountsPage } from './pages/AccountsPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { AuthCallbackPage } from './pages/AuthCallbackPage';
-import { AuthPage } from './pages/AuthPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { LandingPage } from './pages/LandingPage';
-import { NewsCalendarPage } from './pages/NewsCalendarPage';
-import { OpenTradesPage } from './pages/OpenTradesPage';
-import { PricingPage } from './pages/PricingPage';
-import { PrivacyPage } from './pages/PrivacyPage';
-import { RefundPage } from './pages/RefundPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { TermsPage } from './pages/TermsPage';
-import { CopierPage } from './pages/CopierPage';
-import { CalculatorsPage } from './pages/CalculatorsPage';
-import { CotReportPage } from './pages/CotReportPage';
-import { ToolsPage } from './pages/ToolsPage';
-import { TradeCopierPage } from './pages/TradeCopierPage';
 import { SeoManager } from './components/seo/SeoManager';
+
+const AppShell = lazy(() => import('./components/layout/AppShell').then((module) => ({ default: module.AppShell })));
+const AccountsPage = lazy(() => import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
+const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage').then((module) => ({ default: module.AuthCallbackPage })));
+const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })));
+const CalculatorsPage = lazy(() => import('./pages/CalculatorsPage').then((module) => ({ default: module.CalculatorsPage })));
+const CopierPage = lazy(() => import('./pages/CopierPage').then((module) => ({ default: module.CopierPage })));
+const CotReportPage = lazy(() => import('./pages/CotReportPage').then((module) => ({ default: module.CotReportPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const LandingPage = lazy(() => import('./pages/LandingPage').then((module) => ({ default: module.LandingPage })));
+const NewsCalendarPage = lazy(() => import('./pages/NewsCalendarPage').then((module) => ({ default: module.NewsCalendarPage })));
+const OpenTradesPage = lazy(() => import('./pages/OpenTradesPage').then((module) => ({ default: module.OpenTradesPage })));
+const PricingPage = lazy(() => import('./pages/PricingPage').then((module) => ({ default: module.PricingPage })));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then((module) => ({ default: module.PrivacyPage })));
+const RefundPage = lazy(() => import('./pages/RefundPage').then((module) => ({ default: module.RefundPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const TermsPage = lazy(() => import('./pages/TermsPage').then((module) => ({ default: module.TermsPage })));
+const ToolsPage = lazy(() => import('./pages/ToolsPage').then((module) => ({ default: module.ToolsPage })));
+const TradeCopierPage = lazy(() => import('./pages/TradeCopierPage').then((module) => ({ default: module.TradeCopierPage })));
+
+function RouteFallback() {
+  return (
+    <div className="bg-canvas flex min-h-screen items-center justify-center" role="status">
+      <div className="text-content-secondary flex items-center gap-3 text-sm">
+        <span aria-hidden className="border-brand h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+        Loading…
+      </div>
+    </div>
+  );
+}
 
 function ProtectedLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -96,6 +108,7 @@ export default function App() {
       }}
     >
       <SeoManager />
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -120,6 +133,7 @@ export default function App() {
         <Route path="/app/trade-copier" element={<Navigate to="/app/copier" replace />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

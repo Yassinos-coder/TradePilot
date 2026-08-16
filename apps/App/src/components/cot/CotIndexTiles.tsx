@@ -78,7 +78,7 @@ export function CotIndexTiles({ indexes, speculatorLabel }: CotIndexTilesProps) 
 
               <div className="bg-surface-inset mt-3 h-2 w-full overflow-hidden rounded-full">
                 <div
-                  className={cn('h-full rounded-full transition-all', tone.bar)}
+                  className={cn('h-full rounded-full transition-[width]', tone.bar)}
                   style={{ width: `${index.value ?? 0}%` }}
                 />
               </div>

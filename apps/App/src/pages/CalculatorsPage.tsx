@@ -276,7 +276,7 @@ function InstrumentPicker({ value, onChange }: { value: string; onChange: (symbo
             if (event.key === 'Escape') setOpen(false);
           }}
           placeholder="Search EURUSD, gold, indices…"
-          className="h-11 w-full rounded-xl border border-line-strong bg-surface pl-10 pr-3 text-sm text-content-primary outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
+          className="focus-visible:ring-brand/15 h-11 w-full rounded-xl border border-line-strong bg-surface pl-10 pr-3 text-sm text-content-primary transition-colors focus-visible:border-brand focus-visible:ring-2 focus-visible:outline-none"
         />
       </div>
       {open ? (
