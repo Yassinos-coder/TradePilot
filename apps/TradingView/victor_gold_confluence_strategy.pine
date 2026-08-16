@@ -1,0 +1,195 @@
+//@version=6
+strategy("Victor Gold Confluence Strategy", overlay = true, pyramiding = 0,
+     initial_capital = 10000, currency = currency.USD,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 1,
+     commission_type = strategy.commission.percent, commission_value = 0.02,
+     calc_on_order_fills = true, process_orders_on_close = true,
+     max_lines_count = 100, max_labels_count = 100)
+
+// This is a mechanical interpretation of the discretionary strategy described
+// in the source interview. Run it on a 5-minute XAUUSD chart.
+
+groupGeneral = "General"
+tradeSession = input.session("0800-1200", "Entry session", group = groupGeneral,
+     tooltip = "The interview uses approximately 08:00 Eastern onward.")
+sessionZone = input.string("America/New_York", "Session timezone", group = groupGeneral)
+allowLongs = input.bool(true, "Allow longs", group = groupGeneral)
+allowShorts = input.bool(true, "Allow shorts", group = groupGeneral)
+cancelBars = input.int(6, "Cancel unfilled entry after bars", minval = 1, group = groupGeneral)
+
+groupStructure = "Structure and Fibonacci"
+structureTf = input.timeframe("15", "Structure timeframe", group = groupStructure)
+biasTf = input.timeframe("240", "Bias timeframe", group = groupStructure)
+pivotLeft = input.int(3, "Pivot bars left", minval = 1, group = groupStructure)
+pivotRight = input.int(3, "Pivot bars right", minval = 1, group = groupStructure)
+selectedFib = input.float(0.786, "Entry Fibonacci", options = [0.382, 0.5, 0.618, 0.714, 0.786, 0.886], group = groupStructure)
+zonePips = input.float(5.0, "Fib zone half-width (pips)", minval = 0.1, group = groupStructure)
+pipSize = input.float(0.1, "Gold pip size", minval = 0.00001, step = 0.01, group = groupStructure,
+     tooltip = "Common XAUUSD convention: 1 pip = 0.10. Adjust for your broker.")
+
+groupConfluence = "Confluence filters"
+minimumScore = input.int(3, "Minimum score", minval = 1, maxval = 5, group = groupConfluence,
+     tooltip = "Fib is mandatory. Score adds bias, EMA/SMA, key-level and psychological-level confluence.")
+maTolerancePips = input.float(15.0, "MA proximity (pips)", minval = 0.1, group = groupConfluence)
+psychStep = input.float(100.0, "Psychological price interval", minval = 0.01, group = groupConfluence)
+psychTolerancePips = input.float(20.0, "Psych level proximity (pips)", minval = 0.1, group = groupConfluence)
+keyLookback = input.int(50, "Key-level lookback", minval = 10, group = groupConfluence)
+keyTolerancePips = input.float(10.0, "Key-level proximity (pips)", minval = 0.1, group = groupConfluence)
+
+groupRisk = "Risk and exits"
+minStopPips = input.float(20.0, "Minimum stop (pips)", minval = 0.1, group = groupRisk)
+maxStopPips = input.float(40.0, "Maximum stop (pips)", minval = 0.1, group = groupRisk)
+stopBufferPips = input.float(2.0, "Stop beyond reaction wick (pips)", minval = 0.0, group = groupRisk)
+partialPercent = input.float(70.0, "Close at first target (%)", minval = 1, maxval = 99, group = groupRisk)
+runnerRR = input.float(8.0, "Runner target (R)", minval = 1.0, group = groupRisk)
+breakEvenRR = input.float(1.0, "Obstacle / break-even trigger (R)", minval = 0.25, group = groupRisk)
+
+// Confirmed 15-minute pivots define the latest impulse without lookahead.
+float pivotHigh = request.security(syminfo.tickerid, structureTf, ta.pivothigh(high, pivotLeft, pivotRight), barmerge.gaps_off, barmerge.lookahead_off)
+float pivotLow = request.security(syminfo.tickerid, structureTf, ta.pivotlow(low, pivotLeft, pivotRight), barmerge.gaps_off, barmerge.lookahead_off)
+var float lastHigh = na
+var float lastLow = na
+var int lastHighTime = na
+var int lastLowTime = na
+if not na(pivotHigh) and (na(pivotHigh[1]) or pivotHigh != pivotHigh[1])
+    lastHigh := pivotHigh
+    lastHighTime := time
+if not na(pivotLow) and (na(pivotLow[1]) or pivotLow != pivotLow[1])
+    lastLow := pivotLow
+    lastLowTime := time
+
+bool bullishImpulse = not na(lastHighTime) and not na(lastLowTime) and lastHighTime > lastLowTime
+bool bearishImpulse = not na(lastHighTime) and not na(lastLowTime) and lastLowTime > lastHighTime
+float longFib = bullishImpulse ? lastHigh - (lastHigh - lastLow) * selectedFib : na
+float shortFib = bearishImpulse ? lastLow + (lastHigh - lastLow) * selectedFib : na
+float zoneWidth = zonePips * pipSize
+
+float ema200 = request.security(syminfo.tickerid, structureTf, ta.ema(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+float sma200 = request.security(syminfo.tickerid, structureTf, ta.sma(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+float biasClose = request.security(syminfo.tickerid, biasTf, close, barmerge.gaps_off, barmerge.lookahead_off)
+float biasEma = request.security(syminfo.tickerid, biasTf, ta.ema(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+float biasSma = request.security(syminfo.tickerid, biasTf, ta.sma(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+bool bullBias = biasClose > biasEma and biasClose > biasSma
+bool bearBias = biasClose < biasEma and biasClose < biasSma
+
+f_near(float a, float b, float tolerance) =>
+    not na(a) and not na(b) and math.abs(a - b) <= tolerance
+
+f_psychNear(float level) =>
+    float nearest = math.round(level / psychStep) * psychStep
+    f_near(level, nearest, psychTolerancePips * pipSize)
+
+// Repeated prior extremes stand in for the manually drawn key levels in the video.
+float priorResistance = ta.highest(high[1], keyLookback)
+float priorSupport = ta.lowest(low[1], keyLookback)
+int longScore = (bullBias ? 1 : 0) + (f_near(longFib, ema200, maTolerancePips * pipSize) ? 1 : 0) + (f_near(longFib, sma200, maTolerancePips * pipSize) ? 1 : 0) + (f_near(longFib, priorSupport, keyTolerancePips * pipSize) ? 1 : 0) + (f_psychNear(longFib) ? 1 : 0)
+int shortScore = (bearBias ? 1 : 0) + (f_near(shortFib, ema200, maTolerancePips * pipSize) ? 1 : 0) + (f_near(shortFib, sma200, maTolerancePips * pipSize) ? 1 : 0) + (f_near(shortFib, priorResistance, keyTolerancePips * pipSize) ? 1 : 0) + (f_psychNear(shortFib) ? 1 : 0)
+
+// Three consecutive five-minute candles must react at and hold the zone.
+bool longReaction0 = not na(longFib) and low <= longFib + zoneWidth and close >= longFib - zoneWidth
+bool longReaction1 = not na(longFib[1]) and low[1] <= longFib[1] + zoneWidth and close[1] >= longFib[1] - zoneWidth
+bool longReaction2 = not na(longFib[2]) and low[2] <= longFib[2] + zoneWidth and close[2] >= longFib[2] - zoneWidth
+bool shortReaction0 = not na(shortFib) and high >= shortFib - zoneWidth and close <= shortFib + zoneWidth
+bool shortReaction1 = not na(shortFib[1]) and high[1] >= shortFib[1] - zoneWidth and close[1] <= shortFib[1] + zoneWidth
+bool shortReaction2 = not na(shortFib[2]) and high[2] >= shortFib[2] - zoneWidth and close[2] <= shortFib[2] + zoneWidth
+bool stableLongZone = math.abs(longFib - longFib[2]) <= syminfo.mintick
+bool stableShortZone = math.abs(shortFib - shortFib[2]) <= syminfo.mintick
+bool threeLong = longReaction0 and longReaction1 and longReaction2 and stableLongZone and ta.lowest(close, 3) >= longFib - zoneWidth
+bool threeShort = shortReaction0 and shortReaction1 and shortReaction2 and stableShortZone and ta.highest(close, 3) <= shortFib + zoneWidth
+bool inSession = not na(time(timeframe.period, tradeSession, sessionZone))
+bool flat = strategy.position_size == 0
+
+var int orderBar = na
+var float plannedStop = na
+var float plannedEntry = na
+var int plannedDirection = 0
+
+// The post-confirmation pullback is modeled as a limit order at the fib level.
+float candidateLongStop = ta.lowest(low, 3) - stopBufferPips * pipSize
+float candidateShortStop = ta.highest(high, 3) + stopBufferPips * pipSize
+float longRiskPips = (longFib - candidateLongStop) / pipSize
+float shortRiskPips = (candidateShortStop - shortFib) / pipSize
+bool validLongRisk = longRiskPips >= minStopPips and longRiskPips <= maxStopPips
+bool validShortRisk = shortRiskPips >= minStopPips and shortRiskPips <= maxStopPips
+
+if flat and na(orderBar) and inSession
+    if allowLongs and threeLong and longScore >= minimumScore and validLongRisk
+        plannedEntry := longFib
+        plannedStop := candidateLongStop
+        plannedDirection := 1
+        orderBar := bar_index
+        strategy.entry("Long", strategy.long, limit = plannedEntry)
+    else if allowShorts and threeShort and shortScore >= minimumScore and validShortRisk
+        plannedEntry := shortFib
+        plannedStop := candidateShortStop
+        plannedDirection := -1
+        orderBar := bar_index
+        strategy.entry("Short", strategy.short, limit = plannedEntry)
+
+if strategy.position_size == 0 and not na(orderBar) and bar_index - orderBar > cancelBars
+    strategy.cancel_all()
+    orderBar := na
+    plannedStop := na
+    plannedEntry := na
+    plannedDirection := 0
+
+var float activeStop = na
+var float initialRisk = na
+var float firstTarget = na
+var float runnerTarget = na
+var bool atBreakEven = false
+
+bool newLong = strategy.position_size > 0 and strategy.position_size[1] <= 0
+bool newShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+if newLong or newShort
+    float fill = strategy.position_avg_price
+    initialRisk := math.abs(fill - plannedStop)
+    activeStop := plannedStop
+    int direction = newLong ? 1 : -1
+    // Latest opposing structure is TP1; require at least 2R so tiny obstacles are ignored.
+    float structureTarget = newLong ? lastHigh : lastLow
+    float minimumTarget = fill + direction * initialRisk * 2.0
+    firstTarget := newLong ? math.max(nz(structureTarget, minimumTarget), minimumTarget) : math.min(nz(structureTarget, minimumTarget), minimumTarget)
+    runnerTarget := fill + direction * initialRisk * runnerRR
+    atBreakEven := false
+    orderBar := na
+
+if strategy.position_size > 0 and not na(initialRisk)
+    float obstacle = strategy.position_avg_price + initialRisk * breakEvenRR
+    if close > obstacle
+        activeStop := math.max(activeStop, strategy.position_avg_price)
+        atBreakEven := true
+    strategy.exit("Long TP1", "Long", stop = activeStop, limit = firstTarget, qty_percent = partialPercent)
+    strategy.exit("Long runner", "Long", stop = activeStop, limit = runnerTarget, qty_percent = 100 - partialPercent)
+
+if strategy.position_size < 0 and not na(initialRisk)
+    float obstacle = strategy.position_avg_price - initialRisk * breakEvenRR
+    if close < obstacle
+        activeStop := math.min(activeStop, strategy.position_avg_price)
+        atBreakEven := true
+    strategy.exit("Short TP1", "Short", stop = activeStop, limit = firstTarget, qty_percent = partialPercent)
+    strategy.exit("Short runner", "Short", stop = activeStop, limit = runnerTarget, qty_percent = 100 - partialPercent)
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    activeStop := na
+    initialRisk := na
+    firstTarget := na
+    runnerTarget := na
+    plannedStop := na
+    plannedEntry := na
+    plannedDirection := 0
+    atBreakEven := false
+
+plot(longFib, "Bullish impulse fib", color = color.new(color.lime, 0), linewidth = 2, style = plot.style_linebr)
+plot(shortFib, "Bearish impulse fib", color = color.new(color.red, 0), linewidth = 2, style = plot.style_linebr)
+plot(ema200, "15m EMA 200", color = color.orange)
+plot(sma200, "15m SMA 200", color = color.blue)
+plot(strategy.position_size != 0 ? activeStop : na, "Active stop", color = atBreakEven ? color.aqua : color.red, linewidth = 2, style = plot.style_linebr)
+plot(strategy.position_size != 0 ? firstTarget : na, "First target", color = color.yellow, style = plot.style_linebr)
+plot(strategy.position_size != 0 ? runnerTarget : na, "Runner target", color = color.fuchsia, style = plot.style_linebr)
+
+plotshape(threeLong and longScore >= minimumScore, "Long setup", shape.triangleup, location.belowbar, color.lime, size = size.tiny, text = "L")
+plotshape(threeShort and shortScore >= minimumScore, "Short setup", shape.triangledown, location.abovebar, color.red, size = size.tiny, text = "S")
+
+alertcondition(threeLong and longScore >= minimumScore and validLongRisk and inSession, "Long confluence setup", "Victor Gold strategy: long setup on {{ticker}}")
+alertcondition(threeShort and shortScore >= minimumScore and validShortRisk and inSession, "Short confluence setup", "Victor Gold strategy: short setup on {{ticker}}")
