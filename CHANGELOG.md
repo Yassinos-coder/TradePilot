@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-08-16
+
+### Changed
+
+- **TradePilot 2.0 release** — the root workspace, frontend, server and shared packages now report version 2.0.0, including all internal `@tradepilot/*` dependency pins and the generated app update manifest.
+
 ## [1.5.0] - 2026-08-16
 
 ### Added
