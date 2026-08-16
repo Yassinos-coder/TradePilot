@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-16
+
+### Added
+
+- **Every public page now carries its own metadata** — the app is client-rendered, so until now a crawler that does not execute JavaScript saw the home page's title, description and Open Graph tags on `/pricing`, `/terms` and everywhere else. Facebook, LinkedIn, Slack and Discord all fall in that category, which meant every shared link previewed identically. The build now writes a real HTML file per public route with that route's title, canonical, OG/Twitter tags and JSON-LD baked into the initial response. Route metadata lives once in `src/seo/routes.ts` and drives the prerender, the sitemap and the runtime head manager together, so the three cannot drift apart.
+- **A trade copier guide at `/trade-copier`** — a page explaining what a trade copier is, how master-to-slave copying works, what each lot sizing mode does, how symbols are remapped across brokers, and six FAQs covering MT4-to-MT5 copying, prop firm accounts and VPS requirements. It carries `FAQPage` structured data drawn from the same source as the visible answers, so the markup cannot describe content the page does not show. Linked from the header, footer and landing hero.
+- **Losing streak probability table on Analytics** — given a win rate and a number of trades, it reports the chance of hitting a run of consecutive losses of a given length. Modelled as a Markov chain over the current run length rather than the naive independent-blocks estimate, so the figure accounts for a streak starting anywhere in the sequence.
+- **Alpha Capital Group partner offer** — sits alongside the IC Markets offer with the referral link and a click-to-copy `KFOCU` code chip.
+- **Pricing on the landing page** — the plans now appear on `/` rather than only behind a click to `/pricing`, with a "most popular" badge on Pro and per-plan CTAs.
+
+### Changed
+
+- **The two partner offers share one banner** — they were stacked as separate full-width blocks, which read as two consecutive adverts and repeated the sponsored disclaimer twice at mismatched heights. They now sit side by side, split by a slanted divider, under a single disclaimer covering both. Both render through one panel component driven by per-partner configuration, so a third partner is data rather than markup.
+- **The sign-in page was rebuilt around the form** — the old layout gave half the screen to a marketing column and buried the actual sign-in card to its right. The headline and card are now centred with the OAuth buttons, email field and legal line in one column, and the right half shows a live-looking copier panel instead of a feature list. It also renders correctly in dark mode for the first time: the previous page hardcoded light-blue gradients, so every colour now resolves through the existing design tokens.
+- **Pricing plans have one definition** — the landing page and `/pricing` render the same card component from a shared plan list rather than maintaining separate copies that could disagree on price.
+- **The Open Trades page dropped its marketing header** — an internal execution screen was opening with a badge, a 4xl headline, a paragraph and three stat tiles, one of which reported the constant "M / L / S". Those are gone, and the bespoke card shells, input classes and hand-rolled buttons were replaced with the shared `Card`, `Input`, `Select`, `Button`, `Badge` and `Alert` components used everywhere else. Behaviour is unchanged; the stylesheet shrank by 2 kB.
+- **The landing page leads with what the product is** — the H1 now names the MT4 and MT5 trade copier rather than describing it obliquely, and the header and footer link the new guide.
+- **`sitemap.xml` is generated from the route list** at build time with `lastmod`, replacing the hand-maintained file that had to be edited by hand whenever a page was added.
+- **Playwright moved to the right place** — it had been installed into `dependencies` in both the workspace root and the app. It is a test-only tool, so it now sits once in the app's `devDependencies`.
+
+### Fixed
+
+- **The Free and Pro+ buttons were invisible in light mode** — both non-featured pricing CTAs rendered white text on a white surface, leaving an unreadable button on two of the three plans.
+
+### Removed
+
+- **The Docker build and run artifacts** — both `Dockerfile`s, `apps/App/nginx.conf`, `docker-compose.yml`, `docker-compose.prod.yml` and `.dockerignore` are deleted; deployment runs through Berth. Two consequences worth knowing: Berth's agent prefers a `Dockerfile` when one exists under its default `Auto` builder, so builds now fall through to Nixpacks, which needs a start command for the frontend since `apps/App` has no `start` script. And the frontend build reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` at build time — the deleted `Dockerfile` supplied them as `ENV`, and without them the bundle throws on boot and renders a blank page. They must now be present in the build environment.
+- **`IcPartnerCard`** — folded into the combined partner banner along with its link, regulatory note and disclaimer.
+
 ## [1.4.2] - 2026-08-15
 
 ### Removed

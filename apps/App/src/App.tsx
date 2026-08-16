@@ -23,6 +23,7 @@ import { CopierPage } from './pages/CopierPage';
 import { CalculatorsPage } from './pages/CalculatorsPage';
 import { CotReportPage } from './pages/CotReportPage';
 import { ToolsPage } from './pages/ToolsPage';
+import { TradeCopierPage } from './pages/TradeCopierPage';
 import { SeoManager } from './components/seo/SeoManager';
 
 function ProtectedLayout() {
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/" element={<LandingPage />} />
+        <Route path="/trade-copier" element={<TradeCopierPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />

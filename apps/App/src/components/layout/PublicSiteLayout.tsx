@@ -21,6 +21,12 @@ export function PublicSiteLayout({
           </Link>
           <div className="flex items-center gap-2">
             <Link
+              to="/trade-copier"
+              className="hidden rounded-xl px-3 py-2 text-sm font-medium text-content-secondary transition-colors hover:bg-surface-muted hover:text-content-primary sm:inline-flex"
+            >
+              Trade copier
+            </Link>
+            <Link
               to="/pricing"
               className="rounded-xl px-3 py-2 text-sm font-medium text-content-secondary transition-colors hover:bg-surface-muted hover:text-content-primary"
             >
@@ -53,6 +59,12 @@ export function PublicSiteLayout({
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-content-tertiary sm:px-6">
           <p>© {new Date().getFullYear()} TradePilot. All rights reserved.</p>
           <div className="flex items-center gap-4">
+            <Link to="/trade-copier" className="hover:text-content-primary">
+              Trade copier guide
+            </Link>
+            <Link to="/pricing" className="hover:text-content-primary">
+              Pricing
+            </Link>
             <Link to="/terms" className="hover:text-content-primary">
               Terms
             </Link>

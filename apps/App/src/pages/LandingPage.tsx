@@ -1,7 +1,9 @@
 import { Activity, ArrowRight, BarChart3, Check, ShieldCheck, Signal, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { PublicSiteLayout } from '../components/layout/PublicSiteLayout';
+import { PricingPlanCard } from '@/components/pricing/PricingPlanCard';
+import { PublicSiteLayout } from '@/components/layout/PublicSiteLayout';
+import { PRICING_PLANS } from '@/lib/pricing';
 
 const FEATURES = [
   {
@@ -29,8 +31,8 @@ const FEATURES = [
 export function LandingPage() {
   return (
     <PublicSiteLayout
-      title="Copy trades across your MetaTrader accounts, with risk you control"
-      subtitle="TradePilot mirrors every trade from your master account to your slave accounts over a live MT4/MT5 bridge, sizing each copy to the risk parameters you set per account."
+      title="MT4 & MT5 trade copier with risk control on every account"
+      subtitle="TradePilot mirrors every trade from your master account to your slave accounts over a live MT4/MT5 bridge, sizing each copy to the risk parameters you set per account. New to copy trading? Read the trade copier guide."
     >
       <section className="mb-10 overflow-hidden rounded-3xl border border-emerald-400/20 bg-[#07110f] px-6 py-8 text-white shadow-2xl shadow-emerald-950/10 sm:px-10 sm:py-10">
         <div className="grid items-center gap-8 lg:grid-cols-[1.2fr_0.8fr]">
@@ -41,6 +43,7 @@ export function LandingPage() {
             <div className="mt-6 flex flex-wrap gap-3">
               <Link to="/auth" className="inline-flex items-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-300">Start with TradePilot <ArrowRight className="h-4 w-4" /></Link>
               <Link to="/pricing" className="rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-white/5">See pricing</Link>
+              <Link to="/trade-copier" className="rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-white/5">How trade copying works</Link>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
@@ -71,7 +74,34 @@ export function LandingPage() {
         ))}
       </div>
 
-      <section className="mt-8 rounded-3xl border border-line bg-surface p-6">
+      <section id="pricing" className="mt-12">
+        <div className="text-center">
+          <p className="text-brand text-xs font-semibold tracking-[0.24em] uppercase">Pricing</p>
+          <h2 className="text-content-primary mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
+            Pay for the accounts you actually run.
+          </h2>
+          <p className="text-content-secondary mx-auto mt-3 max-w-2xl text-sm leading-7">
+            Start free with one master and one slave. Move up when you need unlimited links, the
+            full risk engine, or API access — no setup fees, no per-trade charges.
+          </p>
+        </div>
+
+        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+          {PRICING_PLANS.map((plan) => (
+            <PricingPlanCard key={plan.id} plan={plan} />
+          ))}
+        </div>
+
+        <p className="text-content-tertiary mt-6 text-center text-xs">
+          Prices in USD, billed monthly. Cancel any time —{' '}
+          <Link to="/pricing" className="text-brand font-semibold hover:underline">
+            see full plan details
+          </Link>
+          .
+        </p>
+      </section>
+
+      <section className="mt-12 rounded-3xl border border-line bg-surface p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand">

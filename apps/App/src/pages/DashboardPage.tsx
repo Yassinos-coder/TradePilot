@@ -12,7 +12,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TradingCalendar } from '@/components/dashboard/TradingCalendar';
 import { DayDetailDrawer } from '@/components/dashboard/DayDetailDrawer';
-import { IcPartnerCard } from '@/components/dashboard/IcPartnerCard';
+import { PartnerOffersBanner } from '@/components/dashboard/PartnerOffersBanner';
 import { DownloadEaBanner } from '@/components/dashboard/DownloadEaBanner';
 import { usePagination } from '@/hooks/usePagination';
 
@@ -312,7 +312,7 @@ unrealizedPl === null ? 'text-content-tertiary' :
         </div>
       </div>
 
-      <IcPartnerCard />
+      <PartnerOffersBanner />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
         <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">

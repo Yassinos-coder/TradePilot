@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" fill="none">
+  <defs>
+    <linearGradient id="acg-bg" x1="0" y1="0" x2="1200" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#04070f"/>
+      <stop offset=".55" stop-color="#091432"/>
+      <stop offset="1" stop-color="#14306e"/>
+    </linearGradient>
+    <linearGradient id="acg-line" x1="600" y1="340" x2="1160" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#bfdbfe"/>
+    </linearGradient>
+    <radialGradient id="acg-glow" cx="0" cy="0" r="1" gradientTransform="translate(960 70) rotate(90) scale(340)">
+      <stop stop-color="#4d7cff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#4d7cff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="420" fill="url(#acg-bg)"/>
+  <rect width="1200" height="420" fill="url(#acg-glow)"/>
+
+  <g stroke="#60a5fa" stroke-opacity=".12">
+    <path d="M0 90h1200M0 175h1200M0 260h1200M0 345h1200"/>
+    <path d="M700 0v420M800 0v420M900 0v420M1000 0v420M1100 0v420"/>
+  </g>
+
+  <g stroke="#93c5fd" stroke-opacity=".55" stroke-width="3">
+    <path d="M712 214v58M812 168v70M912 196v54M1012 122v66M1112 96v58"/>
+  </g>
+  <g fill="#1d4ed8" fill-opacity=".85" stroke="#60a5fa" stroke-opacity=".7" stroke-width="2">
+    <rect x="698" y="228" width="28" height="30" rx="4"/>
+    <rect x="798" y="182" width="28" height="44" rx="4"/>
+    <rect x="898" y="206" width="28" height="34" rx="4"/>
+  </g>
+  <g fill="#2563eb" stroke="#bfdbfe" stroke-opacity=".8" stroke-width="2">
+    <rect x="998" y="134" width="28" height="44" rx="4"/>
+    <rect x="1098" y="104" width="28" height="42" rx="4"/>
+  </g>
+
+  <path d="M600 356 712 300 812 314 912 236 1012 250 1128 128" stroke="url(#acg-line)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1074 128h54v54" stroke="#bfdbfe" stroke-opacity=".75" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1128" cy="128" r="9" fill="#0b1220" stroke="#bfdbfe" stroke-width="4"/>
+</svg>

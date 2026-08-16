@@ -1,19 +1,17 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Activity, Apple, ArrowRight, Chrome, Radio, Shield, Zap } from 'lucide-react';
+import { Apple, ArrowRight, Chrome, Download } from 'lucide-react';
 
-import { useAuthStore } from '../store/auth-store';
-import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
+import { AuthShowcase } from '@/components/auth/AuthShowcase';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { TradePilotLogo } from '@/components/brand/TradePilotLogo';
+import { useAuthStore } from '@/store/auth-store';
 
 type AuthMode = 'magic' | 'password';
 
-const FEATURES = [
-  { icon: Zap, text: 'Master to slave copying over a live MT4/MT5 bridge' },
-  { icon: Radio, text: 'Per-account risk sizing with broker symbol remapping' },
-  { icon: Shield, text: 'Supabase auth with Google, Apple, and magic link access' },
-];
+const EA_DOWNLOAD_URL = '/downloads/TradePilot_EA_MT5.ex5';
 
 export function AuthPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -45,180 +43,174 @@ export function AuthPage() {
     try {
       if (mode === 'magic') {
         await sendMagicLink(email);
-      } else {
-        await login(email, password);
+        return;
       }
+
+      await login(email, password);
     } catch {
       // Error state is already handled in the store.
     }
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_38%),linear-gradient(180deg,#f6fbff_0%,#eef6ff_44%,#f8fafc_100%)]">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:flex-row">
-        <motion.aside
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.35 }}
-          className="flex flex-col justify-between border-b border-brand-subtle px-6 py-8 lg:w-[520px] lg:border-b-0 lg:border-r lg:border-line lg:px-10 lg:py-10"
-        >
-          <div className="space-y-10">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand shadow-[0_16px_36px_-18px_rgba(2,132,199,0.85)]">
-                <Activity className="h-5 w-5 text-content-inverse" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold tracking-wide text-content-primary">
-                  TradePilot
-                </p>
-                <p className="text-xs text-content-tertiary">
-                  Production-grade signal execution
-                </p>
-              </div>
-            </div>
+    <div className="bg-canvas relative min-h-screen overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_6%,var(--color-brand-subtle),transparent_45%)]" />
 
-            <div className="space-y-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-brand">
-                Master to slave copying
-              </p>
-              <h1 className="max-w-md text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
-                Mirror one account across many, with the risk on each one under your control.
-              </h1>
-              <p className="max-w-md text-sm leading-6 text-content-secondary">
-                TradePilot watches your master terminal, sizes each copy to the limits you set per
-                slave account, and maps broker symbols automatically through the EA gateway.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {FEATURES.map(({ icon: Icon, text }) => (
-                <div
-                  key={text}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm backdrop-blur"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-subtle text-brand">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm text-content-secondary">{text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="mt-10 text-xs text-content-tertiary">
-            Secure access is handled by Supabase. Your broker credentials stay in MetaTrader.
-          </p>
-        </motion.aside>
-
-        <div className="flex flex-1 items-center justify-center px-6 py-10 lg:px-10">
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.08 }}
-            className="w-full max-w-md rounded-[28px] border border-line bg-surface p-6 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.35)] backdrop-blur md:p-8"
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1360px] flex-col px-6 py-7 sm:px-10">
+        <header className="flex items-center justify-between">
+          <Link to="/" aria-label="TradePilot home">
+            <TradePilotLogo compact showTagline={false} />
+          </Link>
+          <Link
+            to="/pricing"
+            className="text-content-secondary hover:bg-surface-muted hover:text-content-primary rounded-xl px-3 py-2 text-sm font-medium transition-colors"
           >
-            <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
-                Sign in
-              </h2>
-              <p className="text-sm text-content-tertiary">
-                Use OAuth for the fastest setup, or send yourself a passwordless magic link.
+            Pricing
+          </Link>
+        </header>
+
+        <main className="flex flex-1 items-center py-10">
+          <div className="grid w-full items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32 }}
+              className="mx-auto w-full max-w-md"
+            >
+              <h1 className="text-content-primary text-center text-4xl font-semibold tracking-tight sm:text-5xl">
+                Copy every trade
+              </h1>
+              <p className="text-content-secondary mt-3 text-center text-base">
+                Your execution layer for MT4 and MT5
               </p>
-            </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <Button
-                variant="secondary"
-                onClick={() => void loginWithOAuth('google')}
-                isLoading={isLoading}
-                className="justify-center"
-              >
-                <Chrome className="h-4 w-4" />
-                Google
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => void loginWithOAuth('apple')}
-                isLoading={isLoading}
-                className="justify-center"
-              >
-                <Apple className="h-4 w-4" />
-                Apple
-              </Button>
-            </div>
+              <div className="border-line bg-surface mt-8 rounded-3xl border p-5 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.4)] sm:p-6">
+                <div className="space-y-2.5">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    fullWidth
+                    onClick={() => void loginWithOAuth('google')}
+                    isLoading={isLoading}
+                  >
+                    <Chrome className="h-4 w-4" />
+                    Continue with Google
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    fullWidth
+                    onClick={() => void loginWithOAuth('apple')}
+                    isLoading={isLoading}
+                  >
+                    <Apple className="h-4 w-4" />
+                    Continue with Apple
+                  </Button>
+                </div>
 
-            <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-content-tertiary">
-              <span className="h-px flex-1 bg-line" />
-              Or continue with email
-              <span className="h-px flex-1 bg-line" />
-            </div>
+                <div className="text-content-tertiary my-5 flex items-center gap-3 text-[11px] font-medium tracking-[0.18em] uppercase">
+                  <span className="bg-line h-px flex-1" />
+                  Or
+                  <span className="bg-line h-px flex-1" />
+                </div>
 
-            <div className="flex rounded-2xl border border-line bg-surface-muted p-1">
-              {(['magic', 'password'] as AuthMode[]).map((candidate) => (
+                <form onSubmit={handleSubmit} className="space-y-3">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      clearError();
+                    }}
+                    placeholder="Enter your email"
+                    autoComplete="email"
+                    aria-label="Email address"
+                    className="h-11"
+                    required
+                  />
+
+                  {mode === 'password' ? (
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(event) => {
+                        setPassword(event.target.value);
+                        clearError();
+                      }}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      aria-label="Password"
+                      className="h-11"
+                      required
+                    />
+                  ) : null}
+
+                  {magicLinkSent ? (
+                    <div className="border-brand/30 bg-brand-subtle text-brand rounded-xl border px-4 py-3 text-sm">
+                      Magic link sent to <strong>{email}</strong>. Check your inbox to finish
+                      sign-in.
+                    </div>
+                  ) : null}
+
+                  {error ? (
+                    <div className="border-negative bg-negative-subtle text-negative rounded-xl border px-4 py-3 text-sm">
+                      {error}
+                    </div>
+                  ) : null}
+
+                  <Button type="submit" size="lg" fullWidth isLoading={isLoading}>
+                    {mode === 'magic' ? 'Continue with email' : 'Sign in with password'}
+                    {!isLoading ? <ArrowRight className="h-4 w-4" /> : null}
+                  </Button>
+                </form>
+
                 <button
-                  key={candidate}
                   type="button"
-                  onClick={() => setMode(candidate)}
-                  className={[
-                    'flex-1 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors',
-                    mode === candidate
-                      ? 'bg-surface text-content-primary shadow-sm'
-                      : 'text-content-tertiary',
-                  ].join(' ')}
+                  onClick={() => setMode(mode === 'magic' ? 'password' : 'magic')}
+                  className="text-content-secondary hover:text-content-primary mt-3 w-full cursor-pointer text-center text-xs font-medium transition-colors"
                 >
-                  {candidate === 'magic' ? 'Magic link' : 'Password'}
+                  {mode === 'magic' ? 'Use a password instead' : 'Email me a magic link instead'}
                 </button>
-              ))}
-            </div>
 
-            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-              <Input
-                label="Email address"
-                type="email"
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  clearError();
-                }}
-                placeholder="you@example.com"
-                autoComplete="email"
-                required
-              />
+                <p className="text-content-tertiary mt-4 text-center text-xs leading-5">
+                  By continuing, you acknowledge TradePilot's{' '}
+                  <Link to="/terms" className="hover:text-content-secondary underline">
+                    Terms
+                  </Link>{' '}
+                  and{' '}
+                  <Link to="/privacy" className="hover:text-content-secondary underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
+              </div>
 
-              {mode === 'password' ? (
-                <Input
-                  label="Password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => {
-                    setPassword(event.target.value);
-                    clearError();
-                  }}
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  required
-                />
-              ) : null}
+              <div className="mt-6 flex justify-center">
+                <a
+                  href={EA_DOWNLOAD_URL}
+                  download
+                  className="border-line bg-surface text-content-secondary hover:bg-surface-muted hover:text-content-primary inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Download the MetaTrader EA
+                </a>
+              </div>
 
-              {magicLinkSent ? (
-                <div className="rounded-2xl border border-brand/30 bg-brand-subtle px-4 py-3 text-sm text-brand">
-                  Magic link sent to <strong>{email}</strong>. Check your inbox to finish sign-in.
-                </div>
-              ) : null}
+              <p className="text-content-tertiary mt-6 text-center text-xs">
+                Secure access is handled by Supabase. Your broker credentials stay in MetaTrader.
+              </p>
+            </motion.div>
 
-              {error ? (
-                <div className="rounded-2xl border border-negative bg-negative-subtle px-4 py-3 text-sm text-negative">
-                  {error}
-                </div>
-              ) : null}
-
-              <Button type="submit" className="w-full justify-center" isLoading={isLoading} size="lg">
-                {mode === 'magic' ? 'Send magic link' : 'Sign in with password'}
-                {!isLoading ? <ArrowRight className="h-4 w-4" /> : null}
-              </Button>
-            </form>
-          </motion.div>
-        </div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4, delay: 0.1 }}
+              className="hidden lg:block"
+            >
+              <AuthShowcase />
+            </motion.div>
+          </div>
+        </main>
       </div>
     </div>
   );
