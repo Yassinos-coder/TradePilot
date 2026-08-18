@@ -103,6 +103,14 @@ export const updateCopierLinkSchema = copierRiskParamsSchema
   .partial()
   .extend({ enabled: z.boolean().optional() });
 
+export const symbolMatchStatusSchema = z.enum(['PENDING', 'MATCHED', 'PARTIAL', 'UNMATCHED']);
+
+export const symbolMatchEntrySchema = z.object({
+  masterSymbol: z.string(),
+  slaveSymbol: z.string().nullable(),
+  matchType: z.enum(['exact', 'startsWith', 'normalized']).nullable(),
+});
+
 export const copierLinkSchema = copierRiskParamsSchema.extend({
   id: z.string().min(1),
   masterAccountId: z.string().min(1),
@@ -112,6 +120,9 @@ export const copierLinkSchema = copierRiskParamsSchema.extend({
   enabled: z.boolean(),
   copiesToday: z.number().int().nonnegative().default(0),
   lastCopyAt: z.string().nullable().default(null),
+  symbolMatchStatus: symbolMatchStatusSchema.default('PENDING'),
+  symbolMatchReport: z.array(symbolMatchEntrySchema).default([]),
+  symbolMatchCheckedAt: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -1114,6 +1125,8 @@ export type CopyAction = z.infer<typeof copyActionSchema>;
 export type CopyOrderStatus = z.infer<typeof copyOrderStatusSchema>;
 export type CopierRiskParams = z.infer<typeof copierRiskParamsSchema>;
 export type CopierLinkDTO = z.infer<typeof copierLinkSchema>;
+export type SymbolMatchStatus = z.infer<typeof symbolMatchStatusSchema>;
+export type SymbolMatchEntry = z.infer<typeof symbolMatchEntrySchema>;
 export type CreateCopierLinkInput = z.infer<typeof createCopierLinkSchema>;
 export type UpdateCopierLinkInput = z.infer<typeof updateCopierLinkSchema>;
 export type SetMasterAccountInput = z.infer<typeof setMasterAccountSchema>;

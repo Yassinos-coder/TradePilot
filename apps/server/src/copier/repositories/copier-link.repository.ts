@@ -58,6 +58,23 @@ export class CopierLinkRepository {
     return (data ?? []) as CopierLinkRecord[];
   }
 
+  /** Every link where this account plays either side — master or slave. */
+  async listByAccountId(accountId: string): Promise<CopierLinkRecord[]> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from(this.tableName)
+      .select('*')
+      .or(`master_account_id.eq.${accountId},slave_account_id.eq.${accountId}`);
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to list copier links for account: ${error.message}`,
+      );
+    }
+
+    return (data ?? []) as CopierLinkRecord[];
+  }
+
   async insert(payload: Record<string, unknown>): Promise<CopierLinkRecord> {
     const { data, error } = await this.databaseService
       .getClient()

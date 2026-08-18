@@ -15,10 +15,17 @@ import {
   UpdateCopierLinkInput,
   copierOverviewSchema,
 } from '@tradepilot/shared';
+import { matchAccountSymbols } from '@tradepilot/trading';
 
 import { accountLabel } from '../../common/mappers/account-label';
 import { DatabaseService } from '../../database/database.service';
-import { AccountRecord, CopyOrderRecord } from '../../database/database.types';
+import {
+  AccountRecord,
+  CopierLinkRecord,
+  CopyOrderRecord,
+  SymbolMatchEntry,
+  SymbolMatchStatus,
+} from '../../database/database.types';
 import { EaPresenceService } from '../../ea/services/ea-presence.service';
 import { SettingsService } from '../../settings/settings.service';
 import { CopierMapper } from '../mappers/copier.mapper';
@@ -104,7 +111,11 @@ export class CopierLinksService {
 
     await this.setAccountRole(slaveAccountId, 'SLAVE');
 
-    return CopierMapper.toLinkDto(record, {
+    // Match the new slave's broker symbols against the master's right away,
+    // instead of only discovering a mismatch the first time a trade fails to copy.
+    const matched = await this.applySymbolMatch(userId, record, master, slave);
+
+    return CopierMapper.toLinkDto(matched, {
       slaveAccount: slave,
       slaveOnline: false,
       copiesToday: 0,
@@ -145,7 +156,7 @@ export class CopierLinksService {
       throw new BadRequestException('Max lot must be greater than or equal to min lot');
     }
 
-    const record =
+    let record =
       Object.keys(patch).length > 0
         ? await this.copierLinkRepository.update(linkId, patch)
         : existing;
@@ -153,6 +164,18 @@ export class CopierLinksService {
     const accounts = await this.loadAccounts(userId);
     const onlineIds = await this.presenceService.listOnlineAccountIds(userId);
     const slaveAccount = accounts.get(record.slave_account_id) ?? null;
+    const masterAccount = accounts.get(record.master_account_id) ?? null;
+
+    // Changing the manual prefix/suffix override changes what "matched" means,
+    // so re-check it now rather than leaving the old report displayed.
+    if (
+      masterAccount &&
+      slaveAccount &&
+      (record.symbol_prefix !== existing.symbol_prefix ||
+        record.symbol_suffix !== existing.symbol_suffix)
+    ) {
+      record = await this.applySymbolMatch(userId, record, masterAccount, slaveAccount);
+    }
 
     return CopierMapper.toLinkDto(record, {
       slaveAccount,
@@ -224,6 +247,137 @@ export class CopierLinksService {
     if (error) {
       throw new InternalServerErrorException(`Failed to set master: ${error.message}`);
     }
+
+    // Re-check symbol matches for any link this account already sits on
+    // (e.g. it was previously demoted and is now being promoted again).
+    if (account.external_account_id) {
+      await this.refreshSymbolMatchForAccount(userId, account.external_account_id);
+    }
+  }
+
+  /**
+   * Recomputes the symbol match report for every copier link this account
+   * (identified by its EA terminal id) plays master or slave on. Called
+   * whenever a fresh symbol list arrives for the account, so a brand-new
+   * account is matched against its counterpart as soon as it connects.
+   */
+  async refreshSymbolMatchForAccount(userId: string, externalAccountId: string): Promise<void> {
+    const account = await this.findAccountByExternalId(userId, externalAccountId);
+
+    if (!account) {
+      return;
+    }
+
+    const links = await this.copierLinkRepository.listByAccountId(account.id);
+
+    if (links.length === 0) {
+      return;
+    }
+
+    const accounts = await this.loadAccounts(userId);
+
+    for (const link of links) {
+      const master = accounts.get(link.master_account_id);
+      const slave = accounts.get(link.slave_account_id);
+
+      if (!master || !slave) {
+        continue;
+      }
+
+      await this.applySymbolMatch(userId, link, master, slave);
+    }
+  }
+
+  /** Computes the match report for one link and persists it, returning the updated record. */
+  private async applySymbolMatch(
+    userId: string,
+    link: CopierLinkRecord,
+    master: AccountRecord,
+    slave: AccountRecord,
+  ): Promise<CopierLinkRecord> {
+    const { status, report } = await this.computeSymbolMatchReport(userId, master, slave, link);
+
+    // Skip the write when nothing changed, so `updated_at` doesn't churn on
+    // every periodic symbol re-push (the EA resends its list every ~60s).
+    if (
+      status === link.symbol_match_status &&
+      JSON.stringify(report) === JSON.stringify(link.symbol_match_report)
+    ) {
+      return link;
+    }
+
+    return this.copierLinkRepository.update(link.id, {
+      symbol_match_status: status,
+      symbol_match_report: report,
+      symbol_match_checked_at: new Date().toISOString(),
+    });
+  }
+
+  private async computeSymbolMatchReport(
+    userId: string,
+    master: AccountRecord,
+    slave: AccountRecord,
+    link: Pick<CopierLinkRecord, 'symbol_prefix' | 'symbol_suffix'>,
+  ): Promise<{ status: SymbolMatchStatus; report: SymbolMatchEntry[] }> {
+    if (!master.external_account_id || !slave.external_account_id) {
+      return { status: 'PENDING', report: [] };
+    }
+
+    const [masterSymbols, slaveSymbols] = await Promise.all([
+      this.loadAccountSymbols(userId, master.external_account_id),
+      this.loadAccountSymbols(userId, slave.external_account_id),
+    ]);
+
+    if (masterSymbols.length === 0 || slaveSymbols.length === 0) {
+      // One side hasn't reported its symbol list yet (EA not connected), so
+      // there is nothing meaningful to compare against — avoid flagging
+      // every symbol as unmatched just because we don't know yet.
+      return { status: 'PENDING', report: [] };
+    }
+
+    const result = matchAccountSymbols(masterSymbols, slaveSymbols, {
+      prefix: link.symbol_prefix,
+      suffix: link.symbol_suffix,
+    });
+
+    const status: SymbolMatchStatus =
+      result.unmatched.length === 0 ? 'MATCHED' : result.matched === 0 ? 'UNMATCHED' : 'PARTIAL';
+
+    return { status, report: result.entries };
+  }
+
+  private async loadAccountSymbols(userId: string, externalAccountId: string): Promise<string[]> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('user_symbols')
+      .select('symbol')
+      .eq('user_id', userId)
+      .eq('account_id', externalAccountId);
+
+    if (error) {
+      throw new InternalServerErrorException(`Failed to load account symbols: ${error.message}`);
+    }
+
+    return ((data ?? []) as Array<{ symbol: string }>).map((row) => row.symbol);
+  }
+
+  private async findAccountByExternalId(
+    userId: string,
+    externalAccountId: string,
+  ): Promise<AccountRecord | null> {
+    const { data, error } = await this.databaseService
+      .getClient()
+      .from('accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('external_account_id', externalAccountId)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(`Failed to load account: ${error.message}`);
+    }
+
+    return (data as AccountRecord | null) ?? null;
   }
 
   async listCopyEvents(userId: string, limit = COPY_EVENT_FEED_LIMIT): Promise<CopyEventDTO[]> {

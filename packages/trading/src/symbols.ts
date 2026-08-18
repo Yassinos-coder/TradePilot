@@ -118,3 +118,59 @@ export function resolveBrokerSymbol(
     matchType: null,
   };
 }
+
+export interface SymbolMatchEntry {
+  masterSymbol: string;
+  slaveSymbol: string | null;
+  matchType: SymbolMatchType | null;
+}
+
+export interface SymbolMatchReport {
+  matched: number;
+  unmatched: string[];
+  entries: SymbolMatchEntry[];
+}
+
+/**
+ * Compares the master's known instruments against a slave broker's live
+ * symbol list, so a mismatch (missing symbol, unexpected suffix) surfaces
+ * when an account is linked instead of only when a trade fails to copy.
+ */
+export function matchAccountSymbols(
+  masterSymbols: string[],
+  slaveSymbols: string[],
+  affixes?: { prefix?: string | null; suffix?: string | null },
+): SymbolMatchReport {
+  const masterBaseSymbols = Array.from(
+    new Set(masterSymbols.map((symbol) => deriveBaseSymbol(symbol))),
+  ).sort();
+
+  const entries: SymbolMatchEntry[] = masterBaseSymbols.map((masterSymbol) => {
+    if (affixes?.prefix || affixes?.suffix) {
+      const expected = `${affixes.prefix ?? ''}${masterSymbol}${affixes.suffix ?? ''}`.toUpperCase();
+      const hit = slaveSymbols.find((symbol) => symbol.trim().toUpperCase() === expected);
+
+      return {
+        masterSymbol,
+        slaveSymbol: hit ?? null,
+        matchType: hit ? ('exact' as const) : null,
+      };
+    }
+
+    const resolved = resolveBrokerSymbol(masterSymbol, slaveSymbols);
+
+    return {
+      masterSymbol,
+      slaveSymbol: resolved.resolvedSymbol,
+      matchType: resolved.matchType,
+    };
+  });
+
+  const unmatched = entries.filter((entry) => !entry.slaveSymbol).map((entry) => entry.masterSymbol);
+
+  return {
+    matched: entries.length - unmatched.length,
+    unmatched,
+    entries,
+  };
+}

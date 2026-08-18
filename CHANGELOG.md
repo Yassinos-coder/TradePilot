@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-08-18
+
+### Added
+
+- **Copier links now auto-match symbols the moment an account is added** — linking a slave, promoting a master, and an EA simply reconnecting all now compare the master's known instruments against its counterpart's live broker symbol list (`matchAccountSymbols` in `packages/trading/src/symbols.ts`, built on the existing `resolveBrokerSymbol`/`deriveBaseSymbol` alias and suffix logic). Previously this only ran lazily, per trade, at dispatch time — a brand-new slave with no reported symbols yet silently received the raw base symbol and left the terminal to reject it, so the first anyone learned of a mismatch was a failed copy. `copier_links` now carries `symbol_match_status` (`PENDING` / `MATCHED` / `PARTIAL` / `UNMATCHED`), a per-symbol `symbol_match_report`, and `symbol_match_checked_at`. A mismatch now surfaces immediately: a toast when the link is created, and a persistent warning on the link card naming exactly which symbols didn't resolve. Editing a link's manual prefix/suffix override re-checks it against the new affixes, and either side not having reported symbols yet stays `PENDING` rather than being flagged as a false mismatch.
+
 ## [2.0.1] - 2026-08-18
 
 ### Fixed

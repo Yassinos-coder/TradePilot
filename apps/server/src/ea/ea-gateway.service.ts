@@ -753,6 +753,11 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     if (error) {
       throw new Error(error.message);
     }
+
+    // A fresh symbol list may resolve (or newly reveal) a broker mismatch on
+    // any copier link this account sits on, so re-check them now instead of
+    // waiting for a trade to fail.
+    await this.copierLinksService.refreshSymbolMatchForAccount(userId, accountId);
   }
 
   private async storeAccountStatus(

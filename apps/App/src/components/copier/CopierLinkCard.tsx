@@ -2,6 +2,7 @@ import { Pencil, Trash2, Wifi, WifiOff } from 'lucide-react';
 
 import type { CopierLinkDTO } from '@tradepilot/shared';
 
+import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Toggle';
 import { formatTimestamp } from '@/lib/utils';
@@ -114,6 +115,19 @@ export function CopierLinkCard({
           Copying is paused for this account. Trades on the master will be recorded but not
           mirrored here.
         </p>
+      ) : null}
+
+      {link.symbolMatchStatus === 'PARTIAL' || link.symbolMatchStatus === 'UNMATCHED' ? (
+        <Alert tone="warning" title="Symbol mismatch" className="mt-3">
+          {link.symbolMatchReport.filter((entry) => !entry.slaveSymbol).length} of{' '}
+          {link.symbolMatchReport.length} master symbol
+          {link.symbolMatchReport.length === 1 ? '' : 's'} could not be matched on this broker:{' '}
+          {link.symbolMatchReport
+            .filter((entry) => !entry.slaveSymbol)
+            .map((entry) => entry.masterSymbol)
+            .join(', ')}
+          . Set a symbol prefix/suffix in this link's settings or check the account's symbol list.
+        </Alert>
       ) : null}
     </div>
   );

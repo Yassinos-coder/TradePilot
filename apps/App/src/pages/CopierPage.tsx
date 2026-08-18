@@ -43,6 +43,9 @@ function toRiskParams(link: CopierLinkDTO): CopierRiskParams {
     enabled: _enabled,
     copiesToday: _copiesToday,
     lastCopyAt: _lastCopyAt,
+    symbolMatchStatus: _symbolMatchStatus,
+    symbolMatchReport: _symbolMatchReport,
+    symbolMatchCheckedAt: _symbolMatchCheckedAt,
     createdAt: _createdAt,
     updatedAt: _updatedAt,
     ...params
@@ -103,9 +106,22 @@ export function CopierPage() {
 
   const createLinkMutation = useMutation({
     mutationFn: (payload: CreateCopierLinkInput) => apiClient.createCopierLink(payload),
-    onSuccess: async () => {
+    onSuccess: async (link) => {
       await invalidateCopier();
       setDrawer({ mode: 'closed' });
+
+      if (link.symbolMatchStatus === 'PARTIAL' || link.symbolMatchStatus === 'UNMATCHED') {
+        const unmatched = link.symbolMatchReport.filter((entry) => !entry.slaveSymbol);
+        pushToast({
+          tone: 'info',
+          title: 'Slave account linked with symbol mismatches',
+          description: `${unmatched.length} symbol${unmatched.length === 1 ? '' : 's'} (${unmatched
+            .map((entry) => entry.masterSymbol)
+            .join(', ')}) could not be matched on this broker. Set a symbol prefix/suffix to fix it.`,
+        });
+        return;
+      }
+
       pushToast({ tone: 'success', title: 'Slave account linked' });
     },
     onError: () =>

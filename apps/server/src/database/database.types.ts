@@ -38,6 +38,12 @@ export type CloseReason = 'TP' | 'SL' | 'MANUAL' | 'PARTIAL' | 'BREAKEVEN' | 'UN
 export type ApiKeyKind = 'EA' | 'REST';
 export type SizingMode = 'FIXED_LOT' | 'MULTIPLIER' | 'RISK_PERCENT' | 'BALANCE_RATIO';
 export type SymbolFilterMode = 'ALL' | 'ALLOWLIST' | 'BLOCKLIST';
+export type SymbolMatchStatus = 'PENDING' | 'MATCHED' | 'PARTIAL' | 'UNMATCHED';
+export interface SymbolMatchEntry {
+  masterSymbol: string;
+  slaveSymbol: string | null;
+  matchType: 'exact' | 'startsWith' | 'normalized' | null;
+}
 export type CopyAction = 'OPEN' | 'CLOSE' | 'PARTIAL_CLOSE' | 'MODIFY';
 export type CopyOrderStatus =
   | 'PENDING'
@@ -166,6 +172,10 @@ export interface CopierLinkRecord {
   symbol_filter: string[];
   symbol_prefix: string | null;
   symbol_suffix: string | null;
+
+  symbol_match_status: SymbolMatchStatus;
+  symbol_match_report: SymbolMatchEntry[];
+  symbol_match_checked_at: string | null;
 
   created_at: string;
   updated_at: string;

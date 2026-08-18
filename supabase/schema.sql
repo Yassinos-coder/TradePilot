@@ -243,6 +243,10 @@ create table if not exists tradepilot.copier_links (
   symbol_prefix          text,
   symbol_suffix          text,
 
+  symbol_match_status     text        not null default 'PENDING',
+  symbol_match_report     jsonb       not null default '[]'::jsonb,
+  symbol_match_checked_at timestamptz,
+
   created_at             timestamptz not null default now(),
   updated_at             timestamptz not null default now(),
 
@@ -250,6 +254,10 @@ create table if not exists tradepilot.copier_links (
   constraint copier_links_lot_bounds        check (max_lot >= min_lot),
   constraint copier_links_unique_route      unique (master_account_id, slave_account_id)
 );
+
+alter table tradepilot.copier_links add column if not exists symbol_match_status     text        not null default 'PENDING';
+alter table tradepilot.copier_links add column if not exists symbol_match_report     jsonb       not null default '[]'::jsonb;
+alter table tradepilot.copier_links add column if not exists symbol_match_checked_at timestamptz;
 
 do $$
 begin
@@ -274,6 +282,17 @@ begin
   alter table tradepilot.copier_links
     add constraint copier_links_symbol_filter_mode_check
     check (symbol_filter_mode in ('ALL', 'ALLOWLIST', 'BLOCKLIST'));
+
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'copier_links_symbol_match_status_check'
+      and conrelid = 'tradepilot.copier_links'::regclass
+  ) then
+    alter table tradepilot.copier_links drop constraint copier_links_symbol_match_status_check;
+  end if;
+  alter table tradepilot.copier_links
+    add constraint copier_links_symbol_match_status_check
+    check (symbol_match_status in ('PENDING', 'MATCHED', 'PARTIAL', 'UNMATCHED'));
 end $$;
 
 create index if not exists idx_copier_links_user
