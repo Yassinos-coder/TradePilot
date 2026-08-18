@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-08-18
+
+### Fixed
+
+- **Backend deploys were silently stuck since 1.5.0** — that release deleted every Docker artifact on the theory that Berth didn't need them; in fact Berth prefers a `Dockerfile` when one exists and only falls back to Nixpacks otherwise, so both services lost their intended build path. A follow-up fix restored `apps/App/Dockerfile` for the frontend but missed `apps/server/Dockerfile`, so the backend has been building on Nixpacks' guess ever since — or failing outright, in which case Berth's build-before-cutover rollout kept the previous image running with no visible error. It never crashed, it just never went out. `apps/server/Dockerfile` is back, matching the frontend's pattern (`npm ci` against the root lockfile rather than `npm install`, for a reproducible build).
+
 ## [2.0.0] - 2026-08-16
 
 ### Changed
