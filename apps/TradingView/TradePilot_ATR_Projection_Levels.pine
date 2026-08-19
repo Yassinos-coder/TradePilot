@@ -28,8 +28,6 @@ grpDash   = "Dashboard"
 
 trendMode = input.string("Auto", "Trend Detection", options=["Auto", "Manual"], group=grpBias)
 manualDir = input.string("Bullish", "Manual Direction", options=["Bullish", "Bearish"], group=grpBias, tooltip="Used only when Trend Detection = Manual.")
-emaFastLen = input.int(50, "Auto Fast EMA", minval=1, group=grpBias)
-emaSlowLen = input.int(200, "Auto Slow EMA", minval=1, group=grpBias)
 
 atrLen = input.int(14, "ATR Length", minval=1, group=grpAtr)
 includeHalfNotches = input.bool(false, "Include Half Notches (+/- 0.5)", group=grpAtr, tooltip="Adds -0.5 and +0.5 to the projection ladder, i.e. half-weekly-ATR steps between the whole notches. Off keeps the original -2, -1.5, -1, 0, 1, 1.5, 2 set.")
@@ -112,7 +110,7 @@ plot(showEma5 ? ema5 : na, "MA 5", color=colEma5, linewidth=maWidth)
 // ----------------------------------------------------------------------------
 // This function is evaluated inside each request.security() context so both
 // price and every configured MA are calculated directly from that timeframe's
-// bars. A tied vote (including no enabled MAs) is conservatively bearish.
+// bars. A tied vote (including no enabled MAs) is neutral/ranging.
 // ============================================================================
 f_maTrend() =>
     trendMa1 = f_ma(maSource, lenEma1, typeEma1)
@@ -127,13 +125,13 @@ f_maTrend() =>
     score += showEma3 ? (not na(trendMa3) and close > trendMa3 ? 1 : -1) : 0
     score += showEma4 ? (not na(trendMa4) and close > trendMa4 ? 1 : -1) : 0
     score += showEma5 ? (not na(trendMa5) and close > trendMa5 ? 1 : -1) : 0
-    score > 0 ? 1 : -1
+    score > 0 ? 1 : score < 0 ? -1 : 0
 
 f_trendText(trend) =>
-    trend == 1 ? "BULLISH" : "BEARISH"
+    trend == 1 ? "BULLISH" : trend == -1 ? "BEARISH" : "RANGING"
 
 f_trendColor(trend) =>
-    trend == 1 ? color.lime : color.red
+    trend == 1 ? color.lime : trend == -1 ? color.red : color.yellow
 
 trend1H = request.security(syminfo.tickerid, "60", f_maTrend(), lookahead=barmerge.lookahead_off)
 trend4H = request.security(syminfo.tickerid, "240", f_maTrend(), lookahead=barmerge.lookahead_off)
@@ -162,15 +160,13 @@ trendW = request.security(syminfo.tickerid, "W", f_maTrend(), lookahead=barmerge
 // values already printed at the time of the bar.
 // ============================================================================
 [wkTimeClose, wkClose0, wkClose1, wkAtr0, wkAtr1] = request.security(syminfo.tickerid, "W", [time_close, close, close[1], ta.atr(atrLen), ta.atr(atrLen)[1]], lookahead=barmerge.lookahead_on)
-[wkEmaF0, wkEmaF1, wkEmaF2, wkEmaS0, wkEmaS1, wkHigh1, wkHigh2, wkLow1, wkLow2] = request.security(syminfo.tickerid, "W", [ta.ema(close, emaFastLen), ta.ema(close, emaFastLen)[1], ta.ema(close, emaFastLen)[2], ta.ema(close, emaSlowLen), ta.ema(close, emaSlowLen)[1], ta.highest(high, 3)[1], ta.highest(high, 3)[2], ta.lowest(low, 3)[1], ta.lowest(low, 3)[2]], lookahead=barmerge.lookahead_on)
+[wkMaTrend0, wkMaTrend1, wkHigh1, wkHigh2, wkLow1, wkLow2] = request.security(syminfo.tickerid, "W", [f_maTrend(), f_maTrend()[1], ta.highest(high, 3)[1], ta.highest(high, 3)[2], ta.lowest(low, 3)[1], ta.lowest(low, 3)[2]], lookahead=barmerge.lookahead_on)
 
 weekDone = not na(wkTimeClose) and time_close >= wkTimeClose
 
 weeklyClose = weekDone ? wkClose0 : wkClose1
 weeklyAtr   = weekDone ? wkAtr0   : wkAtr1
-weeklyEmaFast = weekDone ? wkEmaF0 : wkEmaF1
-weeklyEmaSlow = weekDone ? wkEmaS0 : wkEmaS1
-weeklyEmaFastPrev = weekDone ? wkEmaF1 : wkEmaF2
+weeklyMaTrend = weekDone ? wkMaTrend0 : wkMaTrend1
 weeklyStructHigh = weekDone ? wkHigh1 : wkHigh2
 weeklyStructLow  = weekDone ? wkLow1  : wkLow2
 
@@ -209,16 +205,14 @@ zoneHeight = useH4Eq ? h4AtrEq : weeklyAtr
 // ============================================================================
 // BIAS / MARKET STRUCTURE
 // ============================================================================
-autoBull = weeklyClose > weeklyEmaFast and weeklyEmaFast > weeklyEmaSlow and weeklyEmaFast >= weeklyEmaFastPrev and weeklyClose > weeklyStructHigh
-_autoBullFallback = weeklyClose > weeklyEmaFast and weeklyEmaFast > weeklyEmaSlow and weeklyEmaFast >= weeklyEmaFastPrev
-autoBear = weeklyClose < weeklyEmaFast and weeklyEmaFast < weeklyEmaSlow and weeklyEmaFast <= weeklyEmaFastPrev and weeklyClose < weeklyStructLow
-_autoBearFallback = weeklyClose < weeklyEmaFast and weeklyEmaFast < weeklyEmaSlow and weeklyEmaFast <= weeklyEmaFastPrev
+autoBull = weeklyMaTrend == 1 and weeklyClose > weeklyStructHigh
+autoBear = weeklyMaTrend == -1 and weeklyClose < weeklyStructLow
 
 int direction = 0
 if trendMode == "Manual"
     direction := manualDir == "Bullish" ? 1 : -1
 else
-    direction := autoBull or (_autoBullFallback and not _autoBearFallback) ? 1 : autoBear or (_autoBearFallback and not _autoBullFallback) ? -1 : 0
+    direction := autoBull ? 1 : autoBear ? -1 : 0
 
 statusText = direction == 1 ? "Bullish" : direction == -1 ? "Bearish" : "Ranging — no levels"
 canDraw = direction != 0 and not na(weeklyClose) and not na(weeklyAtr) and weeklyAtr > 0 and not na(zoneHeight) and zoneHeight > 0
