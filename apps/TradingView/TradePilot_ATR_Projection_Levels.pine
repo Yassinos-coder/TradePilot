@@ -9,6 +9,19 @@
 //   4. Convert each notch into a horizontal reaction zone whose height is the
 //      equilibrium of 4H ATR values from the last completed weekly window.
 //
+// The Anchor input decides what step 1 measures from:
+//   Confirmed Close — the last FINISHED weekly close, frozen for the whole week.
+//     A static support/resistance grid. This is the original behaviour.
+//   Live Close — the current price, so the ladder re-centres every tick and the
+//     notches read as an ATR excursion envelope for targets and stops.
+// Steps 2-4 always come from the completed week, so only the anchor moves: notch
+// spacing and zone thickness never jitter in either mode.
+//
+// The bias in step 2 comes from swing structure: pivots supply the reference highs
+// and lows, and a close through one sets the direction, which then holds until the
+// opposite reference breaks. Read on its own Structure Timeframe (daily by default)
+// so the direction stays responsive while the grid it points remains weekly.
+//
 // Also provides chart-timeframe moving averages where EACH of the 5 lines has
 // its own selectable type — EMA / SMA / SMMA (RMA) / WMA / VWMA — a proximity
 // readout, an optional bias tint for reviewing the structure filter
@@ -28,6 +41,12 @@ grpDash   = "Dashboard"
 
 trendMode = input.string("Auto", "Trend Detection", options=["Auto", "Manual"], group=grpBias)
 manualDir = input.string("Bullish", "Manual Direction", options=["Bullish", "Bearish"], group=grpBias, tooltip="Used only when Trend Detection = Manual.")
+structureTf = input.timeframe("D", "Structure Timeframe", group=grpBias, tooltip="Timeframe the swing structure is read from. Daily keeps the bias responsive while the projection grid itself stays weekly. Setting this to W turns the indicator into a very slow swing read, because a weekly pivot needs Swing Strength weeks to confirm.")
+swingBars = input.int(3, "Swing Strength (bars each side)", minval=1, maxval=20, group=grpBias, tooltip="A swing high must have this many bars on each side with lower highs. Larger = fewer, more major reference swings, and each one confirms this many bars after it printed. It does not delay the bias: the bias comes from closing through a reference, not from a new pivot forming.")
+requireMaAgreement = input.bool(false, "Require Weekly MA Agreement", group=grpBias, tooltip="Also demand that the weekly MA vote points the same way as the structure break before taking a side. Off = structure alone. This is the only setting that can produce Ranging once structure has broken in either direction.")
+
+anchorMode = input.string("Confirmed Close", "Anchor", options=["Confirmed Close", "Live Close"], group=grpAtr, tooltip="Confirmed Close = the ladder hangs off the last finished weekly close and stays put all week — a support/resistance grid. Live Close = the ladder re-centres on current price every tick, turning the notches into an ATR excursion envelope for targets and stops. Weekly ATR and zone height always come from the completed week, so spacing and thickness never move in either mode.")
+isLiveAnchor = anchorMode == "Live Close"
 
 atrLen = input.int(14, "ATR Length", minval=1, group=grpAtr)
 includeHalfNotches = input.bool(false, "Include Half Notches (+/- 0.5)", group=grpAtr, tooltip="Adds -0.5 and +0.5 to the projection ladder, i.e. half-weekly-ATR steps between the whole notches. Off keeps the original -2, -1.5, -1, 0, 1, 1.5, 2 set.")
@@ -65,9 +84,12 @@ zoneBorder = input.color(color.new(color.gray, 55), "Weekly Zone Border", group=
 weeklyMidColor = input.color(color.new(color.black, 0), "Weekly Midline", group=grpStyle)
 labelColor = input.color(color.new(color.black, 0), "Label Text", group=grpStyle)
 showPriceLabels = input.bool(true, "Show Price Labels", group=grpStyle)
+showSwings = input.bool(true, "Show Structure Swings", group=grpStyle, tooltip="Dotted lines on the two reference swings a close must break to set the bias, so the Auto reading can be audited on the chart. The one against the current bias is the invalidation level.")
+swingHighColor = input.color(color.new(#EF5350, 20), "Swing High", inline="swing", group=grpStyle)
+swingLowColor = input.color(color.new(#26A69A, 20), "Swing Low", inline="swing", group=grpStyle)
 limitZones = input.bool(false, "Only Show Zones Near Price", group=grpStyle, tooltip="Hides projection zones farther from price than the distance below, measured in Weekly ATR units.")
 zoneRadiusAtr = input.float(2.0, "Max Zone Distance (Weekly ATR)", minval=0.5, step=0.5, group=grpStyle)
-showBiasBg = input.bool(false, "Tint Background By Bias", group=grpStyle, tooltip="Colors every historical bar by the detected weekly bias, so the structure filter can be reviewed by scrolling back.")
+showBiasBg = input.bool(false, "Tint Background By Bias", group=grpStyle, tooltip="Colors every historical bar by the detected bias, so the structure filter can be reviewed by scrolling back.")
 bullBg = input.color(color.new(color.green, 92), "Tint  Bull", inline="biasbg", group=grpStyle)
 bearBg = input.color(color.new(color.red, 92), "Bear", inline="biasbg", group=grpStyle)
 rangeBg = input.color(color.new(color.yellow, 93), "Range", inline="biasbg", group=grpStyle)
@@ -119,12 +141,15 @@ f_maTrend() =>
     trendMa4 = f_ma(maSource, lenEma4, typeEma4)
     trendMa5 = f_ma(maSource, lenEma5, typeEma5)
 
+    // An MA with no value yet abstains. Counting it as a bear vote — which is what
+    // `not na(ma) and close > ma ? 1 : -1` did — quietly dragged the whole vote
+    // bearish on any timeframe too young for the 100/200 lengths.
     int score = 0
-    score += showEma1 ? (not na(trendMa1) and close > trendMa1 ? 1 : -1) : 0
-    score += showEma2 ? (not na(trendMa2) and close > trendMa2 ? 1 : -1) : 0
-    score += showEma3 ? (not na(trendMa3) and close > trendMa3 ? 1 : -1) : 0
-    score += showEma4 ? (not na(trendMa4) and close > trendMa4 ? 1 : -1) : 0
-    score += showEma5 ? (not na(trendMa5) and close > trendMa5 ? 1 : -1) : 0
+    score += showEma1 and not na(trendMa1) ? (close > trendMa1 ? 1 : -1) : 0
+    score += showEma2 and not na(trendMa2) ? (close > trendMa2 ? 1 : -1) : 0
+    score += showEma3 and not na(trendMa3) ? (close > trendMa3 ? 1 : -1) : 0
+    score += showEma4 and not na(trendMa4) ? (close > trendMa4 ? 1 : -1) : 0
+    score += showEma5 and not na(trendMa5) ? (close > trendMa5 ? 1 : -1) : 0
     score > 0 ? 1 : score < 0 ? -1 : 0
 
 f_trendText(trend) =>
@@ -137,6 +162,105 @@ trend1H = request.security(syminfo.tickerid, "60", f_maTrend(), lookahead=barmer
 trend4H = request.security(syminfo.tickerid, "240", f_maTrend(), lookahead=barmerge.lookahead_off)
 trendD = request.security(syminfo.tickerid, "D", f_maTrend(), lookahead=barmerge.lookahead_off)
 trendW = request.security(syminfo.tickerid, "W", f_maTrend(), lookahead=barmerge.lookahead_off)
+
+// ============================================================================
+// SWING STRUCTURE
+// ----------------------------------------------------------------------------
+// An uptrend is higher highs AND higher lows — a state, not an event. The original
+// filter asked whether the weekly close had just cleared the prior 3-week range,
+// which is a breakout trigger: true only on expansion weeks, so an obvious uptrend
+// read "Ranging" on every pullback or inside week.
+//
+// Comparing the last two CONFIRMED pivots is not enough either, and fails in the
+// most important place. A pivot high needs leftRight bars of lower highs after it
+// to exist at all, so while price is impulsing to new highs the newest pivot high
+// is still the pre-impulse one — the comparison reports a lower high in the middle
+// of a breakout. NZDUSD, Aug 2026: price at 0.59788, last confirmed swing high
+// 0.59061, so the structure read "mixed" while the chart was vertical.
+//
+// So the break is taken live: closing through a reference swing IS the higher high,
+// and the bias holds until the opposite reference gives way. Pivots supply the
+// reference levels; they no longer gate the call. Nothing looks ahead — a pivot is
+// only read after it confirms, and a break needs a close.
+//
+// Two details, both from LonesomeTheBlue's HH/LL script:
+//
+//   ta.pivothigh does NOT alternate. A congestion prints three highs in a row, so
+//   "the last two pivot highs" can be two points on the same leg and comparing them
+//   says nothing. Consecutive same-side pivots are collapsed into the extreme one,
+//   which is what makes the zigzag — and therefore HH/HL/LH/LL — meaningful.
+//
+//   The reference for a bullish break is specifically the last LOWER HIGH, not the
+//   last swing high: that is the level whose break changes the character of the
+//   structure. Once trending, the references trail on each new HH / LL.
+//
+// Structure is read on its own timeframe (daily by default) while the projection
+// grid stays weekly. Weekly pivots would need leftRight WEEKS to confirm.
+// ============================================================================
+f_swingStructure(simple int leftRight) =>
+    ph = ta.pivothigh(high, leftRight, leftRight)
+    pl = ta.pivotlow(low, leftRight, leftRight)
+
+    // Alternating zigzag: a is the newest accepted pivot, b and c step back in time,
+    // strictly alternating side, so a and c are always comparable like with like.
+    var float a    = na
+    var float b    = na
+    var float c    = na
+    var int   aDir = 0
+
+    int   newDir   = not na(ph) ? 1 : not na(pl) ? -1 : 0
+    float newPrice = not na(ph) ? ph : not na(pl) ? pl : na
+    bool  moved    = false
+
+    if newDir != 0
+        if newDir == aDir
+            // Same side as the tip: keep only the extreme, never extend the zigzag.
+            if (newDir == 1 and newPrice > a) or (newDir == -1 and newPrice < a)
+                a := newPrice
+                moved := true
+        else if na(a) or (newDir == 1 and newPrice > a) or (newDir == -1 and newPrice < a)
+            // Alternating, and not degenerate (a low under the previous high).
+            c := b
+            b := a
+            a := newPrice
+            aDir := newDir
+            moved := true
+
+    // 1 = HH, 2 = HL, -1 = LH, -2 = LL. Zero on bars with no new structure.
+    int newLabel = 0
+    if moved and not na(c)
+        newLabel := aDir == 1 ? (a > c ? 1 : -1) : (a > c ? 2 : -2)
+
+    var int lastLabel = 0
+    if newLabel != 0
+        lastLabel := newLabel
+
+    var float res  = na
+    var float sup  = na
+    var int   bias = 0
+
+    // A Lower High is the level whose break flips the character bullish, and a
+    // Higher Low the reverse. With no bias yet, seed from whatever side prints: a
+    // market trending cleanly since the first bar never produces a Lower High, and
+    // waiting for one would leave the bias stuck on Ranging forever.
+    if newLabel == -1 or (bias == 0 and newLabel == 1)
+        res := a
+    if newLabel == 2 or (bias == 0 and newLabel == -2)
+        sup := a
+
+    if not na(res) and close > res
+        bias := 1
+    if not na(sup) and close < sup
+        bias := -1
+
+    if bias == 1 and newLabel == 1
+        res := a
+    if bias == -1 and newLabel == -2
+        sup := a
+
+    [bias, lastLabel, res, sup]
+
+[structBias, swingLabel, structRes, structSup] = request.security(syminfo.tickerid, structureTf, f_swingStructure(swingBars), lookahead=barmerge.lookahead_off)
 
 // ============================================================================
 // HIGHER TIMEFRAME DATA — the last COMPLETED weekly bar.
@@ -160,15 +284,13 @@ trendW = request.security(syminfo.tickerid, "W", f_maTrend(), lookahead=barmerge
 // values already printed at the time of the bar.
 // ============================================================================
 [wkTimeClose, wkClose0, wkClose1, wkAtr0, wkAtr1] = request.security(syminfo.tickerid, "W", [time_close, close, close[1], ta.atr(atrLen), ta.atr(atrLen)[1]], lookahead=barmerge.lookahead_on)
-[wkMaTrend0, wkMaTrend1, wkHigh1, wkHigh2, wkLow1, wkLow2] = request.security(syminfo.tickerid, "W", [f_maTrend(), f_maTrend()[1], ta.highest(high, 3)[1], ta.highest(high, 3)[2], ta.lowest(low, 3)[1], ta.lowest(low, 3)[2]], lookahead=barmerge.lookahead_on)
+[wkMaTrend0, wkMaTrend1] = request.security(syminfo.tickerid, "W", [f_maTrend(), f_maTrend()[1]], lookahead=barmerge.lookahead_on)
 
 weekDone = not na(wkTimeClose) and time_close >= wkTimeClose
 
 weeklyClose = weekDone ? wkClose0 : wkClose1
 weeklyAtr   = weekDone ? wkAtr0   : wkAtr1
 weeklyMaTrend = weekDone ? wkMaTrend0 : wkMaTrend1
-weeklyStructHigh = weekDone ? wkHigh1 : wkHigh2
-weeklyStructLow  = weekDone ? wkLow1  : wkLow2
 
 // 4H ATR equilibrium from the last completed weekly window. This mirrors the
 // manual step of dropping to H4, finding ATR high/low between weekly boundaries,
@@ -205,8 +327,8 @@ zoneHeight = useH4Eq ? h4AtrEq : weeklyAtr
 // ============================================================================
 // BIAS / MARKET STRUCTURE
 // ============================================================================
-autoBull = weeklyMaTrend == 1 and weeklyClose > weeklyStructHigh
-autoBear = weeklyMaTrend == -1 and weeklyClose < weeklyStructLow
+autoBull = structBias == 1 and (not requireMaAgreement or weeklyMaTrend == 1)
+autoBear = structBias == -1 and (not requireMaAgreement or weeklyMaTrend == -1)
 
 int direction = 0
 if trendMode == "Manual"
@@ -214,8 +336,22 @@ if trendMode == "Manual"
 else
     direction := autoBull ? 1 : autoBear ? -1 : 0
 
-statusText = direction == 1 ? "Bullish" : direction == -1 ? "Bearish" : "Ranging — no levels"
-canDraw = direction != 0 and not na(weeklyClose) and not na(weeklyAtr) and weeklyAtr > 0 and not na(zoneHeight) and zoneHeight > 0
+// The notch set is symmetric, so levelDir does not mirror the prices — it only
+// decides which side the labels count up. A ranging market has no direction to
+// sign them with: the fixed grid hides itself, the live envelope stays up and
+// simply labels upward, because an excursion range is useful either way.
+int levelDir = direction != 0 ? direction : (isLiveAnchor ? 1 : 0)
+
+// Live mode anchors on the chart close. On the last bar that IS the developing
+// weekly close, so it needs no request.security and — unlike reading the weekly
+// close under lookahead_on — leaks nothing onto history, which keeps the per-bar
+// scan and the alerts honest.
+float anchorPrice = isLiveAnchor ? close : weeklyClose
+
+levelPrefix = isLiveAnchor ? "L" : "W"
+
+statusText = direction == 1 ? "Bullish" : direction == -1 ? "Bearish" : isLiveAnchor ? "Ranging" : "Ranging — no levels"
+canDraw = levelDir != 0 and not na(anchorPrice) and not na(weeklyAtr) and weeklyAtr > 0 and not na(zoneHeight) and zoneHeight > 0
 
 bgcolor(showBiasBg ? (direction == 1 ? bullBg : direction == -1 ? bearBg : rangeBg) : na, title="Bias Tint")
 
@@ -223,6 +359,7 @@ bgcolor(showBiasBg ? (direction == 1 ? bullBg : direction == -1 ? bearBg : range
 // DRAW HELPERS
 // ============================================================================
 var float[] fibs = includeHalfNotches ? array.from(-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0) : array.from(-2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0)
+var float outerFib = math.max(math.abs(array.max(fibs)), math.abs(array.min(fibs)))
 var box[] weeklyBoxes = array.new_box()
 var line[] weeklyLines = array.new_line()
 var label[] weeklyLabels = array.new_label()
@@ -249,6 +386,11 @@ fmtLevel(prefix, fib, price) =>
 // ----------------------------------------------------------------------------
 // Runs on every bar (not just the last one) so alerts fire historically and the
 // dashboard proximity readout stays live.
+//
+// Skipped entirely in live mode: the ladder is centred on price, so notch 0
+// always contains it. insideZone would be permanently true, nearestDist
+// permanently ~0, and the zone-entry alert would never have an edge to fire on.
+// Leaving insideZone false is what disarms that alert below.
 // ============================================================================
 bool insideZone = false
 float insideFib = na
@@ -257,11 +399,11 @@ float nearestFib = na
 float nearestMid = na
 float nearestDist = na
 
-if canDraw
+if canDraw and not isLiveAnchor
     halfZone = zoneHeight / 2.0
     for i = 0 to array.size(fibs) - 1
         fib = array.get(fibs, i)
-        mid = projectLevel(weeklyClose, weeklyAtr, fib, direction)
+        mid = projectLevel(anchorPrice, weeklyAtr, fib, levelDir)
         dist = math.abs(close - mid)
 
         if na(nearestDist) or dist < nearestDist
@@ -283,12 +425,30 @@ flipBull = direction == 1 and direction[1] != 1
 flipBear = direction == -1 and direction[1] != -1
 
 alertcondition(zoneEntry, "Price entered an ATR zone", "TradePilot: price entered an ATR projection zone")
-alertcondition(flipBull, "Weekly bias flipped bullish", "TradePilot: weekly bias flipped bullish — ATR levels rebuilt upward")
-alertcondition(flipBear, "Weekly bias flipped bearish", "TradePilot: weekly bias flipped bearish — ATR levels rebuilt downward")
+// Titles are left as-is on purpose: renaming an alertcondition orphans the alerts
+// already configured against it in TradingView.
+alertcondition(flipBull, "Weekly bias flipped bullish", "TradePilot: bias flipped bullish — higher high and higher low confirmed")
+alertcondition(flipBear, "Weekly bias flipped bearish", "TradePilot: bias flipped bearish — lower high and lower low confirmed")
 
 // Redraw only on the last chart bar to keep object count stable.
 if barstate.islast
     clearDrawings()
+
+    // Drawn whatever the bias says, so a "Ranging" reading can be checked against
+    // the two swings that produced it.
+    if showSwings
+        swingLeftX = bar_index - extendBarsLeft
+        swingRightX = bar_index + extendBarsRight
+
+        if not na(structRes)
+            resText = (direction == -1 ? "Invalidation  " : "Res  ") + str.tostring(math.round_to_mintick(structRes))
+            array.push(weeklyLines, line.new(swingLeftX, structRes, swingRightX, structRes, xloc=xloc.bar_index, color=swingHighColor, style=line.style_dotted, width=1))
+            array.push(weeklyLabels, label.new(swingRightX, structRes, resText, xloc=xloc.bar_index, style=label.style_label_left, textcolor=swingHighColor, color=color.new(color.black, 100), size=size.small))
+
+        if not na(structSup)
+            supText = (direction == 1 ? "Invalidation  " : "Sup  ") + str.tostring(math.round_to_mintick(structSup))
+            array.push(weeklyLines, line.new(swingLeftX, structSup, swingRightX, structSup, xloc=xloc.bar_index, color=swingLowColor, style=line.style_dotted, width=1))
+            array.push(weeklyLabels, label.new(swingRightX, structSup, supText, xloc=xloc.bar_index, style=label.style_label_left, textcolor=swingLowColor, color=color.new(color.black, 100), size=size.small))
 
     if canDraw
         leftX = bar_index - extendBarsLeft
@@ -297,7 +457,7 @@ if barstate.islast
         if showWeeklyZones
             for i = 0 to array.size(fibs) - 1
                 fib = array.get(fibs, i)
-                mid = projectLevel(weeklyClose, weeklyAtr, fib, direction)
+                mid = projectLevel(anchorPrice, weeklyAtr, fib, levelDir)
                 withinRadius = not limitZones or math.abs(close - mid) <= zoneRadiusAtr * weeklyAtr
 
                 if withinRadius
@@ -311,44 +471,74 @@ if barstate.islast
                         array.push(weeklyLines, ln)
 
                     if showPriceLabels
-                        lb = label.new(rightX, mid, fmtLevel("W", fib, mid), xloc=xloc.bar_index, style=label.style_label_left, textcolor=labelColor, color=color.new(color.white, 100), size=size.small)
+                        lb = label.new(rightX, mid, fmtLevel(levelPrefix, fib, mid), xloc=xloc.bar_index, style=label.style_label_left, textcolor=labelColor, color=color.new(color.white, 100), size=size.small)
                         array.push(weeklyLabels, lb)
 
 // ============================================================================
 // STATUS WATERMARK / DASHBOARD
 // ============================================================================
-h4EqText = not h4EqReliable ? "n/a above 4H chart" : na(h4AtrEq) ? "warming up" : str.tostring(math.round_to_mintick(h4AtrEq))
-h4EqColor = (zoneAtrSource == "4H ATR Equilibrium" and not h4EqUsable) ? color.orange : color.white
-zoneHeightText = (useH4Eq ? "4H ATR Eq" : "Weekly ATR") + (na(zoneHeight) ? "" : "  " + str.tostring(math.round_to_mintick(zoneHeight)))
-nearestText = na(nearestMid) ? "-" : fmtFib(nearestFib) + "  " + str.tostring(math.round_to_mintick(nearestMid))
-distText = na(nearestDist) ? "-" : str.tostring(math.round_to_mintick(nearestDist)) + "  (" + str.tostring(math.round(nearestDist / weeklyAtr * 100)) + "% W-ATR)"
-inZoneText = insideZone ? fmtFib(insideFib) : "no"
-
+// The table is built once and refilled in place: recreating a 10-row table on
+// every realtime tick is waste, and so is formatting these strings on every
+// historical bar when only the last bar's values are ever displayed.
 var table dash = na
 if showDashboard and barstate.islast
-    if not na(dash)
-        table.delete(dash)
-    dash := table.new(position.top_right, 2, 10, frame_color=color.new(color.gray, 70), border_width=1, bgcolor=color.new(color.black, 82))
-    table.cell(dash, 0, 0, "TradePilot ATR Levels", text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
-    table.cell(dash, 1, 0, syminfo.ticker, text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
+    if na(dash)
+        dash := table.new(position.top_right, 2, 12, frame_color=color.new(color.gray, 65), frame_width=1, border_color=color.new(color.gray, 80), border_width=1, bgcolor=color.new(color.black, 12))
+
+    h4EqText = not h4EqReliable ? "n/a above 4H chart" : na(h4AtrEq) ? "warming up" : str.tostring(math.round_to_mintick(h4AtrEq))
+    h4EqColor = (zoneAtrSource == "4H ATR Equilibrium" and not h4EqUsable) ? color.orange : color.white
+    zoneHeightText = (useH4Eq ? "4H ATR Eq" : "Weekly ATR") + (na(zoneHeight) ? "" : "  " + str.tostring(math.round_to_mintick(zoneHeight)))
+    swingsText = swingLabel == 1 ? "HH" : swingLabel == 2 ? "HL" : swingLabel == -1 ? "LH" : swingLabel == -2 ? "LL" : "warming up"
+    swingLevelsText = (na(structRes) ? "-" : str.tostring(math.round_to_mintick(structRes))) + "  /  " + (na(structSup) ? "-" : str.tostring(math.round_to_mintick(structSup)))
+
+    table.cell(dash, 0, 0, "TradePilot ATR Levels", text_color=color.white, bgcolor=color.new(color.black, 5), text_size=size.small)
+    table.cell(dash, 1, 0, syminfo.ticker, text_color=color.white, bgcolor=color.new(color.black, 5), text_size=size.small)
     table.cell(dash, 0, 1, "Mode", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 1, trendMode, text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 1, trendMode + (requireMaAgreement ? "  + W MA" : ""), text_color=color.white, text_size=size.small)
     table.cell(dash, 0, 2, "Structure", text_color=color.silver, text_size=size.small)
     table.cell(dash, 1, 2, statusText, text_color=direction == 1 ? color.lime : direction == -1 ? color.red : color.yellow, text_size=size.small)
-    table.cell(dash, 0, 3, "Anchor", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 3, na(weeklyClose) ? "-" : str.tostring(math.round_to_mintick(weeklyClose)), text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 4, "Weekly ATR", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 4, na(weeklyAtr) ? "-" : str.tostring(math.round_to_mintick(weeklyAtr)), text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 5, "Zone Height", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 5, zoneHeightText, text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 6, "4H ATR Eq", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 6, h4EqText, text_color=h4EqColor, text_size=size.small)
-    table.cell(dash, 0, 7, "Nearest Zone", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 7, nearestText, text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 8, "Distance", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 8, distText, text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 9, "In Zone", text_color=color.silver, text_size=size.small)
-    table.cell(dash, 1, 9, inZoneText, text_color=insideZone ? color.aqua : color.gray, text_size=size.small)
+    table.cell(dash, 0, 3, "Last Swing " + structureTf, text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 3, swingsText, text_color=f_trendColor(swingLabel > 0 ? 1 : swingLabel < 0 ? -1 : 0), text_size=size.small)
+    table.cell(dash, 0, 4, "Res / Sup", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 4, swingLevelsText, text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 5, isLiveAnchor ? "Anchor (Live)" : "Anchor (Confirmed)", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 5, na(anchorPrice) ? "-" : str.tostring(math.round_to_mintick(anchorPrice)), text_color=isLiveAnchor ? color.aqua : color.white, text_size=size.small)
+    table.cell(dash, 0, 6, "Weekly ATR", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 6, na(weeklyAtr) ? "-" : str.tostring(math.round_to_mintick(weeklyAtr)), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 7, "Zone Height", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 7, zoneHeightText, text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 8, "4H ATR Eq", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 8, h4EqText, text_color=h4EqColor, text_size=size.small)
+
+    // Distance-to-zone is meaningless once the zones follow price, so live mode
+    // reports how far price has travelled from the confirmed close instead, plus
+    // the outer notches it is currently projecting to.
+    if isLiveAnchor
+        float excursion = na(weeklyClose) ? na : close - weeklyClose
+        float excursionAtr = (na(excursion) or na(weeklyAtr) or weeklyAtr <= 0) ? na : excursion / weeklyAtr
+        float envelope = (na(anchorPrice) or na(weeklyAtr)) ? na : outerFib * weeklyAtr
+
+        excursionSign = (na(excursionAtr) or excursionAtr < 0) ? "" : "+"
+        excursionText = na(excursionAtr) ? "-" : excursionSign + str.tostring(math.round_to_mintick(excursion)) + "  (" + excursionSign + str.tostring(excursionAtr, "#.##") + " W-ATR)"
+        envelopeText = na(envelope) ? "-" : str.tostring(math.round_to_mintick(anchorPrice - envelope)) + "  –  " + str.tostring(math.round_to_mintick(anchorPrice + envelope))
+
+        table.cell(dash, 0, 9, "Excursion", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 9, excursionText, text_color=na(excursionAtr) ? color.gray : excursionAtr >= 0 ? color.lime : color.red, text_size=size.small)
+        table.cell(dash, 0, 10, "Envelope " + str.tostring(outerFib, "#.##") + " ATR", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 10, envelopeText, text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 11, "Week Close", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 11, na(weeklyClose) ? "-" : str.tostring(math.round_to_mintick(weeklyClose)), text_color=color.white, text_size=size.small)
+    else
+        nearestText = na(nearestMid) ? "-" : fmtFib(nearestFib) + "  " + str.tostring(math.round_to_mintick(nearestMid))
+        distText = na(nearestDist) ? "-" : str.tostring(math.round_to_mintick(nearestDist)) + "  (" + str.tostring(math.round(nearestDist / weeklyAtr * 100)) + "% W-ATR)"
+        inZoneText = insideZone ? fmtFib(insideFib) : "no"
+
+        table.cell(dash, 0, 9, "Nearest Zone", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 9, nearestText, text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 10, "Distance", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 10, distText, text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 11, "In Zone", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 11, inZoneText, text_color=insideZone ? color.aqua : color.gray, text_size=size.small)
 
 // ============================================================================
 // MULTI-TIMEFRAME MA TREND WATERMARK
@@ -378,6 +568,8 @@ if barstate.islast
     if not na(rangeWatermark)
         label.delete(rangeWatermark)
         rangeWatermark := na
-    if showDashboard and direction == 0
+    // Only the confirmed-close grid hides itself when there is no bias; the live
+    // envelope keeps drawing, so announcing hidden levels there would be a lie.
+    if showDashboard and direction == 0 and not isLiveAnchor
         rangeWatermark := label.new(bar_index, high, "RANGING — ATR projection levels hidden", xloc=xloc.bar_index, style=label.style_label_down, textcolor=color.black, color=color.new(color.yellow, 15), size=size.normal)
 // ============================================================================

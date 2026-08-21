@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-08-21
+
+### Added
+
+- **New "AYOUB LEVELS" indicator** (`apps/TradingView/TradePilot_Dynamic_Levels.pine`) — ATR Fibonacci zones over a selectable HTF/LTF pair (Weekly+4H, Daily+1H, Monthly+Daily). Unlike the projection ladder it anchors on the **current** HTF candle rather than the last completed one, placing a fib of length `ATR(14)` at that candle's close so level 0 sits at `close + atrHtf` and level 2 at `close - atrHtf`. Zone thickness comes from the midpoint of the LTF ATR's high/low range measured over the same HTF window, and the reference candle is detected from the chart's bar position so it behaves identically live and in bar replay.
+
+- **Anchor mode on the ATR projection ladder** — `Confirmed Close` keeps the existing behaviour, hanging the grid off the last finished weekly close so it stays put all week as a static support/resistance grid. `Live Close` re-centres on current price every tick, turning the notches into an ATR excursion envelope for targets and stops. Notch spacing and zone thickness still derive from the completed week in both modes, so only the anchor moves and nothing jitters. Live levels are labelled `L`, confirmed ones `W`.
+
+- **Auditable structure inputs** — `Structure Timeframe` (daily by default) and `Swing Strength` control where and how the bias is read, `Require Weekly MA Agreement` optionally demands the weekly MA vote agree before taking a side, and `Show Structure Swings` plots the two reference swings a close must break, so an Auto reading can be checked against the chart. The swing opposing the current bias is the invalidation level.
+
+### Changed
+
+- **Auto bias now reads swing structure instead of a weekly breakout trigger** — the old filter asked whether the weekly close had just cleared the prior 3-week range, which is an expansion *event* rather than a *state*, so an obvious uptrend printed "Ranging" on every pullback and inside week. Bias now comes from an alternating HH/HL/LH/LL zigzag read on its own timeframe while the projection grid stays weekly, and the break is taken live: closing through the last Lower High *is* the higher high, and the bias holds until the opposite reference gives way. Consecutive same-side pivots are collapsed to the extreme one, without which "the last two pivot highs" can be two points on the same leg and comparing them says nothing. Comparing only confirmed pivots was rejected because a pivot high needs `Swing Strength` bars of lower highs to exist at all, so mid-impulse the newest confirmed high is still the pre-impulse one — NZDUSD in Aug 2026 read mixed at 0.59788 against a last confirmed swing high of 0.59061 while the chart was vertical. Weekly MA agreement is now opt-in rather than mandatory. Nothing looks ahead: pivots are read only once confirmed, and a break requires a close.
+
+- **Ranging markets behave differently per anchor** — the confirmed-close grid still hides itself when there is no direction to sign the labels with, while the live envelope stays on screen and labels upward, since an excursion range is useful either way.
+
+### Fixed
+
+- **Moving averages with no value yet were counted as bear votes** — the MA trend score used `not na(ma) and close > ma ? 1 : -1`, which returns `-1` for an MA that simply had not warmed up rather than excluding it. On any timeframe too young for the 100/200 lengths this quietly dragged the entire vote bearish. Unset averages now abstain instead of voting.
+
+### Removed
+
+- The weekly `ta.highest(high, 3)` / `ta.lowest(low, 3)` structure request, redundant now that bias comes from swing structure.
+
 ## [2.1.0] - 2026-08-18
 
 ### Added

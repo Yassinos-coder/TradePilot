@@ -1,0 +1,347 @@
+//@version=6
+
+// =============================================================================
+// ATR Fibonacci Zones (HTF/LTF)
+// -----------------------------------------------------------------------------
+// Implements the methodology end-to-end and draws ONLY the final zones.
+//
+//   1) Pick a HTF/LTF pair: Weekly+4H, Daily+1H, or Monthly+Daily.
+//   2) Reference candle = the CURRENT HTF candle.
+//      Auto-detected from the chart's current bar position — works the same
+//      in live and in bar replay/backtest.
+//   3) atrHtf = ATR(14) at the CURRENT HTF candle.
+//   4) Anchor a Fibonacci of length atrHtf at the candle's close:
+//
+//          price(L) = close + (1 - L) * atrHtf
+//
+//      L=0 = close+atrHtf (top), L=1 = close, L=2 = close-atrHtf (bottom),
+//      +/-0.5, +/-1.5, optional +/-2.5 / +/-3, negatives extend ABOVE level 0.
+//
+//   5) Over the SAME HTF candle's window, take ATR(atrLen) on the LTF and
+//      find its high & low. The "50%" of that range = (high+low)/2 = zoneSize.
+//
+//   6) Each fib level becomes a box centred on the level with full vertical
+//      size = zoneSize, extended right (and optionally left).
+//
+// =============================================================================
+
+indicator("AYOUB LEVELS", shorttitle="Ayoub levels",
+     overlay = true, max_boxes_count = 200, max_lines_count = 200,
+     max_labels_count = 200)
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+
+gSetup = "Setup"
+
+pairChoice = input.string("Weekly + 4H", "HTF / LTF pair",
+     options = ["Weekly + 4H", "Daily + 1H", "Monthly + Daily"], group = gSetup)
+
+atrLen = input.int(14, "ATR length", minval = 1, group = gSetup)
+
+htfOffset = input.int(0,
+     "Reference offset (0 = current HTF candle, 1 = previous one, ...)",
+     minval = 0, group = gSetup)
+
+gLevels = "Fibonacci levels"
+
+useExtra = input.bool(false, "Include +/-2.5 and +/-3", group = gLevels)
+
+useNeg = input.bool(true, "Include negative levels (above level 0)",
+     group = gLevels)
+
+gStyle = "Style"
+
+zoneColor = input.color(color.new(color.fuchsia, 80), "Zone fill", group = gStyle)
+
+zoneBorder = input.color(color.new(color.fuchsia, 50), "Zone border", group = gStyle)
+
+midLineCol = input.color(color.new(color.fuchsia, 0), "Mid line", group = gStyle)
+
+showLabels = input.bool(true, "Show level labels", group = gStyle)
+
+extendLeftI = input.bool(true, "Extend zones to the left", group = gStyle)
+
+extendRtInf = input.bool(true, "Extend zones infinitely to the right", group = gStyle)
+
+rightBars = input.int(50, "Right extension if not infinite (bars)",
+     minval = 1, group = gStyle)
+
+gInfo = "Info panel"
+
+showInfo = input.bool(true, "Show info table", group = gInfo)
+
+tablePos = input.string("top_right", "Table position",
+     options = ["top_left","top_right","bottom_left","bottom_right","middle_right"],
+     group = gInfo)
+
+// ---------------------------------------------------------------------------
+// Resolve pair -> HTF & LTF strings
+// ---------------------------------------------------------------------------
+
+htfTF = pairChoice == "Weekly + 4H" ? "W" : pairChoice == "Daily + 1H" ? "D" : "M"
+
+ltfTF = pairChoice == "Weekly + 4H" ? "240" : pairChoice == "Daily + 1H" ? "60" : "D"
+
+chartSec = timeframe.in_seconds()
+
+// ---------------------------------------------------------------------------
+// HTF data — CURRENT HTF candle
+// ---------------------------------------------------------------------------
+//
+// The HTF reference is now the CURRENT HTF candle instead of the previous
+// fully-closed HTF candle.
+//
+// The LTF ATR logic remains unchanged: within the SAME HTF candle window,
+// collect the LTF ATR values and use their high and low to calculate
+// zoneSize = (high + low) / 2.
+//
+// ---------------------------------------------------------------------------
+
+f_htfPack() =>
+    // HTF = CURRENT candle
+
+    htfC = close
+    atrH = ta.atr(atrLen)
+    tO   = time
+    tC   = time_close
+
+    // request.security_lower_tf inside HTF context: returns LTF ATR samples
+    // for the CURRENT HTF candle.
+
+    arr = request.security_lower_tf(syminfo.tickerid, ltfTF, ta.atr(atrLen))
+
+    float hi = na(arr) ? na : array.size(arr) > 0 ? array.max(arr) : na
+    float lo = na(arr) ? na : array.size(arr) > 0 ? array.min(arr) : na
+
+    [htfC, atrH, tO, tC, hi, lo]
+
+[htfClose_s, atrHtf_s, htfOpenTime_s, htfCloseTime_s, ltfAtrHi_s, ltfAtrLo_s] =
+     request.security(syminfo.tickerid, htfTF, f_htfPack(),
+                      lookahead = barmerge.lookahead_on)
+
+// htfOffset steps further back on the HTF series.
+// 0 = current HTF candle, 1 = previous HTF candle, etc.
+
+int off = htfOffset
+
+float htfClose     = htfClose_s[off]
+float atrHtf       = atrHtf_s[off]
+int   htfOpenTime  = htfOpenTime_s[off]
+int   htfCloseTime = htfCloseTime_s[off]
+float ltfAtrHi     = ltfAtrHi_s[off]
+float ltfAtrLo     = ltfAtrLo_s[off]
+
+// Zone size = the "50%" of the LTF ATR range = (high + low) / 2.
+
+float zoneSize = (na(ltfAtrHi) or na(ltfAtrLo)) ? na : (ltfAtrHi + ltfAtrLo) / 2.0
+
+float halfZone = na(zoneSize) ? na : zoneSize / 2.0
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+f_buildLevels(bool extra, bool neg) =>
+    arr = array.new<float>()
+
+    array.push(arr, 0.0)
+    array.push(arr, 0.5)
+    array.push(arr, 1.0)
+    array.push(arr, 1.5)
+    array.push(arr, 2.0)
+
+    if extra
+        array.push(arr, 2.5)
+        array.push(arr, 3.0)
+
+    if neg
+        array.push(arr, -0.5)
+        array.push(arr, -1.0)
+        array.push(arr, -1.5)
+        array.push(arr, -2.0)
+
+        if extra
+            array.push(arr, -2.5)
+            array.push(arr, -3.0)
+
+    arr
+
+// price(L) = close + (1 - L) * ATR
+
+f_priceAt(float L, float anchorClose, float atr) =>
+    anchorClose + (1.0 - L) * atr
+
+// ---------------------------------------------------------------------------
+// Drawing — only on the last bar (= chart's current position; in replay
+// this is the playhead).
+// ---------------------------------------------------------------------------
+
+var array<box>   zoneBoxes = array.new<box>()
+var array<line>  midLines  = array.new<line>()
+var array<label> lvlLabels = array.new<label>()
+
+if barstate.islast
+
+    for b in zoneBoxes
+        box.delete(b)
+
+    array.clear(zoneBoxes)
+
+    for ln in midLines
+        line.delete(ln)
+
+    array.clear(midLines)
+
+    for lb in lvlLabels
+        label.delete(lb)
+
+    array.clear(lvlLabels)
+
+    if not na(htfOpenTime) and not na(atrHtf) and not na(zoneSize)
+
+        levels = f_buildLevels(useExtra, useNeg)
+
+        int leftX = extendLeftI ? htfOpenTime : htfCloseTime
+
+        int rightX = extendRtInf ? time
+                     : time + rightBars * (chartSec * 1000)
+
+        ext = extendRtInf
+              ? (extendLeftI ? extend.both : extend.right)
+              : (extendLeftI ? extend.left : extend.none)
+
+        for L in levels
+
+            float p   = f_priceAt(L, htfClose, atrHtf)
+
+            float top = p + halfZone
+
+            float bot = p - halfZone
+
+            b = box.new(
+                 left = leftX,
+                 top = top,
+                 right = rightX,
+                 bottom = bot,
+                 xloc = xloc.bar_time,
+                 border_color = zoneBorder,
+                 bgcolor = zoneColor,
+                 border_width = 1,
+                 extend = ext)
+
+            array.push(zoneBoxes, b)
+
+            ln = line.new(
+                 x1 = leftX,
+                 y1 = p,
+                 x2 = rightX,
+                 y2 = p,
+                 xloc = xloc.bar_time,
+                 color = midLineCol,
+                 style = line.style_dashed,
+                 width = 1,
+                 extend = ext)
+
+            array.push(midLines, ln)
+
+            if showLabels
+
+                lb = label.new(
+                     x = rightX,
+                     y = p,
+                     text = str.tostring(L, "0.##") + "  (" +
+                           str.tostring(p, format.mintick) + ")",
+                     xloc = xloc.bar_time,
+                     yloc = yloc.price,
+                     style = label.style_label_left,
+                     color = color.new(color.black, 100),
+                     textcolor = color.new(color.white, 0),
+                     size = size.small)
+
+                array.push(lvlLabels, lb)
+
+// ---------------------------------------------------------------------------
+// Info table
+// ---------------------------------------------------------------------------
+
+var table info = na
+
+if showInfo and barstate.islast
+
+    posMap = tablePos == "top_left" ? position.top_left :
+             tablePos == "top_right" ? position.top_right :
+             tablePos == "bottom_left" ? position.bottom_left :
+             tablePos == "bottom_right" ? position.bottom_right :
+             position.middle_right
+
+    if na(info)
+        info := table.new(posMap, 2, 7, border_width = 1)
+
+    hdrBg = color.new(color.gray, 70)
+
+    table.cell(info, 0, 0, "Pair",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 0, pairChoice,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 1, "HTF ref close",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 1, str.tostring(htfClose, format.mintick),
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 2, "HTF ATR(" + str.tostring(atrLen) + ")",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 2, str.tostring(atrHtf, format.mintick),
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 3, "LTF ATR high",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 3, str.tostring(ltfAtrHi, format.mintick),
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 4, "LTF ATR low",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 4, str.tostring(ltfAtrLo, format.mintick),
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 5, "Zone size",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 5, str.tostring(zoneSize, format.mintick),
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 0, 6, "Ref HTF open",
+               bgcolor = hdrBg,
+               text_color = color.white,
+               text_size = size.small)
+
+    table.cell(info, 1, 6,
+         na(htfOpenTime) ? "n/a" :
+              str.format_time(htfOpenTime, "yyyy-MM-dd HH:mm", syminfo.timezone),
+         text_color = color.white,
+         text_size = size.small)
