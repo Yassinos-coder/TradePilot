@@ -1,0 +1,802 @@
+//@version=6
+// ============================================================================
+// TradePilot ATR Excursion Strategy — 1H / 2H Day Trading
+// ----------------------------------------------------------------------------
+// The tradeable form of TradePilot ATR Projection Levels. Same three primitives:
+//   anchor  = last confirmed weekly close (this week's origin)
+//   unit    = weekly ATR (the week's range budget)
+//   bias    = daily swing structure, with a hard invalidation price
+//
+// but reorganised around the fact that a 1H/2H trader cannot hold for +2 weekly
+// ATR. So the weekly grid is NOT the trade frame here — it is split by job:
+//
+//   Weekly ATR  -> the GATE. How much of the week's range budget is already
+//                  spent in our direction, and is there room left to pay us.
+//   4H ATR zone -> the LOCATION and the RISK UNIT. Sized for an intraday leg.
+//   Targets     -> R multiples by default, notch ladder as a switchable option,
+//                  so "is +1.0 W-ATR even reachable in my holding period" is a
+//                  question the backtest answers rather than an assumption.
+//
+// THE FILTER THAT MATTERS, AND WHY IT IS NOT IN THE INDICATOR
+// The indicator reports the CURRENT excursion from the weekly close. That is not
+// what predicts a failed pullback-buy. What predicts it is the MAX excursion the
+// week has already reached: if price ran +1.5 W-ATR on Monday and drifts back to
+// the weekly open on Wednesday, the discount-zone test still passes but the range
+// budget is gone — that dip is a reversal, not a continuation. So the gate reads
+// the running weekly maximum (Week Spent), not the current print.
+//
+// REPAINT DISCIPLINE
+// The indicator reads daily structure with lookahead_off. That develops intraday
+// in real time but only appears at the daily close on history — an asymmetry that
+// silently flatters a backtest. Here the structure engine is fed high[1]/low[1]/
+// close[1] INSIDE the HTF context under lookahead_on, which is the canonical
+// non-repainting idiom: the value is the last FULLY CLOSED structure bar,
+// identical live and historical. Same treatment for every MA vote. The weekly
+// anchor keeps the indicator's weekDone construction so the levels drawn here sit
+// exactly on top of the indicator's, and new entries are blocked on the weekDone
+// bar itself so a freshly rolled anchor cannot arm a setup on the week's last bar.
+//
+// THE TRADE
+//   Gate     bias confirmed on daily structure (+ optional MA votes), week not
+//            spent, week not already run over against us, inside session.
+//   Location price trades into an entry notch zone (0 / -0.5 / -1.0 W-ATR), i.e.
+//            a discount to the weekly origin while structure is with us.
+//   Trigger  chart-TF close back through the zone reclaim level with a with-trend
+//            body. Sweep and reclaim, not a blind limit into a falling market.
+//   Risk     stop beyond the reaction extreme and the zone, buffered. Rejected if
+//            the resulting risk falls outside sane W-ATR bounds.
+//   Targets  T1 scale-out then breakeven, T2 / trail on the runner.
+//   Exits    bias flip, max bars, end of week. A position held across the weekly
+//            close is measured against an anchor that moved underneath it.
+//
+// THE CENSUS TABLE is the point of the whole file. It measures, on YOUR symbol:
+//   - what share of weeks actually reach 0.25 / 0.5 ... 2.0 W-ATR in the
+//     structure direction (the excursion percentiles), and against it
+//   - the conditional the strategy is really betting on: of weeks that dipped
+//     into an entry notch, how many then reached the T1 notch
+// Read that before tuning anything. If the conditional is not comfortably above
+// the unconditional, the setup is not adding information on this instrument.
+// ============================================================================
+
+// COMMISSION AND SLIPPAGE are set in the Strategy Tester's Properties tab, not
+// here: every strategy() argument must be a const, so they cannot be inputs.
+// Set them before reading any result — the seeded 1 tick of slippage is a token
+// amount, and process_orders_on_close below fills at the signal bar's close,
+// which assumes you can actually transact there.
+strategy("TradePilot ATR Excursion Strategy", "TP ATR X", overlay=true,
+     pyramiding                 = 0,
+     default_qty_type           = strategy.fixed,
+     default_qty_value          = 1,
+     initial_capital            = 10000,
+     currency                   = currency.NONE,
+     commission_type            = strategy.commission.percent,
+     commission_value           = 0.0,
+     slippage                   = 1,
+     process_orders_on_close    = true,
+     calc_on_every_tick         = false,
+     max_lines_count            = 200,
+     max_boxes_count            = 100,
+     max_labels_count           = 200)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grpBias   = "1. Trend Detection"
+grpGate   = "2. Excursion Gates"
+grpEntry  = "3. Entry"
+grpRisk   = "4. Risk"
+grpExit   = "5. Targets & Exits"
+grpMa     = "6. Moving Averages"
+grpAtr    = "7. ATR / Zones"
+grpStyle  = "8. Style"
+
+// --- 1. Trend detection -----------------------------------------------------
+tradeLongs  = input.bool(true, "Trade Longs", inline="side", group=grpBias)
+tradeShorts = input.bool(true, "Trade Shorts", inline="side", group=grpBias)
+
+structureTf = input.timeframe("D", "Structure Timeframe", group=grpBias, tooltip="Timeframe the swing structure is read from. Daily keeps the bias responsive while the excursion grid stays weekly. Read one bar behind under lookahead_on, so it is the last FULLY CLOSED structure bar — no repaint.")
+swingBars   = input.int(3, "Swing Strength (bars each side)", minval=1, maxval=20, group=grpBias, tooltip="A swing high needs this many lower highs each side. Larger = fewer, more major reference swings. It does not delay the bias: the bias comes from closing through a reference, not from a new pivot forming.")
+
+requireWeeklyMa = input.bool(true,  "Require Weekly MA Agreement", group=grpBias, tooltip="The weekly MA vote must point the same way as daily structure. On by default: it is the cheapest chop filter in the file.")
+requireDailyMa  = input.bool(false, "Require Daily MA Agreement", group=grpBias, tooltip="Largely correlated with daily structure. Usually redundant.")
+require4hMa     = input.bool(false, "Require 4H MA Agreement", group=grpBias, tooltip="Demands that the timeframe directly above a 1H/2H trade is trending too. This and the session filter are the first two things worth A/B testing.")
+
+// --- 2. Excursion gates -----------------------------------------------------
+useSpentGate    = input.bool(true, "Gate On Week Already Spent", group=grpGate, tooltip="THE core filter. Blocks entries once the week has already travelled this far in our direction — the range budget that would pay the trade is gone, so the pullback is more likely a reversal than a continuation. Measured on the running weekly maximum, not the current print.")
+maxWeekSpent    = input.float(1.25, "Max Week Spent (W-ATR)", minval=0.25, maxval=4.0, step=0.25, group=grpGate)
+useAdverseGate  = input.bool(true, "Gate On Week Run Against Us", group=grpGate, tooltip="Blocks entries once the week has already travelled this far AGAINST the bias. A full average weekly range against structure is usually structure breaking, not a discount.")
+maxWeekAdverse  = input.float(1.00, "Max Week Adverse (W-ATR)", minval=0.25, maxval=4.0, step=0.25, group=grpGate)
+usePremiumGate  = input.bool(true, "Gate On Current Premium", group=grpGate, tooltip="Blocks entries when the current close already sits this far in our direction from the weekly origin. Stops the top of notch 0's zone being bought in a stretched tape.")
+maxPremium      = input.float(0.50, "Max Current Premium (W-ATR)", minval=0.0, maxval=2.0, step=0.25, group=grpGate)
+
+useSession      = input.bool(true, "Session Filter", group=grpGate, tooltip="Pullback systems bleed in the Asian range. London/NY only by default.")
+tradingSession  = input.session("0700-1900", "Session", group=grpGate)
+
+maxTradesPerWeek = input.int(3, "Max Trades Per Week", minval=1, maxval=20, group=grpGate, tooltip="Stops one chop week hammering the same failing level repeatedly.")
+
+// --- 3. Entry ---------------------------------------------------------------
+entryNotchSet = input.string("0 and -0.5", "Entry Notches (W-ATR)", options=["0 only", "0 and -0.5", "0, -0.5 and -1.0"], group=grpEntry, tooltip="Discount zones, signed against the bias. A full -1.0 W-ATR against confirmed structure is rarely a pullback — it is usually the structure breaking — so it is off by default.")
+reclaimLevel  = input.string("Zone Midline", "Reclaim Level", options=["Zone Midline", "Zone Far Side"], group=grpEntry, tooltip="Midline = better fill, weaker confirmation. Far Side = a full reclaim of the zone, better confirmation but you pay a zone height for it.")
+reclaimBars   = input.int(8, "Reclaim Window (bars)", minval=1, maxval=60, group=grpEntry, tooltip="Bars after the zone touch in which the reclaim must happen, else the setup expires. Without this you act on stale touches.")
+allowSameBar  = input.bool(true, "Allow Same-Bar Entry", group=grpEntry, tooltip="A bar that wicks into the zone and closes back through the reclaim level is a legitimate rejection candle. Off waits for a separate bar.")
+requireChartMa = input.bool(false, "Require Fast MA At Entry", group=grpEntry, tooltip="Entry bar must also close the right side of MA 2 on the chart timeframe.")
+
+// --- 4. Risk ----------------------------------------------------------------
+sizingMode      = input.string("Risk % of Equity", "Position Sizing", options=["Risk % of Equity", "Fixed Quantity"], group=grpRisk, tooltip="Risk % is the whole point of an ATR-normalised stop: constant risk per trade regardless of instrument or volatility regime.")
+riskPerTradePct = input.float(1.0, "Risk Per Trade (%)", minval=0.05, maxval=10.0, step=0.05, group=grpRisk)
+fixedQty        = input.float(1.0, "Fixed Quantity", minval=0.000001, group=grpRisk)
+
+stopBufAtr = input.float(0.15, "Stop Buffer (× Zone Height)", minval=0.0, maxval=1.0, step=0.05, group=grpRisk)
+minRiskAtr = input.float(0.05, "Min Risk (W-ATR)", minval=0.0, maxval=1.0, step=0.05, group=grpRisk, tooltip="Rejects absurdly tight stops in dead volatility, which otherwise manufacture fake R multiples.")
+maxRiskAtr = input.float(0.60, "Max Risk (W-ATR)", minval=0.1, maxval=3.0, step=0.05, group=grpRisk, tooltip="Rejects the trade outright when the zone height has spiked and the structural stop is too wide to be worth taking.")
+failBufAtr = input.float(0.35, "Setup Fail Buffer (× Zone Height)", minval=0.0, maxval=2.0, step=0.05, group=grpRisk, tooltip="Closing this far through the adverse side of the zone kills the setup instead of buying deeper.")
+
+// --- 5. Targets & exits -----------------------------------------------------
+targetMode = input.string("R Multiple", "Target Mode", options=["R Multiple", "Notch Ladder", "Hybrid (R then Notch)"], group=grpExit, tooltip="R Multiple is the day-trading default: bankable inside a holding period. Notch Ladder tests whether the indicator's +1.0/+1.5 W-ATR notches are actually reachable before the time exit fires. Hybrid banks T1 on R and lets the runner go for the notch.")
+r1Mult = input.float(1.5, "T1 (R)", minval=0.25, step=0.25, group=grpExit)
+r2Mult = input.float(3.0, "T2 (R)", minval=0.5, step=0.25, group=grpExit)
+t1Fib  = input.float(1.0, "T1 Notch (W-ATR)", minval=0.25, step=0.25, group=grpExit)
+t2Fib  = input.float(1.5, "T2 Notch (W-ATR)", minval=0.25, step=0.25, group=grpExit)
+minTargetR = input.float(1.0, "Min T1 (R) To Take Trade", minval=0.25, step=0.25, group=grpExit, tooltip="Skips setups whose T1 sits too close to the entry to pay for the risk. Mostly bites in Notch Ladder mode when price is already near the target notch.")
+
+tp1Pct    = input.int(50, "T1 Scale-Out (%)", minval=1, maxval=100, group=grpExit)
+moveToBe  = input.bool(true, "Breakeven After T1", group=grpExit)
+beOffsetR = input.float(0.0, "Breakeven Offset (R)", minval=-0.5, maxval=1.0, step=0.05, group=grpExit)
+useTrail  = input.bool(true, "Trail Runner After T1", group=grpExit)
+trailMult = input.float(1.0, "Trail Distance (× Zone Height)", minval=0.25, maxval=5.0, step=0.25, group=grpExit)
+
+exitOnBiasFlip = input.bool(true, "Exit On Bias Flip", group=grpExit, tooltip="Daily structure closing through the invalidation level. That is the thesis being wrong, so it overrides everything else.")
+maxBarsInTrade = input.int(48, "Max Bars In Trade (0 = off)", minval=0, maxval=500, group=grpExit, tooltip="48 bars is ~2 days on 1H. Keeps the system inside a day-trading holding period and stops dead positions tying up risk.")
+flatBeforeWeekend = input.bool(true, "Flat Before Weekend", group=grpExit, tooltip="On by default and not cosmetic: the anchor re-rolls at the weekly close, so a position held across it is suddenly measured against a different origin. Every level the trade was built on moves.")
+friExitHour = input.int(20, "Friday Exit Hour", minval=0, maxval=23, group=grpExit)
+
+// --- 6. Moving averages (vote must match the indicator) ---------------------
+maSource = input.source(close, "Source", group=grpMa)
+showMas  = input.bool(false, "Plot MAs", group=grpMa)
+showEma1 = input.bool(true, "MA 1", inline="ema1", group=grpMa)
+lenEma1  = input.int(9, "", minval=1, inline="ema1", group=grpMa)
+typeEma1 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema1", group=grpMa)
+showEma2 = input.bool(true, "MA 2", inline="ema2", group=grpMa)
+lenEma2  = input.int(21, "", minval=1, inline="ema2", group=grpMa)
+typeEma2 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema2", group=grpMa)
+showEma3 = input.bool(true, "MA 3", inline="ema3", group=grpMa)
+lenEma3  = input.int(50, "", minval=1, inline="ema3", group=grpMa)
+typeEma3 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema3", group=grpMa)
+showEma4 = input.bool(true, "MA 4", inline="ema4", group=grpMa)
+lenEma4  = input.int(100, "", minval=1, inline="ema4", group=grpMa)
+typeEma4 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema4", group=grpMa)
+showEma5 = input.bool(true, "MA 5", inline="ema5", group=grpMa)
+lenEma5  = input.int(200, "", minval=1, inline="ema5", group=grpMa)
+typeEma5 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema5", group=grpMa)
+
+// --- 7. ATR / zones ---------------------------------------------------------
+atrLen        = input.int(14, "ATR Length", minval=1, group=grpAtr)
+zoneAtrSource = input.string("4H ATR Equilibrium", "Zone Height", options=["4H ATR Equilibrium", "Weekly ATR"], group=grpAtr)
+capZone       = input.bool(true, "Cap Zone Height", group=grpAtr, tooltip="The 4H equilibrium is the midpoint of the EXTREMES of 4H ATR across the week, not an average — one volatility spike drags it wide for the whole following week. Fine as an order-placement tolerance, noisy as a risk unit. The cap keeps it honest.")
+zoneCapAtr    = input.float(0.35, "Zone Height Cap (W-ATR)", minval=0.05, maxval=1.0, step=0.05, group=grpAtr)
+
+// --- 8. Style ---------------------------------------------------------------
+showLevels  = input.bool(true, "Draw Levels", group=grpStyle)
+showDash    = input.bool(true, "Show Dashboard", group=grpStyle)
+showCensus  = input.bool(true, "Show Excursion Census", group=grpStyle, tooltip="The measurement table. Read it before tuning anything else in this file.")
+showArmMark = input.bool(false, "Mark Armed Setups", group=grpStyle, tooltip="Plots a dot on every zone touch that armed a setup, including the ones that expired without triggering. Useful for judging whether the reclaim window is right.")
+extendRight = input.int(60, "Extend Right Bars", minval=5, group=grpStyle)
+entryZoneCol = input.color(color.new(color.teal, 82), "Entry Zone", inline="c1", group=grpStyle)
+targetCol    = input.color(color.new(color.green, 30), "Target", inline="c1", group=grpStyle)
+invalidCol   = input.color(color.new(color.red, 30), "Invalidation", inline="c1", group=grpStyle)
+
+// ============================================================================
+// MOVING AVERAGES
+// ----------------------------------------------------------------------------
+// f_maVote takes its source AND its comparison price as arguments so the whole
+// vote can be evaluated one HTF bar in the past. Calling it as
+// f_maVote(maSource[1], close[1]) inside request.security(..., lookahead_on)
+// yields the vote as of the last CLOSED bar of that timeframe: identical on
+// history and in real time. An MA with no value yet abstains rather than voting
+// bearish, which would drag the vote down on any timeframe too young for 200.
+// ============================================================================
+f_ma(src, len, maType) =>
+    switch maType
+        "SMA" => ta.sma(src, len)
+        "SMMA (RMA)" => ta.rma(src, len)
+        "WMA" => ta.wma(src, len)
+        "VWMA" => ta.vwma(src, len)
+        => ta.ema(src, len)
+
+f_maVote(float src, float px) =>
+    m1 = f_ma(src, lenEma1, typeEma1)
+    m2 = f_ma(src, lenEma2, typeEma2)
+    m3 = f_ma(src, lenEma3, typeEma3)
+    m4 = f_ma(src, lenEma4, typeEma4)
+    m5 = f_ma(src, lenEma5, typeEma5)
+
+    int score = 0
+    score += showEma1 and not na(m1) ? (px > m1 ? 1 : -1) : 0
+    score += showEma2 and not na(m2) ? (px > m2 ? 1 : -1) : 0
+    score += showEma3 and not na(m3) ? (px > m3 ? 1 : -1) : 0
+    score += showEma4 and not na(m4) ? (px > m4 ? 1 : -1) : 0
+    score += showEma5 and not na(m5) ? (px > m5 ? 1 : -1) : 0
+    score > 0 ? 1 : score < 0 ? -1 : 0
+
+chartMa2 = f_ma(maSource, lenEma2, typeEma2)
+
+plot(showMas and showEma1 ? f_ma(maSource, lenEma1, typeEma1) : na, "MA 1", color=#EF5350)
+plot(showMas and showEma2 ? chartMa2 : na, "MA 2", color=#FFA726)
+plot(showMas and showEma3 ? f_ma(maSource, lenEma3, typeEma3) : na, "MA 3", color=#26A69A)
+plot(showMas and showEma4 ? f_ma(maSource, lenEma4, typeEma4) : na, "MA 4", color=#42A5F5)
+plot(showMas and showEma5 ? f_ma(maSource, lenEma5, typeEma5) : na, "MA 5", color=#AB47BC)
+
+voteW  = request.security(syminfo.tickerid, "W",   f_maVote(maSource[1], close[1]), lookahead=barmerge.lookahead_on)
+voteD  = request.security(syminfo.tickerid, "D",   f_maVote(maSource[1], close[1]), lookahead=barmerge.lookahead_on)
+vote4H = request.security(syminfo.tickerid, "240", f_maVote(maSource[1], close[1]), lookahead=barmerge.lookahead_on)
+
+// ============================================================================
+// SWING STRUCTURE
+// ----------------------------------------------------------------------------
+// Unchanged logic from the indicator, but parameterised on h/l/c so it can be
+// driven one HTF bar behind. An alternating zigzag supplies the reference highs
+// and lows; closing through the last Lower High flips the bias bullish and it
+// holds until the tracked Higher Low gives way. The break is taken live because
+// a confirmed pivot high is by construction the PRE-impulse high — comparing
+// confirmed pivots reports a lower high in the middle of a breakout.
+//
+// The references it returns are the invalidation prices, which is what the exit
+// and the dashboard use.
+// ============================================================================
+f_swingStructure(simple int leftRight, float h, float l, float c) =>
+    ph = ta.pivothigh(h, leftRight, leftRight)
+    pl = ta.pivotlow(l, leftRight, leftRight)
+
+    var float a    = na
+    var float b    = na
+    var float cc   = na
+    var int   aDir = 0
+
+    int   newDir   = not na(ph) ? 1 : not na(pl) ? -1 : 0
+    float newPrice = not na(ph) ? ph : not na(pl) ? pl : na
+    bool  moved    = false
+
+    if newDir != 0
+        if newDir == aDir
+            if (newDir == 1 and newPrice > a) or (newDir == -1 and newPrice < a)
+                a := newPrice
+                moved := true
+        else if na(a) or (newDir == 1 and newPrice > a) or (newDir == -1 and newPrice < a)
+            cc := b
+            b := a
+            a := newPrice
+            aDir := newDir
+            moved := true
+
+    int newLabel = 0
+    if moved and not na(cc)
+        newLabel := aDir == 1 ? (a > cc ? 1 : -1) : (a > cc ? 2 : -2)
+
+    var int lastLabel = 0
+    if newLabel != 0
+        lastLabel := newLabel
+
+    var float res  = na
+    var float sup  = na
+    var int   bias = 0
+
+    if newLabel == -1 or (bias == 0 and newLabel == 1)
+        res := a
+    if newLabel == 2 or (bias == 0 and newLabel == -2)
+        sup := a
+
+    if not na(res) and c > res
+        bias := 1
+    if not na(sup) and c < sup
+        bias := -1
+
+    if bias == 1 and newLabel == 1
+        res := a
+    if bias == -1 and newLabel == -2
+        sup := a
+
+    [bias, lastLabel, res, sup]
+
+[structBias, swingLabel, structRes, structSup] = request.security(syminfo.tickerid, structureTf, f_swingStructure(swingBars, high[1], low[1], close[1]), lookahead=barmerge.lookahead_on)
+
+// ============================================================================
+// WEEKLY ANCHOR AND UNIT
+// ----------------------------------------------------------------------------
+// The indicator's weekDone construction, kept verbatim so the levels drawn here
+// land exactly on top of the indicator's when both are on the chart. Offset 0 is
+// only ever read on the bar that ENDS the weekly bar, where the weekly close
+// equals this bar's own close — so it looks ahead at nothing. Mid-week it falls
+// back to the previous week.
+// ============================================================================
+[wkTimeClose, wkClose0, wkClose1, wkAtr0, wkAtr1] = request.security(syminfo.tickerid, "W", [time_close, close, close[1], ta.atr(atrLen), ta.atr(atrLen)[1]], lookahead=barmerge.lookahead_on)
+
+weekDone    = not na(wkTimeClose) and time_close >= wkTimeClose
+weeklyClose = weekDone ? wkClose0 : wkClose1
+weeklyAtr   = weekDone ? wkAtr0   : wkAtr1
+
+// 4H ATR equilibrium across the last completed weekly window: the midpoint of
+// the 4H ATR extremes, sampled once per chart bar. Only meaningful at 4H or
+// below, which 1H/2H satisfies comfortably.
+h4Atr   = request.security(syminfo.tickerid, "240", ta.atr(atrLen)[1], lookahead=barmerge.lookahead_on)
+newWeek = timeframe.change("W")
+
+var float curWeekH4Hi  = na
+var float curWeekH4Lo  = na
+var float prevWeekH4Hi = na
+var float prevWeekH4Lo = na
+
+if newWeek
+    prevWeekH4Hi := curWeekH4Hi
+    prevWeekH4Lo := curWeekH4Lo
+    curWeekH4Hi  := h4Atr
+    curWeekH4Lo  := h4Atr
+else
+    curWeekH4Hi := na(curWeekH4Hi) ? h4Atr : math.max(curWeekH4Hi, h4Atr)
+    curWeekH4Lo := na(curWeekH4Lo) ? h4Atr : math.min(curWeekH4Lo, h4Atr)
+
+h4EqReliable = timeframe.in_seconds() <= 14400
+h4EqCur      = (not na(curWeekH4Hi)  and not na(curWeekH4Lo))  ? (curWeekH4Hi  + curWeekH4Lo)  / 2.0 : na
+h4EqPrev     = (not na(prevWeekH4Hi) and not na(prevWeekH4Lo)) ? (prevWeekH4Hi + prevWeekH4Lo) / 2.0 : na
+h4AtrEq      = weekDone ? h4EqCur : h4EqPrev
+h4EqUsable   = h4EqReliable and not na(h4AtrEq)
+useH4Eq      = zoneAtrSource == "4H ATR Equilibrium" and h4EqUsable
+
+rawZoneHeight = useH4Eq ? h4AtrEq : weeklyAtr
+zoneHeight    = (capZone and not na(rawZoneHeight) and not na(weeklyAtr)) ? math.min(rawZoneHeight, zoneCapAtr * weeklyAtr) : rawZoneHeight
+
+dataReady = not na(weeklyClose) and not na(weeklyAtr) and weeklyAtr > 0 and not na(zoneHeight) and zoneHeight > 0
+
+// ============================================================================
+// BIAS AND GATES
+// ============================================================================
+biasBull = structBias ==  1 and (not requireWeeklyMa or voteW ==  1) and (not requireDailyMa or voteD ==  1) and (not require4hMa or vote4H ==  1)
+biasBear = structBias == -1 and (not requireWeeklyMa or voteW == -1) and (not requireDailyMa or voteD == -1) and (not require4hMa or vote4H == -1)
+
+int dir = biasBull ? 1 : biasBear ? -1 : 0
+
+// ============================================================================
+// EXCURSION AND THE WEEKLY CENSUS
+// ----------------------------------------------------------------------------
+// Excursion is measured from the weekly origin in W-ATR units, signed so that
+// positive is with the bias. The running per-week maxima (favourable and
+// adverse) are what the gates read: what matters for a pullback entry is how
+// much of the budget the week has ALREADY spent, not where price sits now.
+//
+// The census is deliberately measured on raw daily structure rather than the
+// fully gated direction, so its numbers describe the instrument rather than the
+// current filter settings.
+// ============================================================================
+var float[] entryFibs = entryNotchSet == "0 only" ? array.from(0.0) : entryNotchSet == "0, -0.5 and -1.0" ? array.from(0.0, -0.5, -1.0) : array.from(0.0, -0.5)
+
+var float[] targetFibs = array.from(t1Fib, t2Fib)
+
+f_notch(float anchor, float unit, float fib, int d) =>
+    anchor + unit * fib * d
+
+f_touchesEntryZone(float anchor, float unit, float h, int d) =>
+    bool hit = false
+    for i = 0 to array.size(entryFibs) - 1
+        mid = f_notch(anchor, unit, array.get(entryFibs, i), d)
+        if high >= mid - h / 2.0 and low <= mid + h / 2.0
+            hit := true
+    hit
+
+var float[] censusThresholds = array.from(0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+var int[]   favHits   = array.new_int(7, 0)
+var int[]   advHits   = array.new_int(7, 0)
+var int     weeksSeen = 0
+var int     weeksTouched       = 0
+var int     weeksTouchedThenT1 = 0
+
+var float wkFav         = na
+var float wkAdv         = na
+var bool  wkTouched     = false
+var bool  wkTouchThenT1 = false
+var int   tradesThisWeek = 0
+
+if newWeek
+    if not na(wkFav)
+        weeksSeen += 1
+        for i = 0 to array.size(censusThresholds) - 1
+            th = array.get(censusThresholds, i)
+            if wkFav >= th
+                array.set(favHits, i, array.get(favHits, i) + 1)
+            if not na(wkAdv) and wkAdv >= th
+                array.set(advHits, i, array.get(advHits, i) + 1)
+        if wkTouched
+            weeksTouched += 1
+            if wkTouchThenT1
+                weeksTouchedThenT1 += 1
+    wkFav          := na
+    wkAdv          := na
+    wkTouched      := false
+    wkTouchThenT1  := false
+    tradesThisWeek := 0
+
+float barFav = na
+float barAdv = na
+if structBias != 0 and dataReady
+    barFav := (structBias == 1 ? high - weeklyClose : weeklyClose - low) / weeklyAtr
+    barAdv := (structBias == 1 ? weeklyClose - low : high - weeklyClose) / weeklyAtr
+    wkFav  := na(wkFav) ? barFav : math.max(wkFav, barFav)
+    wkAdv  := na(wkAdv) ? barAdv : math.max(wkAdv, barAdv)
+
+    if not wkTouched and f_touchesEntryZone(weeklyClose, weeklyAtr, zoneHeight, structBias)
+        wkTouched := true
+    if wkTouched and barFav >= t1Fib
+        wkTouchThenT1 := true
+
+// The gates read the direction we would actually trade. When the gated bias
+// agrees with raw structure the favourable accumulator is wkFav; if the MA vote
+// has us on the other side, the roles swap.
+float spentFav = na
+float spentAdv = na
+if dir != 0 and dataReady
+    spentFav := dir == structBias ? wkFav : wkAdv
+    spentAdv := dir == structBias ? wkAdv : wkFav
+
+premiumAtr = (dir == 0 or not dataReady) ? na : (close - weeklyClose) * dir / weeklyAtr
+
+inSession = not useSession or not na(time(timeframe.period, tradingSession, syminfo.timezone))
+
+gateSpent   = not useSpentGate   or na(spentFav)   or spentFav   <= maxWeekSpent
+gateAdverse = not useAdverseGate or na(spentAdv)   or spentAdv   <= maxWeekAdverse
+gatePremium = not usePremiumGate or na(premiumAtr) or premiumAtr <= maxPremium
+
+sideAllowed = dir == 1 ? tradeLongs : dir == -1 ? tradeShorts : false
+
+// weekDone is excluded: on that bar the anchor has just rolled to the week that
+// closed, and arming a setup on a brand-new anchor at the week's last bar is not
+// a trade anyone would take.
+canArm = dataReady and dir != 0 and sideAllowed and inSession and gateSpent and gateAdverse and gatePremium and not weekDone and tradesThisWeek < maxTradesPerWeek and strategy.position_size == 0
+
+// ============================================================================
+// SETUP STATE MACHINE — sweep and reclaim
+// ----------------------------------------------------------------------------
+// Arm on a bar that trades into an entry zone, then wait for a close back
+// through the reclaim level with a with-trend body. Not a blind limit into the
+// zone: the reclaim is what separates a level that held from a level being cut
+// through, and it is also what defines the reaction extreme the stop hides
+// behind. The setup dies on expiry, on a close through the adverse side of the
+// zone, or on the gate being lost.
+//
+// armZoneAdv is the side that invalidates (below a long zone), armZoneFar is the
+// side price re-enters from (above a long zone) — both expressed in price, so
+// the short case is the mirror and needs no special-casing downstream.
+// ============================================================================
+var int   armDir     = 0
+var float armFib     = na
+var float armZoneAdv = na
+var float armZoneFar = na
+var float armZoneMid = na
+var float armExtreme = na
+var int   armBar     = na
+
+if armDir == 0 and canArm
+    // Deepest touched zone wins: it is the one that defines the better fill and
+    // the tighter structural stop when a single bar cuts through more than one.
+    float bestFib = na
+    for i = 0 to array.size(entryFibs) - 1
+        fib = array.get(entryFibs, i)
+        zMid = f_notch(weeklyClose, weeklyAtr, fib, dir)
+        if high >= zMid - zoneHeight / 2.0 and low <= zMid + zoneHeight / 2.0
+            if na(bestFib) or fib < bestFib
+                bestFib := fib
+
+    if not na(bestFib)
+        armMid     = f_notch(weeklyClose, weeklyAtr, bestFib, dir)
+        armDir     := dir
+        armFib     := bestFib
+        armZoneMid := armMid
+        armZoneAdv := dir == 1 ? armMid - zoneHeight / 2.0 : armMid + zoneHeight / 2.0
+        armZoneFar := dir == 1 ? armMid + zoneHeight / 2.0 : armMid - zoneHeight / 2.0
+        armExtreme := dir == 1 ? low : high
+        armBar     := bar_index
+
+if armDir != 0
+    armExtreme := armDir == 1 ? math.min(armExtreme, low) : math.max(armExtreme, high)
+
+failLine   = armDir == 0 ? na : armZoneAdv - failBufAtr * zoneHeight * armDir
+armExpired = armDir != 0 and (bar_index - armBar > reclaimBars or dir != armDir or not dataReady)
+armBroke   = armDir != 0 and (armDir == 1 ? close < failLine : close > failLine)
+
+reclaimPx = armDir == 0 ? na : (reclaimLevel == "Zone Far Side" ? armZoneFar : armZoneMid)
+sameBarOk = allowSameBar or bar_index > armBar
+bodyOk    = armDir == 1 ? close > open : close < open
+maOk      = not requireChartMa or na(chartMa2) or (armDir == 1 ? close > chartMa2 : close < chartMa2)
+levelOk   = armDir == 1 ? close > reclaimPx : close < reclaimPx
+
+triggered = armDir != 0 and not armExpired and not armBroke and sameBarOk and levelOk and bodyOk and maOk and inSession
+
+// location.absolute rather than below/abovebar: the marker then sits on the exact
+// extreme that reached into the zone, which is what you are judging when you look
+// at expired setups. It is also the only option available — plotchar's location
+// must be an input string, and picking a side from armDir would make it a series.
+plotchar(showArmMark and armDir != 0 and armBar == bar_index ? (armDir == 1 ? low : high) : na, "Armed", "•", location.absolute, color.new(color.gray, 25), size=size.tiny)
+
+// ============================================================================
+// TRADE MATH
+// ----------------------------------------------------------------------------
+// Computed flat at global scope rather than nested inside the entry branch: a
+// tuple-returning call buried in a conditional is the kind of thing Pine either
+// rejects or compiles into something subtly different, and none of this has side
+// effects, so evaluating it every bar costs nothing.
+// ============================================================================
+f_targets(float entryPx, float risk, int d, float anchor, float unit) =>
+    notch1 = f_notch(anchor, unit, t1Fib, d)
+    notch2 = f_notch(anchor, unit, t2Fib, d)
+    rT1    = entryPx + r1Mult * risk * d
+    rT2    = entryPx + r2Mult * risk * d
+
+    float t1 = targetMode == "Notch Ladder" ? notch1 : rT1
+    float t2 = targetMode == "R Multiple" ? rT2 : notch2
+
+    // T2 must never sit nearer than T1, whatever the mode produced.
+    [t1, d == 1 ? math.max(t1, t2) : math.min(t1, t2)]
+
+candDir   = armDir == 0 ? 1 : armDir
+candEntry = close
+candStop  = armDir == 0 ? na : (armDir == 1 ? math.min(armExtreme, armZoneAdv) - stopBufAtr * zoneHeight : math.max(armExtreme, armZoneAdv) + stopBufAtr * zoneHeight)
+candRisk  = armDir == 0 ? na : math.abs(candEntry - candStop)
+
+[candTp1, candTp2] = f_targets(candEntry, candRisk, candDir, weeklyClose, weeklyAtr)
+
+riskOk   = armDir != 0 and not na(candRisk) and candRisk > 0 and not na(weeklyAtr) and candRisk >= minRiskAtr * weeklyAtr and candRisk <= maxRiskAtr * weeklyAtr
+targetOk = riskOk and not na(candTp1) and (candTp1 - candEntry) * candDir >= minTargetR * candRisk
+
+unitVal = (na(syminfo.pointvalue) or syminfo.pointvalue <= 0) ? 1.0 : syminfo.pointvalue
+candQty = sizingMode == "Fixed Quantity" or not riskOk ? fixedQty : strategy.equity * riskPerTradePct / 100.0 / (candRisk * unitVal)
+qtyOk   = not na(candQty) and candQty > 0
+
+takeTrade = triggered and strategy.position_size == 0 and riskOk and targetOk and qtyOk
+
+// ============================================================================
+// ENTRY
+// ============================================================================
+var float posEntry   = na
+var float posStop    = na
+var float posTp1     = na
+var float posTp2     = na
+var float posRisk    = na
+var float posFib     = na
+var int   posBar     = na
+var bool  posTp1Done = false
+var float posExtreme = na
+
+var int skippedRisk   = 0
+var int skippedTarget = 0
+
+if triggered and strategy.position_size == 0
+    if not riskOk
+        skippedRisk += 1
+    else if not targetOk or not qtyOk
+        skippedTarget += 1
+
+if takeTrade
+    posEntry   := candEntry
+    posStop    := candStop
+    posTp1     := candTp1
+    posTp2     := candTp2
+    posRisk    := candRisk
+    posFib     := armFib
+    posBar     := bar_index
+    posTp1Done := false
+    posExtreme := armDir == 1 ? high : low
+    tradesThisWeek += 1
+
+    if armDir == 1
+        strategy.entry("Long", strategy.long, qty=candQty, comment="L " + str.tostring(armFib, "#.##"))
+    else
+        strategy.entry("Short", strategy.short, qty=candQty, comment="S " + str.tostring(armFib, "#.##"))
+
+    alert("TradePilot " + (armDir == 1 ? "LONG" : "SHORT") + " " + syminfo.ticker + " @ " + str.tostring(math.round_to_mintick(candEntry)) + "  stop " + str.tostring(math.round_to_mintick(candStop)) + "  T1 " + str.tostring(math.round_to_mintick(candTp1)), alert.freq_once_per_bar_close)
+
+// A single disarm point: entered, expired, cut through, or triggered and
+// rejected. A rejection is a disarm rather than a retry — the usual cause is a
+// spiked zone height, and that does not improve inside the reclaim window.
+if armDir != 0 and (takeTrade or armExpired or armBroke or triggered)
+    armDir := 0
+
+// ============================================================================
+// POSITION MANAGEMENT
+// ----------------------------------------------------------------------------
+// Exits are re-issued every bar with the current stop, which is how a moving
+// stop is expressed in Pine. Two exits share the entry: the first takes the
+// scale-out at T1, the second carries the remainder to T2. Both sit on the same
+// stop, so breakeven and trail apply to whatever is still open.
+// ============================================================================
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+inPos   = inLong or inShort
+
+if inPos
+    posExtreme := inLong ? math.max(posExtreme, high) : math.min(posExtreme, low)
+
+    if not posTp1Done
+        posTp1Done := inLong ? high >= posTp1 : low <= posTp1
+
+    if posTp1Done
+        if moveToBe
+            bePx = posEntry + beOffsetR * posRisk * (inLong ? 1 : -1)
+            posStop := inLong ? math.max(posStop, bePx) : math.min(posStop, bePx)
+        if useTrail and not na(zoneHeight)
+            trailPx = posExtreme - trailMult * zoneHeight * (inLong ? 1 : -1)
+            posStop := inLong ? math.max(posStop, trailPx) : math.min(posStop, trailPx)
+
+    if tp1Pct >= 100
+        strategy.exit("X", from_entry=inLong ? "Long" : "Short", limit=posTp1, stop=posStop, comment_profit="T1", comment_loss="SL")
+    else
+        strategy.exit("X1", from_entry=inLong ? "Long" : "Short", qty_percent=tp1Pct, limit=posTp1, stop=posStop, comment_profit="T1", comment_loss="SL")
+        strategy.exit("X2", from_entry=inLong ? "Long" : "Short", limit=posTp2, stop=posStop, comment_profit="T2", comment_loss="SL")
+
+    if exitOnBiasFlip and ((inLong and structBias == -1) or (inShort and structBias == 1))
+        strategy.close_all(comment="Bias flip")
+
+    if maxBarsInTrade > 0 and bar_index - posBar >= maxBarsInTrade
+        strategy.close_all(comment="Time")
+
+    if flatBeforeWeekend and dayofweek(time, syminfo.timezone) == dayofweek.friday and hour(time, syminfo.timezone) >= friExitHour
+        strategy.close_all(comment="Weekend")
+
+// Per-notch hit rates, tracked at POSITION level rather than per closed trade:
+// a scale-out produces two closed trades from one decision, and the question is
+// "did this setup work", not "did this fill work".
+var int[] notchTaken = array.new_int(3, 0)
+var int[] notchT1    = array.new_int(3, 0)
+var int[] notchT2    = array.new_int(3, 0)
+
+f_notchSlot(float fib) =>
+    fib == 0.0 ? 0 : fib == -0.5 ? 1 : 2
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0 and not na(posFib)
+    slot = f_notchSlot(posFib)
+    array.set(notchTaken, slot, array.get(notchTaken, slot) + 1)
+    if posTp1Done[1]
+        array.set(notchT1, slot, array.get(notchT1, slot) + 1)
+    if strategy.position_size[1] > 0 ? posExtreme[1] >= posTp2[1] : posExtreme[1] <= posTp2[1]
+        array.set(notchT2, slot, array.get(notchT2, slot) + 1)
+
+// ============================================================================
+// LIVE STOP / TARGET PLOTS
+// ============================================================================
+plot(inPos ? posStop : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=1)
+plot(inPos ? posTp1 : na, "T1", color=color.new(color.teal, 0), style=plot.style_linebr, linewidth=1)
+plot(inPos ? posTp2 : na, "T2", color=color.new(color.green, 20), style=plot.style_linebr, linewidth=1)
+
+// ============================================================================
+// LEVEL DRAWING — last bar only, so object count stays flat
+// ============================================================================
+var box[]   drawBoxes  = array.new_box()
+var line[]  drawLines  = array.new_line()
+var label[] drawLabels = array.new_label()
+
+if barstate.islast and showLevels
+    while array.size(drawBoxes) > 0
+        box.delete(array.pop(drawBoxes))
+    while array.size(drawLines) > 0
+        line.delete(array.pop(drawLines))
+    while array.size(drawLabels) > 0
+        label.delete(array.pop(drawLabels))
+
+    if dataReady and dir != 0
+        leftX  = bar_index - 1
+        rightX = bar_index + extendRight
+
+        for i = 0 to array.size(entryFibs) - 1
+            fib = array.get(entryFibs, i)
+            mid = f_notch(weeklyClose, weeklyAtr, fib, dir)
+            array.push(drawBoxes, box.new(leftX, mid + zoneHeight / 2.0, rightX, mid - zoneHeight / 2.0, xloc=xloc.bar_index, bgcolor=entryZoneCol, border_color=color.new(color.teal, 55)))
+            array.push(drawLabels, label.new(rightX, mid, "entry " + str.tostring(fib, "#.##"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.new(color.teal, 0), color=color.new(color.black, 100), size=size.tiny))
+
+        for i = 0 to array.size(targetFibs) - 1
+            tfib = array.get(targetFibs, i)
+            px = f_notch(weeklyClose, weeklyAtr, tfib, dir)
+            array.push(drawLines, line.new(leftX, px, rightX, px, xloc=xloc.bar_index, color=targetCol, style=line.style_dashed))
+            array.push(drawLabels, label.new(rightX, px, "notch +" + str.tostring(tfib, "#.##"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=targetCol, color=color.new(color.black, 100), size=size.tiny))
+
+        invalidPx = dir == 1 ? structSup : structRes
+        if not na(invalidPx)
+            array.push(drawLines, line.new(leftX, invalidPx, rightX, invalidPx, xloc=xloc.bar_index, color=invalidCol, style=line.style_dotted))
+            array.push(drawLabels, label.new(rightX, invalidPx, "invalidation", xloc=xloc.bar_index, style=label.style_label_left, textcolor=invalidCol, color=color.new(color.black, 100), size=size.tiny))
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+f_pct(int hit, int total) =>
+    total <= 0 ? "-" : str.tostring(math.round(hit * 100.0 / total)) + "%"
+
+f_atrTxt(float v) =>
+    na(v) ? "-" : str.tostring(v, "#.##")
+
+f_swingTxt(int lbl) =>
+    lbl == 1 ? "HH" : lbl == 2 ? "HL" : lbl == -1 ? "LH" : lbl == -2 ? "LL" : "-"
+
+var table dash = na
+if showDash and barstate.islast
+    if na(dash)
+        dash := table.new(position.top_right, 2, 11, frame_color=color.new(color.gray, 65), frame_width=1, border_color=color.new(color.gray, 80), border_width=1, bgcolor=color.new(color.black, 12))
+
+    tfOk     = timeframe.in_seconds() >= 3600 and timeframe.in_seconds() <= 7200
+    biasTxt  = (dir == 1 ? "BULLISH" : dir == -1 ? "BEARISH" : structBias != 0 ? "blocked by MA vote" : "no structure") + "  " + f_swingTxt(swingLabel)
+    setupTxt = armDir != 0 ? "armed " + str.tostring(armFib, "#.##") + "  (" + str.tostring(reclaimBars - (bar_index - armBar)) + " bars left)" : inPos ? "in position" : "waiting"
+    gateTxt  = not gateSpent ? "week spent" : not gateAdverse ? "week run against" : not gatePremium ? "premium" : not inSession ? "out of session" : tradesThisWeek >= maxTradesPerWeek ? "trade cap" : dir == 0 ? "no bias" : "clear"
+
+    table.cell(dash, 0, 0, "TP ATR Excursion", text_color=color.white, bgcolor=color.new(color.black, 5), text_size=size.small)
+    table.cell(dash, 1, 0, syminfo.ticker + "  " + timeframe.period, text_color=tfOk ? color.white : color.orange, bgcolor=color.new(color.black, 5), text_size=size.small)
+    table.cell(dash, 0, 1, "Bias", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 1, biasTxt, text_color=dir == 1 ? color.lime : dir == -1 ? color.red : color.yellow, text_size=size.small)
+    table.cell(dash, 0, 2, "Setup", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 2, setupTxt, text_color=armDir != 0 ? color.aqua : color.gray, text_size=size.small)
+    table.cell(dash, 0, 3, "Gates", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 3, gateTxt, text_color=gateTxt == "clear" ? color.lime : color.orange, text_size=size.small)
+    table.cell(dash, 0, 4, "Week Spent", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 4, f_atrTxt(spentFav) + " / " + str.tostring(maxWeekSpent, "#.##") + " W-ATR", text_color=gateSpent ? color.white : color.orange, text_size=size.small)
+    table.cell(dash, 0, 5, "Week Adverse", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 5, f_atrTxt(spentAdv) + " / " + str.tostring(maxWeekAdverse, "#.##") + " W-ATR", text_color=gateAdverse ? color.white : color.orange, text_size=size.small)
+    table.cell(dash, 0, 6, "Current Premium", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 6, f_atrTxt(premiumAtr) + " W-ATR", text_color=gatePremium ? color.white : color.orange, text_size=size.small)
+    table.cell(dash, 0, 7, "Anchor", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 7, na(weeklyClose) ? "-" : str.tostring(math.round_to_mintick(weeklyClose)), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 8, "Weekly ATR", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 8, na(weeklyAtr) ? "-" : str.tostring(math.round_to_mintick(weeklyAtr)), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 9, "Zone Height", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 9, (na(zoneHeight) ? "-" : str.tostring(math.round_to_mintick(zoneHeight))) + (capZone and not na(rawZoneHeight) and rawZoneHeight > zoneHeight ? "  (capped)" : ""), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 10, "Skipped risk / target", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 10, str.tostring(skippedRisk) + " / " + str.tostring(skippedTarget), text_color=color.gray, text_size=size.small)
+
+// ============================================================================
+// EXCURSION CENSUS
+// ----------------------------------------------------------------------------
+// Read this table before touching any other input.
+//
+// "reached" is the share of weeks whose FAVOURABLE excursion from the weekly
+// origin got at least that far, measured on raw daily structure direction. That
+// is the unconditional distribution, and it tells you whether the target
+// notches you picked are reachable at all on this symbol.
+//
+// "against" is the same for adverse excursion, and it tells you whether the
+// entry notches are discounts or knives.
+//
+// The bottom block is the conditional the strategy actually bets on. If
+// "dipped then hit T1" is not comfortably above the unconditional "reached T1"
+// row, the pullback location is adding no information here and the setup is a
+// coin flip dressed up in structure.
+// ============================================================================
+var table census = na
+if showCensus and barstate.islast
+    if na(census)
+        census := table.new(position.bottom_right, 3, 12, frame_color=color.new(color.gray, 65), frame_width=1, border_color=color.new(color.gray, 80), border_width=1, bgcolor=color.new(color.black, 12))
+
+    table.cell(census, 0, 0, "Weekly Excursion", text_color=color.white, bgcolor=color.new(color.black, 5), text_size=size.small)
+    table.cell(census, 1, 0, "reached", text_color=color.silver, bgcolor=color.new(color.black, 5), text_size=size.small)
+    table.cell(census, 2, 0, "against", text_color=color.silver, bgcolor=color.new(color.black, 5), text_size=size.small)
+
+    for i = 0 to array.size(censusThresholds) - 1
+        th = array.get(censusThresholds, i)
+        table.cell(census, 0, i + 1, str.tostring(th, "#.##") + " W-ATR", text_color=color.silver, text_size=size.small)
+        table.cell(census, 1, i + 1, f_pct(array.get(favHits, i), weeksSeen), text_color=color.lime, text_size=size.small)
+        table.cell(census, 2, i + 1, f_pct(array.get(advHits, i), weeksSeen), text_color=color.red, text_size=size.small)
+
+    table.cell(census, 0, 8, "weeks measured", text_color=color.silver, text_size=size.small)
+    table.cell(census, 1, 8, str.tostring(weeksSeen), text_color=color.white, text_size=size.small)
+    table.cell(census, 2, 8, "", text_size=size.small)
+
+    table.cell(census, 0, 9, "weeks dipped to entry", text_color=color.silver, text_size=size.small)
+    table.cell(census, 1, 9, str.tostring(weeksTouched), text_color=color.white, text_size=size.small)
+    table.cell(census, 2, 9, f_pct(weeksTouched, weeksSeen), text_color=color.gray, text_size=size.small)
+
+    table.cell(census, 0, 10, "dipped then hit T1", text_color=color.silver, text_size=size.small)
+    table.cell(census, 1, 10, str.tostring(weeksTouchedThenT1), text_color=color.white, text_size=size.small)
+    table.cell(census, 2, 10, f_pct(weeksTouchedThenT1, weeksTouched), text_color=color.aqua, text_size=size.small)
+
+    // Outcome of the setups the strategy actually took, by entry notch.
+    string takenTxt = ""
+    for i = 0 to 2
+        lbl = i == 0 ? "0" : i == 1 ? "-0.5" : "-1.0"
+        tk  = array.get(notchTaken, i)
+        if tk > 0
+            takenTxt := takenTxt + (takenTxt == "" ? "" : "   ") + lbl + ": " + str.tostring(tk) + " / T1 " + f_pct(array.get(notchT1, i), tk) + " / T2 " + f_pct(array.get(notchT2, i), tk)
+    table.cell(census, 0, 11, "by entry notch", text_color=color.silver, text_size=size.small)
+    table.cell(census, 1, 11, takenTxt == "" ? "no trades yet" : takenTxt, text_color=color.white, text_size=size.small)
+    table.cell(census, 2, 11, "", text_size=size.small)
+// ============================================================================

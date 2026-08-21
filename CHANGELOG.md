@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-08-21
+
+### Added
+
+- **New "ATR Excursion" strategy** (`apps/TradingView/TradePilot_ATR_Excursion_Strategy.pine`) — a backtestable 1H/2H day-trading strategy built on the ATR Projection Levels primitives, but with the weekly grid split by job rather than used as the trade frame: weekly ATR becomes the entry *gate*, the 4H ATR zone becomes the location and the risk unit, and targets default to R multiples so a 1H position is not asked to hold for a multi-day `+2 W-ATR` excursion. `Target Mode` switches to the notch ladder to test whether those notches are reachable inside a day-trading holding period at all. Entry is sweep-and-reclaim on a discount notch (0 / -0.5 / -1.0 W-ATR against the bias) rather than a resting limit: a bar must trade into the zone, then close back through the reclaim level with a with-trend body inside a bounded window, which is also what defines the reaction extreme the stop hides behind. Risk is rejected outright when it falls outside sane W-ATR bounds, position size is fixed-fractional off that stop, and exits cover T1 scale-out, breakeven, an optional zone-height trail, bias-flip invalidation, a max-bars cap, and flat-before-weekend.
+
+- **Weekly excursion gates** — the filter the indicator cannot express. `Max Week Spent` blocks entries once the week has already travelled a set distance in the trade direction, read from the running weekly *maximum* rather than the current print: a week that ran +1.5 W-ATR on Monday and drifted back to its origin by Wednesday still passes a discount-zone test, but the range budget that would pay the trade is gone. `Max Week Adverse` blocks the mirror case, where a full average weekly range has already gone against structure and the "discount" is structure breaking. `Max Current Premium` stops the top of notch 0's zone being bought in a stretched tape.
+
+- **Excursion census table** — measures, per symbol, what share of weeks actually reach 0.25 through 2.0 W-ATR in the structure direction and against it, plus the conditional the strategy bets on: of weeks that dipped into an entry notch, how many then reached the T1 notch. Measured on raw daily structure so filter settings do not contaminate it. If the conditional is not comfortably above the unconditional, the pullback location adds no information on that instrument. Per-notch T1/T2 hit rates are tracked at position level rather than per closed trade, since a scale-out produces two closed trades from one decision.
+
+- **Zone height cap** — the 4H ATR equilibrium is the midpoint of the *extremes* of 4H ATR across a week, not an average, so a single volatility spike widens it for the whole following week. Acceptable as an order-placement tolerance, noisy as a risk unit; the cap bounds it in weekly ATR terms.
+
+### Changed
+
+- **Structure and MA votes are now read non-repainting** in the strategy. The indicator reads daily structure with `lookahead_off`, which develops intraday in real time but only appears at the daily close on history — an asymmetry that silently flatters a backtest. The structure engine is now parameterised on `h`/`l`/`c` and fed `high[1]`/`low[1]`/`close[1]` inside the HTF context under `lookahead_on`, so the value is the last fully closed structure bar, identical live and historical. Every MA vote gets the same treatment via a source-and-comparison-price signature. The weekly anchor keeps the indicator's `weekDone` construction so levels land exactly on the indicator's, and entries are blocked on the `weekDone` bar itself so a freshly rolled anchor cannot arm a setup on the week's last bar.
+
 ## [2.2.0] - 2026-08-21
 
 ### Added
