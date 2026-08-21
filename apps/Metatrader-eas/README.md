@@ -4,6 +4,79 @@ Expert Advisors for MT5 and MT4 that connect to TradePilot. On a master account 
 
 ---
 
+## MT5 — `MT5/TradePilot_ATR_Excursion_EA.mq5`
+
+This is the live-trading port of
+`apps/TradingView/TradePilot_ATR_Excursion_Strategy.pine`. It is a standalone
+strategy EA; it does not need the TradePilot server or an API key.
+
+### What it executes
+
+- Reads swing structure only from fully closed daily bars and optionally requires
+  weekly, daily, and H4 moving-average agreement.
+- Uses the last completed weekly close and weekly ATR as the excursion grid.
+- Tracks how much of the current week's favorable and adverse ATR budget has
+  already been spent.
+- Arms the deepest enabled pullback zone touched, then requires a bullish/bearish
+  candle-body reclaim within the configured number of bars.
+- Opens a real market order with a broker-side stop and T2.
+- Sizes in fixed lots or by percentage of equity using MT5's account-currency
+  loss calculation for one lot at the proposed stop.
+- Monitors T1 live, partially closes the configured percentage, moves the runner
+  to breakeven, trails it, and enforces bias-flip, bar-count, and Friday exits.
+- Persists setup, weekly-gate, and open-position management state in MT5 terminal
+  global variables so a terminal or EA restart does not abandon an open trade.
+
+### Install and run
+
+1. Copy `MT5/TradePilot_ATR_Excursion_EA.mq5` into the terminal's
+   `MQL5/Experts/` folder.
+2. Open it in MetaEditor and press **F7**. The source in this repository compiles
+   with 0 errors and 0 warnings.
+3. Attach it to the symbol's **H1 or H2** chart and enable **Algo Trading**.
+4. Confirm `EnableTrading=true`. Each chart instance trades only its own symbol
+   and `MagicNumber`.
+5. Set the session and Friday hours in **broker server time**. TradingView uses
+   the symbol exchange timezone, so convert `07:00–19:00` if the broker clock is
+   different.
+
+`RespectAnySymbolPosition=true` is the safe default: the EA will not enter if
+another EA or a manual position already exists on that symbol. Keep Magic Numbers
+unique across EA instances.
+
+### Account protection defaults
+
+| Setting | Default | Scope / behavior |
+|---|---:|---|
+| `MinimumLotSize` / `MaximumLotSize` | `0.01` / `1.00` | Risk-sized entries below the effective minimum are skipped, never rounded up; entries above the maximum are capped. Broker limits still apply. |
+| `MaxStrategyOpenTrades` | `3` | Maximum open positions across all symbols carrying this EA's `MagicNumber`. |
+| `MaxAccountOpenTrades` | `0` | Optional cap including manual and other-EA positions; `0` disables it. |
+| `MaxTradesPerDay` | `2` | Entry cap across this `MagicNumber`, reset at broker midnight. |
+| `MaxLosingTradesPerDay` | `2` | Counts net losing fully closed positions, not individual T1/runner scale-outs. |
+| `MinimumAccountEquity` | `0` | Optional hard equity floor in account currency; `0` disables it. |
+| `MaxFloatingDrawdownPct` | `10%` | Stops the strategy when account equity falls this far below balance. |
+| `MaxDailyLossPct` / `MaxDailyLossMoney` | `3%` / `0` | Account-level realized plus floating loss for the broker day; either enabled threshold can trigger. |
+| `CloseStrategyOnEquityStop` | `true` | Closes every open position with this `MagicNumber`; it does not close unrelated manual trades. New entries remain locked until the next broker day. |
+
+The existing `MaxTradesPerWeek=3` remains a per-symbol weekly setup cap. Equity
+and daily-loss rules use broker server time. Use a unique Magic Number if this
+strategy should have a protection boundary separate from another EA.
+
+### Backtest correctly
+
+Use MT5 Strategy Tester with **Every tick based on real ticks**, an H1/H2 test
+period, and enough history for the 200-period weekly MA. Include realistic spread,
+commission, swap, and execution delay. The EA acts on a completed signal candle
+at the first tradable tick of the next candle; TradingView's
+`process_orders_on_close=true` models a fill at the signal candle's close, so a
+small fill and result difference is expected.
+
+If the requested T1 scale-out is smaller than the broker's minimum lot or would
+leave an invalid remainder, the EA closes the full position at T1 rather than
+leaving an unmanaged fractional runner.
+
+---
+
 
 ### How it works
 
