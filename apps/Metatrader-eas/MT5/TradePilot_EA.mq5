@@ -1366,7 +1366,7 @@ void Connect() {
 int OnInit() {
    EventSetMillisecondTimer(100);
    MathSrand((int)TimeLocal());
-   Log("EA v3.16 initialised, connecting");
+   Log("EA v3.20 initialised, connecting");
    Connect();
    return INIT_SUCCEEDED;
 }
