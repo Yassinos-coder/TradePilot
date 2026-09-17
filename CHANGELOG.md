@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-09-17
+
+### Fixed
+
+- Current balance, equity, floating P/L, and account growth now read current account state instead of an old snapshot or cached analytics result. Account lists and copier risk checks use the same current-state table.
+- Analytics paginate account history and closed trades past Supabase's row cap, fixing totals and balances that stopped updating after the first page.
+
+### Changed
+
+- Account telemetry updates one current-state row per account and stores five-minute history buckets instead of inserting a snapshot every ten seconds. Buckets preserve opening/closing values, equity minima/maxima, maximum reported drawdown, and sample counts.
+- Background retention compacts five-minute history older than 30 days into hourly summaries and hourly history older than 365 days into daily summaries. Legacy snapshots are compacted transactionally in bounded batches; daily summaries and trade records are retained.
+- Account reports no longer create a duplicate execution-log entry on every update. Existing execution logs remain intact.
+- Root, frontend, backend, shared packages, and internal dependency pins are aligned at 2.4.0.
+
+### Deployment
+
+- Apply `supabase/account-status-upgrade.sql` or the updated full schema before deploying the backend. The upgrade backfills current account state; the backend subsequently compacts history. No EA changes are required.
+- Added regression checks for live balances over cached analytics, pagination, legacy backfill, bucket extrema, retention tiers, and database permissions.
+
 ## [2.3.0] - 2026-08-21
 
 ### Added

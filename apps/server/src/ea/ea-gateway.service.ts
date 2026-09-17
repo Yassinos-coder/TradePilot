@@ -766,12 +766,10 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     accountName: string | null,
     payload: EaAccountStatusPayload,
   ) {
-    const { data, error } = await this.databaseService
-      .getClient()
-      .from('ea_account_status_snapshots')
-      .insert({
-        user_id: userId,
-        account_id: accountId,
+    const { error } = await this.databaseService.getClient().rpc('record_account_status', {
+      p_user_id: userId,
+      p_account_id: accountId,
+      p_status: {
         account_name: accountName,
         balance: payload.balance,
         equity: payload.equity,
@@ -779,30 +777,9 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         free_margin: payload.freeMargin,
         drawdown_percent: payload.drawdownPercent,
         open_positions: payload.openPositions,
-      })
-      .select('*')
-      .single();
-
-    if (error || !data) {
-      throw new Error(error?.message ?? 'Failed to store EA account status');
-    }
-
-    await this.insertExecutionEvent(
-      userId,
-      null,
-      'ACCOUNT_STATUS_RECEIVED',
-      'Received EA account status update',
-      {
-        accountId,
-        accountName,
-        balance: payload.balance,
-        equity: payload.equity,
-        drawdownPercent: payload.drawdownPercent,
-        openPositions: payload.openPositions,
       },
-      accountId,
-      accountName,
-    );
+    });
+    if (error) throw new Error(error.message);
   }
 
   private async storeTradeEvent(
@@ -1294,7 +1271,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private async getLatestStatusesByAccount(userId: string) {
     const { data, error } = await this.databaseService
       .getClient()
-      .from('ea_account_status_snapshots')
+      .from('ea_account_current_status')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })

@@ -34,7 +34,7 @@ export class CopierGuardService {
 
     const [statusResult, openTradesResult, closedTodayResult] = await Promise.all([
       client
-        .from('ea_account_status_snapshots')
+        .from('ea_account_current_status')
         .select('*')
         .eq('user_id', userId)
         .eq('account_id', slaveExternalAccountId)

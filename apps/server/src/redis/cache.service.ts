@@ -46,6 +46,7 @@ export class CacheService {
     try {
       const patterns = [
         `tradepilot:cache:analytics:${userId}:*`,
+        `tradepilot:cache:analytics:v2:${userId}:*`,
         `tradepilot:cache:daily:${userId}:*`,
         `tradepilot:cache:coach:${userId}:*`,
         `tradepilot:cache:trades:${userId}`,

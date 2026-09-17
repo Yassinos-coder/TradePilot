@@ -36,11 +36,11 @@ export class AccountsService {
         .order('created_at', { ascending: false }),
       this.databaseService
         .getClient()
-        .from('ea_account_status_snapshots')
+        .from('ea_account_current_status')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(250),
+        .limit(1000),
       this.gateway.getConnectionState(userId),
       this.listHiddenAccountIds(userId),
     ]);
@@ -211,6 +211,7 @@ export class AccountsService {
       'trade_executions',
       'execution_logs',
       'ea_account_status_snapshots',
+      'ea_account_current_status',
       'user_symbols',
       'trade_history_files',
     ];
@@ -263,6 +264,7 @@ export class AccountsService {
         client.from('trade_executions').delete().eq('user_id', userId).eq('account_id', targetAccountId),
         client.from('execution_logs').delete().eq('user_id', userId).eq('account_id', targetAccountId),
         client.from('ea_account_status_snapshots').delete().eq('user_id', userId).eq('account_id', targetAccountId),
+        client.from('ea_account_current_status').delete().eq('user_id', userId).eq('account_id', targetAccountId),
         client.from('user_symbols').delete().eq('user_id', userId).eq('account_id', targetAccountId),
       ]);
 
@@ -295,7 +297,7 @@ export class AccountsService {
   ): Promise<AccountStatusDTO | null> {
     let query = this.databaseService
       .getClient()
-      .from('ea_account_status_snapshots')
+      .from('ea_account_current_status')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })

@@ -20,6 +20,7 @@ import {
   tradeExecutionDtoSchema,
 } from '@tradepilot/shared';
 
+import { readAllPages } from '../../database/read-all-pages';
 import { DatabaseService } from '../../database/database.service';
 import {
   AccountStatusSnapshotRecord,
@@ -295,7 +296,7 @@ export class AnalyticsService {
   ): Promise<AccountStatusDTO | null> {
     let query = this.databaseService
       .getClient()
-      .from('ea_account_status_snapshots')
+      .from('ea_account_current_status')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
@@ -352,11 +353,33 @@ export class AnalyticsService {
     startDate?: string,
     endDate?: string,
   ): Promise<AnalyticsSummaryDTO> {
-    return this.cacheService.remember(
-      `tradepilot:cache:analytics:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
+    const analytics = await this.cacheService.remember(
+      `tradepilot:cache:analytics:v2:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
       AnalyticsService.AGGREGATE_CACHE_TTL_MS,
       () => this.computeAnalytics(userId, accountId, startDate, endDate),
     );
+    // Live balances must not wait for the expensive trade-analysis cache to expire.
+    const hidden = accountId ? [] : await this.listHiddenAccountIds(userId);
+    const current = await readAllPages<AccountStatusSnapshotRecord & { starting_balance: number }>((from, to) => {
+      let query = this.databaseService.getClient().from('ea_account_current_status').select('*')
+        .eq('user_id', userId).order('account_id');
+      if (accountId) query = query.eq('account_id', accountId);
+      return query.range(from, to);
+    });
+    const visible = current.filter((point) => !hidden.includes(point.account_id));
+    const balance = visible.length ? visible.reduce((sum, point) => sum + point.balance, 0) : null;
+    const equity = visible.length ? visible.reduce((sum, point) => sum + point.equity, 0) : null;
+    const starting = analytics.startingBalance;
+    const round = (value: number) => Number(value.toFixed(2));
+    return {
+      ...analytics,
+      currentBalance: balance === null ? null : round(balance),
+      endingBalance: balance === null ? null : round(balance),
+      currentEquity: equity === null ? null : round(equity),
+      floatingPl: balance === null || equity === null ? null : round(equity - balance),
+      accountGrowthPercent: balance === null || starting === null || starting <= 0
+        ? null : round((balance - starting) / starting * 100),
+    };
   }
 
   private async computeAnalytics(
@@ -369,32 +392,15 @@ export class AnalyticsService {
       await this.syncLiveExecutionData(userId, accountId);
     }
 
-    let query = this.databaseService
-      .getClient()
-      .from('trade_executions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'CLOSED')
-      .order('closed_at', { ascending: false })
-      .limit(5000);
-
-    if (accountId) {
-      query = query.eq('account_id', accountId);
-    }
-
-    if (startDate) {
-      query = query.gte('closed_at', startDate);
-    }
-
-    if (endDate) {
-      query = query.lte('closed_at', endDate);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw new InternalServerErrorException(error.message);
-    }
+    const data = await readAllPages<TradeExecutionRecord>((from, to) => {
+      let query = this.databaseService.getClient().from('trade_executions').select('*')
+        .eq('user_id', userId).eq('status', 'CLOSED')
+        .order('closed_at', { ascending: false }).order('id', { ascending: false });
+      if (accountId) query = query.eq('account_id', accountId);
+      if (startDate) query = query.gte('closed_at', startDate);
+      if (endDate) query = query.lte('closed_at', endDate);
+      return query.range(from, to);
+    });
 
     const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
     const closedTrades = ((data ?? []) as TradeExecutionRecord[]).filter(
@@ -404,28 +410,20 @@ export class AnalyticsService {
       (a, b) => new Date(a.closed_at ?? a.updated_at).getTime() - new Date(b.closed_at ?? b.updated_at).getTime(),
     );
 
-    let snapshotQuery = this.databaseService
-      .getClient()
-      .from('ea_account_status_snapshots')
-      .select('account_id,balance,equity,margin,free_margin,open_positions,created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true })
-      .limit(10_000);
-
-    if (accountId) {
-      snapshotQuery = snapshotQuery.eq('account_id', accountId);
-    }
-
-    const { data: snapshotData, error: snapshotError } = await snapshotQuery;
-
-    if (snapshotError) {
-      throw new InternalServerErrorException(snapshotError.message);
-    }
-
-    type SnapshotPoint = Pick<
-      AccountStatusSnapshotRecord,
+    type SnapshotPoint = Pick<AccountStatusSnapshotRecord,
       'account_id' | 'balance' | 'equity' | 'margin' | 'free_margin' | 'open_positions' | 'created_at'
-    >;
+    > & { starting_balance?: number; opening_balance?: number; sample_count?: number };
+    const loadSnapshots = (table: string) => readAllPages<SnapshotPoint>((from, to) => {
+      let page = this.databaseService.getClient().from(table).select('*')
+        .eq('user_id', userId).order('created_at', { ascending: true }).order('id', { ascending: true });
+      if (accountId) page = page.eq('account_id', accountId);
+      return page.range(from, to);
+    });
+    const [snapshotData, currentData] = await Promise.all([
+      loadSnapshots('ea_account_status_snapshots'),
+      loadSnapshots('ea_account_current_status'),
+    ]);
+
     type Bucket = {
       trades: number;
       wins: number;
@@ -446,6 +444,8 @@ export class AnalyticsService {
       if (!firstSnapshotByAccount.has(snapshot.account_id)) {
         firstSnapshotByAccount.set(snapshot.account_id, snapshot);
       }
+    }
+    for (const snapshot of currentData.filter((point) => !hiddenAccountIds.includes(point.account_id))) {
       latestSnapshotByAccount.set(snapshot.account_id, snapshot);
     }
 
@@ -515,8 +515,8 @@ export class AnalyticsService {
     };
 
     const startingBalance =
-      firstSnapshotByAccount.size > 0
-        ? [...firstSnapshotByAccount.values()].reduce((sum, snapshot) => sum + snapshot.balance, 0)
+      latestSnapshotByAccount.size > 0
+        ? [...latestSnapshotByAccount.values()].reduce((sum, snapshot) => sum + (snapshot.starting_balance ?? firstSnapshotByAccount.get(snapshot.account_id)?.opening_balance ?? firstSnapshotByAccount.get(snapshot.account_id)?.balance ?? snapshot.balance), 0)
         : null;
     const currentBalance =
       latestSnapshotByAccount.size > 0
