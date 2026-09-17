@@ -57,9 +57,9 @@ export class AnalyticsService {
   private static readonly AI_COACH_CACHE_TTL_MS = 30 * 60_000;
 
   async getAiAnalysis(userId: string, accountId?: string, startDate?: string, endDate?: string): Promise<string> {
-    const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
+    const apiKey = this.configService.get<string>('NVIDIA_API_KEY');
     if (!apiKey) {
-      throw new ServiceUnavailableException('Claude analytics coach is not configured');
+      throw new ServiceUnavailableException('Nvidia analytics coach is not configured');
     }
 
     const analytics = await this.getAnalytics(userId, accountId, startDate, endDate);
@@ -85,62 +85,63 @@ export class AnalyticsService {
     };
 
     return this.cacheService.remember(
-      `tradepilot:cache:coach:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
+      `tradepilot:cache:coach:nvidia:${this.configService.get<string>('NVIDIA_MODEL') ?? 'nvidia/nemotron-3.5-lightning-30b-a3b'}:${userId}:${accountId ?? 'all'}:${startDate ?? '-'}:${endDate ?? '-'}`,
       AnalyticsService.AI_COACH_CACHE_TTL_MS,
-      () => this.requestClaudeCoach(apiKey, slim),
+      () => this.requestNvidiaCoach(apiKey, slim),
     );
 
   }
 
-  private async requestClaudeCoach(apiKey: string, metrics: unknown): Promise<string> {
-    const model = this.configService.get<string>('ANTHROPIC_MODEL') ?? 'claude-sonnet-5';
+  private async requestNvidiaCoach(apiKey: string, metrics: unknown): Promise<string> {
+    const model = this.configService.get<string>('NVIDIA_MODEL') ?? 'nvidia/nemotron-3.5-lightning-30b-a3b';
     let response: Response;
 
     try {
-      response = await fetch('https://api.anthropic.com/v1/messages', {
+      response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
+          Authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
           model,
           max_tokens: 350,
-          thinking: { type: 'disabled' },
-          cache_control: { type: 'ephemeral' },
-          system: 'Analyze only the supplied trading metrics. Return exactly five concise sentences on separate lines, without bullets or headings. Cite relevant numbers, the strongest result, the main weakness, and one risk-aware improvement. Do not invent data or give trade instructions.',
-          messages: [{ role: 'user', content: JSON.stringify(metrics) }],
+          temperature: 0.2,
+          chat_template_kwargs: { enable_thinking: false },
+          messages: [{ role: 'system', content: 'Analyze only the supplied trading metrics. Return exactly five concise sentences on separate lines, without bullets or headings. Cite relevant numbers, the strongest result, the main weakness, and one risk-aware improvement. Do not invent data or give trade instructions.' }, { role: 'user', content: JSON.stringify(metrics) }],
         }),
         signal: AbortSignal.timeout(45_000),
       });
     } catch (error) {
-      this.logger.warn(`Claude analytics coach request failed: ${String(error)}`);
-      throw new ServiceUnavailableException('Claude analytics coach is temporarily unavailable');
+      this.logger.warn(`Nvidia analytics coach request failed: ${String(error)}`);
+      throw new ServiceUnavailableException('Nvidia analytics coach is temporarily unavailable');
     }
 
     const result = (await response.json().catch(() => ({}))) as {
-      content?: Array<{ type: string; text?: string }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       error?: { message?: string };
     };
 
     if (!response.ok) {
       this.logger.warn(
-        `Claude analytics coach returned ${response.status}: ${result.error?.message ?? 'unknown error'}`,
+        `Nvidia analytics coach returned ${response.status}: ${result.error?.message ?? 'unknown error'}`,
       );
 
       if (response.status === 401) {
         throw new InternalServerErrorException(
-          'ANTHROPIC_API_KEY is invalid — update it in the server environment',
+          'NVIDIA_API_KEY is invalid — update it in the server environment',
         );
       }
 
-      throw new ServiceUnavailableException('Claude analytics coach is temporarily unavailable');
+      throw new ServiceUnavailableException('Nvidia analytics coach is temporarily unavailable');
     }
 
-    const analysis = result.content?.find((block) => block.type === 'text')?.text?.trim();
+    const analysis = result.choices?.[0]?.message?.content?.trim();
+    if (result.choices?.[0]?.finish_reason === 'length') {
+      throw new ServiceUnavailableException('Nvidia returned incomplete analytics coaching');
+    }
     if (!analysis) {
-      throw new ServiceUnavailableException('Claude returned no analytics coaching');
+      throw new ServiceUnavailableException('Nvidia returned no analytics coaching');
     }
 
     return analysis;

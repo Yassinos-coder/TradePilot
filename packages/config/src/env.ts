@@ -12,8 +12,8 @@ const rawServerEnvSchema = z.object({
   LLM_MODEL: z.string().min(1).default('gpt-4.1'),
   LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.1),
 
-  ANTHROPIC_API_KEY: z.string().min(20).optional(),
-  ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5'),
+  NVIDIA_API_KEY: z.string().min(20).optional(),
+  NVIDIA_MODEL: z.string().min(1).default('nvidia/nemotron-3.5-lightning-30b-a3b'),
 
   CENSUS_API_KEY: z.string().min(20).optional(),
 

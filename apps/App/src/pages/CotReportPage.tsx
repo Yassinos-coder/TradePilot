@@ -64,7 +64,7 @@ export function CotReportPage() {
     queryKey: ['cot', 'analysis', code, mode],
     queryFn: () => apiClient.cotAnalysis(code, mode),
     // Avoid racing the first historical backfill with an identical request from
-    // the analysis endpoint. Once both datasets exist, Claude can read them.
+    // the analysis endpoint. Once both datasets exist, NVIDIA can read them.
     enabled: reportQuery.isSuccess && historyQuery.isSuccess,
     staleTime: 6 * 60 * 60_000,
     retry: 1,
@@ -152,7 +152,7 @@ export function CotReportPage() {
             <Alert tone="warning" title="AI interpretation is unavailable">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span>
-                  The COT tables remain available. Claude could not generate the positioning cards
+                  The COT tables remain available. NVIDIA could not generate the positioning cards
                   right now.
                 </span>
                 <Button

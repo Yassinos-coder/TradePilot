@@ -53,7 +53,7 @@ export function CotAiAnalysis({ analysis }: { analysis: CotAiAnalysisDTO }) {
 
   return (
     <Card
-      eyebrow="Claude AI analyst"
+      eyebrow="NVIDIA AI analyst"
       title="Positioning interpretation"
       description={`Structured analysis for the ${analysis.reportDate} CFTC release`}
       actions={

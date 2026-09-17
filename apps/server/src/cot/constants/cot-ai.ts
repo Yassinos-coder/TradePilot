@@ -16,7 +16,7 @@ export const COT_AI_OUTPUT_SCHEMA = {
       required: ['bias', 'conviction', 'title', 'summary'],
       properties: {
         bias: { type: 'string', enum: ['BULLISH', 'BEARISH', 'NEUTRAL'] },
-        // Claude structured outputs currently reject numeric range keywords.
+        // Keep the generation schema portable across hosted models.
         // The response DTO still enforces the 0–100 range after generation.
         conviction: { type: 'integer' },
         title: { type: 'string', description: 'Required, 1 to 80 characters.' },

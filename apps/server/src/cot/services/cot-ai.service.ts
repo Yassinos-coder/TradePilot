@@ -23,9 +23,8 @@ import {
 import { CotHistoryService } from './cot-history.service';
 import { CotService } from './cot.service';
 
-interface ClaudeMessageResponse {
-  content?: Array<{ type: string; text?: string }>;
-  stop_reason?: string;
+interface NvidiaMessageResponse {
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   error?: { message?: string };
 }
 
@@ -41,10 +40,10 @@ export class CotAiService {
   ) {}
 
   async analyze(code: string, mode: CotReportMode): Promise<CotAiAnalysisDTO> {
-    const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
+    const apiKey = this.configService.get<string>('NVIDIA_API_KEY');
 
     if (!apiKey) {
-      throw new ServiceUnavailableException('Claude analysis is not configured');
+      throw new ServiceUnavailableException('Nvidia analysis is not configured');
     }
 
     const [report, history] = await Promise.all([
@@ -53,7 +52,7 @@ export class CotAiService {
     ]);
 
     return this.cacheService.remember(
-      `tradepilot:cot:ai:${code}:${mode}:${report.reportDate}`,
+      `tradepilot:cot:ai:nvidia:${this.configService.get<string>('NVIDIA_MODEL') ?? 'nvidia/nemotron-3.5-lightning-30b-a3b'}:${code}:${mode}:${report.reportDate}`,
       COT_AI_CACHE_TTL_MS,
       () => this.generate(apiKey, report, history),
     );
@@ -64,7 +63,7 @@ export class CotAiService {
     report: Awaited<ReturnType<CotService['getReport']>>,
     history: Awaited<ReturnType<CotHistoryService['getHistory']>>,
   ): Promise<CotAiAnalysisDTO> {
-    const model = this.configService.get<string>('ANTHROPIC_MODEL') ?? 'claude-sonnet-5';
+    const model = this.configService.get<string>('NVIDIA_MODEL') ?? 'nvidia/nemotron-3.5-lightning-30b-a3b';
     const latest = history.points.at(-1) ?? null;
     const previous = history.points.at(-2) ?? null;
     const legacy = report.tables.find((table) => table.kind === 'legacy');
@@ -87,58 +86,52 @@ export class CotAiService {
     let response: Response;
 
     try {
-      response = await fetch('https://api.anthropic.com/v1/messages', {
+      response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
+          Authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
           model,
-          // Six cards run past 1600 output tokens, and disabled thinking made the
-          // model loop on a digit until it hit the cap, so the JSON never closed.
           max_tokens: COT_AI_MAX_TOKENS,
-          thinking: { type: 'adaptive' },
-          system: COT_AI_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: JSON.stringify(input) }],
-          output_config: {
-            effort: 'low',
-            format: {
-              type: 'json_schema',
-              schema: COT_AI_OUTPUT_SCHEMA,
-            },
-          },
+          temperature: 0.2,
+          chat_template_kwargs: { enable_thinking: false },
+          messages: [
+            { role: 'system', content: `${COT_AI_SYSTEM_PROMPT} Return JSON matching this schema: ${JSON.stringify(COT_AI_OUTPUT_SCHEMA)}` },
+            { role: 'user', content: JSON.stringify(input) },
+          ],
+          guided_json: COT_AI_OUTPUT_SCHEMA,
         }),
         signal: AbortSignal.timeout(45_000),
       });
     } catch (error) {
-      this.logger.warn(`Claude COT analysis request failed: ${String(error)}`);
-      throw new ServiceUnavailableException('Claude analysis is temporarily unavailable');
+      this.logger.warn(`Nvidia COT analysis request failed: ${String(error)}`);
+      throw new ServiceUnavailableException('Nvidia analysis is temporarily unavailable');
     }
 
-    const body = (await response.json().catch(() => ({}))) as ClaudeMessageResponse;
+    const body = (await response.json().catch(() => ({}))) as NvidiaMessageResponse;
 
     if (!response.ok) {
-      this.logger.warn(`Claude COT analysis returned ${response.status}: ${body.error?.message ?? 'unknown error'}`);
+      this.logger.warn(`Nvidia COT analysis returned ${response.status}: ${body.error?.message ?? 'unknown error'}`);
 
       if (response.status === 401) {
-        throw new InternalServerErrorException('ANTHROPIC_API_KEY is invalid');
+        throw new InternalServerErrorException('NVIDIA_API_KEY is invalid');
       }
 
-      throw new ServiceUnavailableException('Claude analysis is temporarily unavailable');
+      throw new ServiceUnavailableException('Nvidia analysis is temporarily unavailable');
     }
 
-    const text = body.content?.find((block) => block.type === 'text')?.text;
+    const text = body.choices?.[0]?.message?.content?.trim();
 
     if (!text) {
-      throw new ServiceUnavailableException('Claude returned no COT analysis');
+      throw new ServiceUnavailableException('Nvidia returned no COT analysis');
     }
 
     // Truncated JSON fails to parse a few lines down; name the real cause instead.
-    if (body.stop_reason === 'max_tokens') {
-      this.logger.warn(`Claude COT analysis was cut off at ${COT_AI_MAX_TOKENS} output tokens`);
-      throw new ServiceUnavailableException('Claude returned an incomplete COT analysis');
+    if (body.choices?.[0]?.finish_reason === 'length') {
+      this.logger.warn(`Nvidia COT analysis was cut off at ${COT_AI_MAX_TOKENS} output tokens`);
+      throw new ServiceUnavailableException('Nvidia returned an incomplete COT analysis');
     }
 
     let parsed: unknown;
@@ -146,7 +139,7 @@ export class CotAiService {
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new ServiceUnavailableException('Claude returned an invalid COT analysis');
+      throw new ServiceUnavailableException('Nvidia returned an invalid COT analysis');
     }
 
     const result = cotAiAnalysisSchema.safeParse({
@@ -158,8 +151,8 @@ export class CotAiService {
     });
 
     if (!result.success) {
-      this.logger.warn(`Claude COT analysis failed validation: ${result.error.message}`);
-      throw new ServiceUnavailableException('Claude returned an invalid COT analysis');
+      this.logger.warn(`Nvidia COT analysis failed validation: ${result.error.message}`);
+      throw new ServiceUnavailableException('Nvidia returned an invalid COT analysis');
     }
 
     return result.data;
