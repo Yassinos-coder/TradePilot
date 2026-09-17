@@ -85,6 +85,8 @@ export function useAppUpdate() {
         setAvailableManifest((previous) =>
           previous?.buildId === nextManifest.buildId ? previous : nextManifest,
         );
+      } else {
+        setAvailableManifest(null);
       }
     };
 

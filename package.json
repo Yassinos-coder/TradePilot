@@ -1,6 +1,6 @@
 {
   "name": "tradepilot",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": true,
   "packageManager": "npm@10.9.0",
   "workspaces": [

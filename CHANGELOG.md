@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-09-17
+
+### Fixed
+
+- Copier account lists refresh after EA reconnection and report loading failures instead of saying no accounts are connected.
+- Copier and dashboard copy totals count slave orders instead of master events. The activity feed shows the master event time, with the receipt time available on hover.
+- Release versions are aligned at 2.4.1. The updater distinguishes a new release from another build of the same version and clears an obsolete update notice when the deployed build matches the running app.
+
+### Changed
+
+- Analytics coaching and COT interpretation use NVIDIA Nemotron instead of Claude, configured through `NVIDIA_API_KEY` and `NVIDIA_MODEL`.
+
 ## [2.4.0] - 2026-09-17
 
 ### Fixed

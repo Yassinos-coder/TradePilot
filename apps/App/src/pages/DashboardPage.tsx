@@ -213,7 +213,7 @@ export function DashboardPage() {
             <div>
               <p className="text-content-tertiary text-xs font-medium">Copies today</p>
               <p className="text-content-primary tabular mt-1 text-sm font-semibold">
-                {copier.copyEventsToday}
+                {copier.copiesFilledToday}
               </p>
             </div>
             <div>

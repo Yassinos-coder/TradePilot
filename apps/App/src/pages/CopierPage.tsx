@@ -60,7 +60,11 @@ export function CopierPage() {
   const [pendingDelete, setPendingDelete] = useState<CopierLinkDTO | null>(null);
   const [masterDraft, setMasterDraft] = useState<string>('');
 
-  const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: () => apiClient.accounts() });
+  const accountsQuery = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => apiClient.accounts(),
+    refetchInterval: 30_000,
+  });
   const linksQuery = useQuery({ queryKey: ['copier', 'links'], queryFn: apiClient.copierLinks });
   const overviewQuery = useQuery({
     queryKey: ['copier', 'overview'],
@@ -172,6 +176,25 @@ export function CopierPage() {
     );
   }
 
+  if (accountsQuery.isError || linksQuery.isError || settingsQuery.isError) {
+    return (
+      <Alert tone="warning" title="Could not load copier configuration">
+        Your accounts may still be connected. Retry to load the account list and copier settings.
+        <Button
+          variant="outline"
+          className="mt-3"
+          onClick={() => {
+            void accountsQuery.refetch();
+            void linksQuery.refetch();
+            void settingsQuery.refetch();
+          }}
+        >
+          Retry
+        </Button>
+      </Alert>
+    );
+  }
+
   const settings = settingsQuery.data;
   const copierLive = Boolean(settings?.autoCopyEnabled && !settings.executionPaused);
 
@@ -226,7 +249,7 @@ export function CopierPage() {
         />
         <StatTile
           label="Copies today"
-          value={overview?.copyEventsToday ?? 0}
+          value={overview?.copiesFilledToday ?? 0}
           icon={Copy}
           hint={`${overview?.copiesSkippedToday ?? 0} skipped`}
         />

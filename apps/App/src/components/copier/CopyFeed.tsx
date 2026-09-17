@@ -51,8 +51,11 @@ export function CopyFeed({ events }: CopyFeedProps) {
                 {event.volume.toFixed(2)} lots
               </span>
             ) : null}
-            <span className="text-content-tertiary ml-auto text-xs">
-              {formatTimestamp(event.createdAt)}
+            <span
+              className="text-content-tertiary ml-auto text-xs"
+              title={`Received ${formatTimestamp(event.createdAt)}`}
+            >
+              {formatTimestamp(event.masterEventAt)}
             </span>
           </div>
 

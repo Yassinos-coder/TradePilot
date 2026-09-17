@@ -415,7 +415,9 @@ export function AppShell() {
                   Refresh to load the latest build and clear cached assets.
                 </p>
                 <div className="border-line bg-surface-muted text-content-secondary rounded-lg border px-4 py-3 text-xs leading-5">
-                  New version: v{availableManifest.version}
+                  {availableManifest.version === currentManifest.version
+                    ? `Updated build of v${availableManifest.version}`
+                    : `Version: v${currentManifest.version} → v${availableManifest.version}`}
                   <br />
                   Built: {new Date(availableManifest.builtAt).toLocaleString()}
                 </div>
