@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Crown, TrendingDown, TrendingUp } from 'lucide-react';
+import { Activity, Crown, Globe2, TrendingDown, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import type { DailyTradeSummaryItem, TradeExecutionDTO } from '@tradepilot/shared';
@@ -32,6 +32,49 @@ function monthRange(year: number, month: number) {
 
 function yearRange(year: number) {
   return { startDate: `${year}-01-01`, endDate: `${year}-12-31` };
+}
+
+// Session windows are standard-time UTC ranges for the four major FX hubs.
+// Sydney and Tokyo overlap and are jointly reported as "Asian Session".
+const SESSION_WINDOWS: Array<{ key: string; label: string; startUtc: number; endUtc: number; colorClass: string }> = [
+  { key: 'SYDNEY', label: 'Sydney Session', startUtc: 21, endUtc: 6, colorClass: 'text-session-sydney' },
+  { key: 'TOKYO', label: 'Asian Session', startUtc: 0, endUtc: 9, colorClass: 'text-session-asian' },
+  { key: 'LONDON', label: 'London Session', startUtc: 8, endUtc: 16, colorClass: 'text-session-london' },
+  { key: 'NEW_YORK', label: 'New York Session', startUtc: 13, endUtc: 22, colorClass: 'text-session-newyork' },
+];
+
+function isHourInWindow(hourUtc: number, startUtc: number, endUtc: number): boolean {
+  if (startUtc <= endUtc) return hourUtc >= startUtc && hourUtc < endUtc;
+  // Window wraps past midnight UTC (e.g. Sydney 21:00 -> 06:00).
+  return hourUtc >= startUtc || hourUtc < endUtc;
+}
+
+function getActiveSessions(date: Date): Array<{ key: string; label: string; colorClass: string }> {
+  const hourUtc = date.getUTCHours();
+  const active = SESSION_WINDOWS.filter((session) => isHourInWindow(hourUtc, session.startUtc, session.endUtc));
+  // Sydney and Tokyo are both the "Asian" liquidity block; avoid double-labeling.
+  const seen = new Set<string>();
+  const result: Array<{ key: string; label: string; colorClass: string }> = [];
+  for (const session of active) {
+    const dedupeKey = session.key === 'SYDNEY' ? 'TOKYO' : session.key;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    result.push(session);
+  }
+  return result;
+}
+
+function useActiveSessions(refreshMs = 60_000) {
+  const [sessions, setSessions] = useState(() => getActiveSessions(new Date()));
+
+  useEffect(() => {
+    const tick = () => setSessions(getActiveSessions(new Date()));
+    tick();
+    const id = setInterval(tick, refreshMs);
+    return () => clearInterval(id);
+  }, [refreshMs]);
+
+  return sessions;
 }
 
 function WinRateRing({ value }: { value: number }) {
@@ -93,6 +136,7 @@ export function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [symbolFilter, setSymbolFilter] = useState('ALL');
   const [accountFilter, setAccountFilter] = useState('ALL');
+  const activeSessions = useActiveSessions();
 
   const { startDate: calStart, endDate: calEnd } = monthRange(calYear, calMonth);
   const { startDate: yearStart, endDate: yearEnd } = yearRange(now.getFullYear());
@@ -232,7 +276,7 @@ export function DashboardPage() {
         </Link>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-widest text-content-tertiary">
             Monthly Net Total
@@ -308,6 +352,31 @@ unrealizedPl === null ? 'text-content-tertiary' :
           )}
           <p className="mt-2 text-xs text-content-tertiary">
             {openPositions !== null ? `${openPositions} open position${openPositions !== 1 ? 's' : ''}` : 'Awaiting account telemetry'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-content-tertiary">
+            Active Session
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-muted">
+              <Globe2 className="h-5 w-5 text-content-tertiary" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {activeSessions.length === 0 ? (
+                <p className="text-lg font-bold tracking-tight text-content-tertiary">Market closed</p>
+              ) : (
+                activeSessions.map((session) => (
+                  <p key={session.key} className={`text-lg font-bold tracking-tight leading-tight ${session.colorClass}`}>
+                    {session.label}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-content-tertiary">
+            {now.toLocaleTimeString('default', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
           </p>
         </div>
       </div>

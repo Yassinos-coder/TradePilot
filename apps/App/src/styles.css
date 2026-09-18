@@ -54,6 +54,11 @@ html.light {
   --info-subtle: #eaf1fe;
   --info-content: #1d4ed8;
 
+  --session-sydney: #8b5cf6;
+  --session-asian: #f59e0b;
+  --session-london: #3b82f6;
+  --session-newyork: #22a06b;
+
   --focus-ring: rgb(25 154 142 / 0.28);
   --card-shadow: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.06);
   --overlay: rgb(14 17 22 / 0.45);
@@ -100,6 +105,11 @@ html.dark {
   --info: #5b9bff;
   --info-subtle: rgb(91 155 255 / 0.14);
   --info-content: #8ab8ff;
+
+  --session-sydney: #a78bfa;
+  --session-asian: #fbbf24;
+  --session-london: #5b9bff;
+  --session-newyork: #34c98a;
 
   --focus-ring: rgb(44 181 166 / 0.32);
   --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.32), 0 1px 3px 0 rgb(0 0 0 / 0.24);
@@ -152,6 +162,11 @@ html.dark {
   --color-info: var(--info);
   --color-info-subtle: var(--info-subtle);
   --color-info-content: var(--info-content);
+
+  --color-session-sydney: var(--session-sydney);
+  --color-session-asian: var(--session-asian);
+  --color-session-london: var(--session-london);
+  --color-session-newyork: var(--session-newyork);
 
   --color-overlay: var(--overlay);
 
