@@ -106,7 +106,7 @@ export class AuthService {
   }
 
   async refreshSession(refreshToken: string): Promise<RefreshedAuthSession> {
-    const { data, error } = await this.databaseService.getClient().auth.refreshSession({
+    const { data, error } = await this.databaseService.createAuthClient().auth.refreshSession({
       refresh_token: refreshToken,
     });
 

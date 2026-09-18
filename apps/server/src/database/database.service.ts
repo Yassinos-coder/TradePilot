@@ -54,6 +54,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return this.supabaseClient;
   }
 
+  /** Session-changing auth calls must not mutate the shared database client. */
+  createAuthClient(): SupabaseClient {
+    return createClient(
+      this.configService.getOrThrow<string>('SUPABASE_URL'),
+      this.configService.getOrThrow<string>('SUPABASE_SERVICE_ROLE_KEY'),
+      { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } },
+    );
+  }
+
   async ping(): Promise<boolean> {
     try {
       const { error } = await this.supabaseClient.from('users').select('id').limit(1);

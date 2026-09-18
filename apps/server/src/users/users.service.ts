@@ -250,7 +250,7 @@ export class UsersService {
     nextPassword: string,
   ): Promise<void> {
     const { error: signInError } = await this.databaseService
-      .getClient()
+      .createAuthClient()
       .auth.signInWithPassword({
         email: user.email,
         password: currentPassword,
