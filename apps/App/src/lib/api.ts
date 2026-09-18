@@ -105,6 +105,10 @@ export const apiClient = {
     const { data } = await api.delete<{ success: boolean }>(`/api-keys/${keyId}`);
     return data;
   },
+  async deleteApiKey(keyId: string) {
+    const { data } = await api.delete<{ success: boolean }>(`/api-keys/${keyId}/permanent`);
+    return data;
+  },
 
   /* ── settings ──────────────────────────────────────────────────────────── */
   async settings() {

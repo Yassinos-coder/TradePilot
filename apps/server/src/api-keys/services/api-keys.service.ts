@@ -16,6 +16,7 @@ import {
 } from '@tradepilot/shared';
 
 import { ApiKeyKind, ApiKeyRecord } from '../../database/database.types';
+import { RedisService } from '../../redis/redis.service';
 import { ApiKeyMapper } from '../mappers/api-key.mapper';
 import { ApiKeyRepository } from '../repositories/api-key.repository';
 
@@ -27,6 +28,8 @@ export interface ResolvedApiKey {
   hmacSecret: string | null;
 }
 
+export const API_KEY_INVALIDATED_CHANNEL = 'tradepilot:api-key-invalidated';
+
 @Injectable()
 export class ApiKeysService {
   private readonly logger = new Logger(ApiKeysService.name);
@@ -36,6 +39,7 @@ export class ApiKeysService {
   constructor(
     private readonly apiKeyRepository: ApiKeyRepository,
     private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
   ) {}
 
   static hashSecret(secret: string): string {
@@ -73,7 +77,7 @@ export class ApiKeysService {
     // A grace window keeps a live EA session authenticating while the terminal
     // is reconfigured. graceHours of 0 revokes the old key immediately.
     if (input.graceHours <= 0) {
-      await this.apiKeyRepository.revoke(existing.id);
+      await this.revokeKey(userId, existing.id);
     } else {
       const expiresAt = new Date(Date.now() + input.graceHours * 3_600_000).toISOString();
       await this.apiKeyRepository.setExpiry(existing.id, expiresAt);
@@ -90,6 +94,29 @@ export class ApiKeysService {
     }
 
     await this.apiKeyRepository.revoke(existing.id);
+    await this.notifyInvalidation(userId, keyId);
+  }
+
+  async deleteKey(userId: string, keyId: string): Promise<void> {
+    const existing = await this.apiKeyRepository.findById(userId, keyId);
+    if (!existing) throw new NotFoundException('API key was not found');
+    await this.apiKeyRepository.delete(userId, keyId);
+    await this.notifyInvalidation(userId, keyId);
+  }
+
+  async isEaKeyActive(userId: string, keyId: string): Promise<boolean> {
+    const key = await this.apiKeyRepository.findById(userId, keyId);
+    return Boolean(key && key.kind === 'EA' && !key.revoked_at && !this.isExpired(key));
+  }
+
+  private async notifyInvalidation(userId: string, keyId: string): Promise<void> {
+    this.lastUsedWrites.delete(keyId);
+    try {
+      await this.redisService.publish(API_KEY_INVALIDATED_CHANNEL, JSON.stringify({ userId, keyId }));
+    } catch (error) {
+      // Socket revalidation also enforces revocation if pub/sub is unavailable.
+      this.logger.warn(`Could not broadcast API key invalidation: ${String(error)}`);
+    }
   }
 
   /** Returns null for unknown, revoked or expired keys. */

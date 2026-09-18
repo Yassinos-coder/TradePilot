@@ -48,4 +48,13 @@ export class ApiKeysController {
     await this.apiKeysService.revokeKey(user.userId, keyId);
     return { success: true };
   }
+
+  @Delete(':keyId/permanent')
+  async deleteKey(
+    @CurrentUser() user: RequestUser,
+    @Param('keyId', ParseUUIDPipe) keyId: string,
+  ) {
+    await this.apiKeysService.deleteKey(user.userId, keyId);
+    return { success: true };
+  }
 }

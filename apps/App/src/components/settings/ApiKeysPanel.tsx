@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Ban, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import type { ApiKeyDTO, ApiKeyKind, ApiKeySecretResult } from '@tradepilot/shared';
 
@@ -54,11 +54,27 @@ export function ApiKeysPanel({ allowApiTradeOpening }: ApiKeysPanelProps) {
   });
   const [revealed, setRevealed] = useState<ApiKeySecretResult | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<ApiKeyDTO | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ApiKeyDTO | null>(null);
   const [pendingRotate, setPendingRotate] = useState<ApiKeyDTO | null>(null);
 
   const keysQuery = useQuery({ queryKey: ['api-keys'], queryFn: apiClient.apiKeys });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+  const invalidate = () => Promise.all(
+    [['api-keys'], ['accounts'], ['overview'], ['copier']].map(queryKey =>
+      queryClient.invalidateQueries({ queryKey }),
+    ),
+  );
+
+  const deleteMutation = useMutation({
+    mutationFn: apiClient.deleteApiKey,
+    onSuccess: async (_result, keyId) => {
+      await invalidate();
+      setPendingDelete(null);
+      setRevealed(current => current?.key.id === keyId ? null : current);
+      pushToast({ tone: 'success', title: 'Key permanently deleted' });
+    },
+    onError: () => pushToast({ tone: 'error', title: 'Could not delete the key' }),
+  });
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -215,10 +231,19 @@ export function ApiKeysPanel({ allowApiTradeOpening }: ApiKeysPanelProps) {
                                 title="Revoke"
                                 className="text-content-tertiary hover:bg-negative-subtle hover:text-negative-content cursor-pointer rounded-lg p-2 transition-colors"
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Ban className="h-4 w-4" />
                               </button>
                             </>
                           ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setPendingDelete(key)}
+                            aria-label={`Delete ${key.name}`}
+                            title="Permanently delete key"
+                            className="text-content-tertiary hover:bg-negative-subtle hover:text-negative-content cursor-pointer rounded-lg p-2 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -332,10 +357,20 @@ export function ApiKeysPanel({ allowApiTradeOpening }: ApiKeysPanelProps) {
         onClose={() => setPendingRevoke(null)}
         onConfirm={() => pendingRevoke && revokeMutation.mutate(pendingRevoke.id)}
         title="Revoke this key?"
-        description="It stops working immediately. Any EA or integration using it will fail to authenticate until you give it a new key."
+        description="It stops working and disconnects EAs using it. The key stays in this list as revoked. Reconnecting requires a new key."
         confirmLabel="Revoke key"
         destructive
         isLoading={revokeMutation.isPending}
+      />
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+        title="Permanently delete this key?"
+        description="This removes the key from the list and disconnects EAs using it. It cannot be undone. Your accounts and trade history are kept."
+        confirmLabel="Delete key"
+        destructive
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

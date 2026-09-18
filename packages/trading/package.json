@@ -1,6 +1,6 @@
 {
   "name": "@tradepilot/trading",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "private": true,
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -19,6 +19,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tradepilot/shared": "2.4.1"
+    "@tradepilot/shared": "2.4.2"
   }
 }

@@ -126,4 +126,12 @@ export class ApiKeyRepository {
       throw new InternalServerErrorException(`Failed to record key usage: ${error.message}`);
     }
   }
+
+  async delete(userId: string, keyId: string): Promise<void> {
+    const { error } = await this.databaseService.getClient()
+      .from(this.tableName).delete().eq('id', keyId).eq('user_id', userId);
+    if (error) {
+      throw new InternalServerErrorException(`Failed to delete API key: ${error.message}`);
+    }
+  }
 }

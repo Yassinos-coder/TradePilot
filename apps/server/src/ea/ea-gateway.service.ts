@@ -27,7 +27,7 @@ import {
 } from '@tradepilot/shared';
 import { deriveBaseSymbol } from '@tradepilot/trading';
 
-import { ApiKeysService } from '../api-keys/services/api-keys.service';
+import { API_KEY_INVALIDATED_CHANNEL, ApiKeysService } from '../api-keys/services/api-keys.service';
 import { CopierLinksService } from '../copier/services/copier-links.service';
 import { CopierService } from '../copier/services/copier.service';
 import { DatabaseService } from '../database/database.service';
@@ -53,6 +53,7 @@ import { EaPresenceService, PresencePayload } from './services/ea-presence.servi
 interface SocketMetadata {
   connectionId: string;
   userId?: string;
+  keyId?: string;
   accountId?: string;
   accountName?: string;
   lastSeenAt: number;
@@ -80,6 +81,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private readonly recentStateSyncs = new Map<string, number>();
   private attached = false;
   private unsubscribeDispatch?: () => Promise<void>;
+  private unsubscribeKeyInvalidation?: () => Promise<void>;
+  private checkingKeys = false;
 
   constructor(
     private readonly apiKeysService: ApiKeysService,
@@ -95,6 +98,20 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    this.unsubscribeKeyInvalidation = await this.redisService.subscribe(
+      API_KEY_INVALIDATED_CHANNEL,
+      async (raw) => {
+        const event = this.tryParseJson(raw) as { userId?: string; keyId?: string } | null;
+        if (!event?.userId || !event.keyId) return;
+        for (const [socket, metadata] of this.socketMetadata) {
+          if (metadata.userId === event.userId && metadata.keyId === event.keyId) {
+            await this.rejectKey(socket).catch((error) => {
+              this.logger.warn(`Could not clean up invalidated EA connection: ${String(error)}`);
+            });
+          }
+        }
+      },
+    );
     this.unsubscribeDispatch = await this.redisService.subscribe(
       EA_DISPATCH_CHANNEL,
       async (rawMessage) => {
@@ -196,11 +213,14 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       return false;
     }
 
+    if (!(await this.validateSocketKey(connection))) return false;
+
     this.sendMessage(connection, message);
     return true;
   }
 
   onModuleDestroy() {
+    if (this.unsubscribeKeyInvalidation) void this.unsubscribeKeyInvalidation();
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
@@ -272,15 +292,18 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }
 
     const message: WebSocketInboundMessage = parsedMessage.data;
-    await this.touch(client);
-
     if (message.type === 'auth') {
+      // An authenticated socket cannot change identity in place.
+      if (this.socketMetadata.get(client)?.userId) {
+        await this.rejectKey(client);
+        return;
+      }
       const resolved = await this.apiKeysService.resolveKey(message.apiKey, 'EA');
 
       if (!resolved) {
         this.sendMessage(client, {
           type: 'error',
-          message: 'Invalid, expired or revoked API key',
+          message: 'Invalid API key: deleted, expired or revoked',
         });
         client.close();
         return;
@@ -289,6 +312,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       await this.registerSocket(
         client,
         resolved.userId,
+        resolved.keyId,
         message.accountId,
         message.accountName,
         {
@@ -297,6 +321,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
           leverage: message.leverage ?? null,
         },
       );
+      // Covers a revoke/delete that raced with the initial lookup.
+      if (!(await this.validateSocketKey(client))) return;
       this.sendMessage(client, { type: 'auth_success' });
       return;
     }
@@ -310,6 +336,10 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       });
       return;
     }
+
+    if (!(await this.validateSocketKey(client))) return;
+    await this.touch(client);
+    if (!this.socketMetadata.has(client) || client.readyState !== WebSocket.OPEN) return;
 
     if (message.type === 'ping') {
       this.sendMessage(client, {
@@ -401,6 +431,8 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         continue;
       }
 
+      if (!(await this.validateSocketKey(connection))) continue;
+
       try {
         connection.send(JSON.stringify(command.message));
         deliveredCount += 1;
@@ -431,6 +463,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
   private async registerSocket(
     client: WebSocket,
     userId: string,
+    keyId: string,
     accountId: string,
     accountName: string,
     terminalInfo: {
@@ -456,6 +489,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     this.socketMetadata.set(client, {
       ...metadata,
       userId,
+      keyId,
       accountId,
       accountName,
       lastSeenAt: Date.now(),
@@ -571,6 +605,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       DEFAULT_EA_SERVER_PING_INTERVAL_MS;
 
     this.heartbeatTimer = setInterval(() => {
+      void this.revalidateSocketKeys();
       const threshold = Date.now() - timeoutMs;
 
       for (const [socket, metadata] of this.socketMetadata.entries()) {
@@ -596,6 +631,42 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     }, pingIntervalMs);
   }
 
+  private async rejectKey(client: WebSocket): Promise<void> {
+    this.sendMessage(client, { type: 'error', message: 'Invalid API key: deleted, expired or revoked' });
+    client.close(1008, 'API key is no longer valid');
+    await this.removeConnection(client);
+  }
+
+  private async validateSocketKey(client: WebSocket): Promise<boolean> {
+    const metadata = this.socketMetadata.get(client);
+    if (!metadata?.userId || !metadata.keyId || client.readyState !== WebSocket.OPEN) return false;
+    try {
+      if (await this.apiKeysService.isEaKeyActive(metadata.userId, metadata.keyId)) {
+        const current = this.socketMetadata.get(client);
+        return current?.keyId === metadata.keyId && current?.userId === metadata.userId
+          && client.readyState === WebSocket.OPEN;
+      }
+    } catch (error) {
+      this.logger.warn(`Could not verify EA key: ${String(error)}`);
+    }
+    await this.rejectKey(client);
+    return false;
+  }
+
+  private async revalidateSocketKeys(): Promise<void> {
+    if (this.checkingKeys) return;
+    this.checkingKeys = true;
+    try {
+      for (const [socket, metadata] of this.socketMetadata) {
+        if (metadata.userId) await this.validateSocketKey(socket);
+      }
+    } catch (error) {
+      this.logger.warn(`EA key revalidation failed: ${String(error)}`);
+    } finally {
+      this.checkingKeys = false;
+    }
+  }
+
   private async persistPresence(client: WebSocket) {
     const metadata = this.socketMetadata.get(client);
 
@@ -611,6 +682,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       metadata.latencyMs,
       metadata.lastSeenAt,
     );
+    if (!this.socketMetadata.has(client) || client.readyState !== WebSocket.OPEN) return;
     await this.presenceService.set(
       metadata.userId,
       {
@@ -631,6 +703,10 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
     if (!metadata) {
       return;
     }
+
+    // Make cleanup idempotent before the first await (close and revocation can race).
+    this.socketMetadata.delete(client);
+    this.messageQueues.delete(client);
 
     if (metadata.userId && metadata.accountId) {
       const connections = this.socketsByUser.get(metadata.userId);
@@ -672,9 +748,6 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         });
       }
     }
-
-    this.socketMetadata.delete(client);
-    this.messageQueues.delete(client);
   }
 
   private async upsertEaAccount(
