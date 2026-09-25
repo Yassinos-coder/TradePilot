@@ -26,7 +26,20 @@
 // its own selectable type — EMA / SMA / SMMA (RMA) / WMA / VWMA — a proximity
 // readout, an optional bias tint for reviewing the structure filter
 // historically, and alerts on zone entry and bias flips.
+//
+// Also plots Market Structure Legs directly on the chart (see the section near
+// the bottom of this file): MT4-style swing legs, each confirmed pivot tagged
+// HH/HL/LH/LL. Its Depth/Deviation/Backstep behave like the MT4 ZigZag inputs
+// of the same name, not the stock TradingView ZigZag. This is a leg-based read
+// (price vs. the last confirmed swing), which is a different signal from the
+// MA-vote read the MTF Trend watermark below does — the two can disagree, and
+// the watermark's own section explains why.
 // ============================================================================
+
+// Market Structure Legs (below) call a third-party public library at compile
+// time — see the import path — whose associated indicator is MPL-2.0 licensed:
+// https://mozilla.org/MPL/2.0/
+import DevLucem/ZigLib/1 as StructureLegs
 
 indicator("TradePilot ATR Projection Levels", "TP ATR Levels", overlay=true, max_lines_count=200, max_boxes_count=100, max_labels_count=200)
 
@@ -60,7 +73,7 @@ showEma1 = input.bool(true, "MA 1", inline="ema1", group=grpMa)
 lenEma1 = input.int(9, "", minval=1, inline="ema1", group=grpMa)
 typeEma1 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema1", group=grpMa)
 colEma1 = input.color(#EF5350, "", inline="ema1", group=grpMa)
-showEma2 = input.bool(true, "MA 2", inline="ema2", group=grpMa)
+showEma2 = input.bool(true, "MA 2", inline="ema2", group=grpMa, tooltip="Defaults to a 21 EMA, not a 20 SMMA. Check Type and Length here before reading a 'flip of the 20' anywhere else in the workflow.")
 lenEma2 = input.int(21, "", minval=1, inline="ema2", group=grpMa)
 typeEma2 = input.string("EMA", "", options=["EMA", "SMA", "SMMA (RMA)", "WMA", "VWMA"], inline="ema2", group=grpMa)
 colEma2 = input.color(#FFA726, "", inline="ema2", group=grpMa)
@@ -104,6 +117,29 @@ maTrendWatermarkPosition = switch maTrendWatermarkCorner
     "Bottom Right" => position.bottom_right
     => position.top_left
 
+grpLegs = "Market Structure Legs"
+showMarketStructure = input.bool(true, "Show Market Structure Legs", group=grpLegs, tooltip="Plots swing legs on the chart and tags each confirmed pivot HH/HL/LH/LL. Depth/Deviation/Backstep behave like the MT4 ZigZag inputs of the same name — not the stock TradingView ZigZag.")
+legDepth = input.int(12, "Depth", minval=1, step=1, group=grpLegs)
+legDeviation = input.int(5, "Deviation", minval=1, step=1, group=grpLegs)
+legBackstep = input.int(2, "Backstep", minval=2, step=1, group=grpLegs)
+legRepaint = input.bool(true, "Repaint Levels", group=grpLegs, tooltip="On: the developing leg redraws live and can still move until it's confirmed. Off: only confirmed, closed legs are drawn — one bar later but final.")
+legExtendLast = input.bool(false, "Extend Last Leg", group=grpLegs)
+legLineWidth = input.int(2, "Line Thickness", minval=1, maxval=4, group=grpLegs)
+legBullColor = input.color(color.lime, "Bull Color", inline="legcolor", group=grpLegs)
+legBearColor = input.color(color.red, "Bear Color", inline="legcolor", group=grpLegs)
+legLineTransparency = input.int(0, "Line Transparency", minval=0, maxval=100, group=grpLegs)
+legLabelSizeInput = input.string("Normal", "Label Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=grpLegs)
+legLabelTransparency = input.int(0, "Label Transparency", minval=0, maxval=100, group=grpLegs)
+legShowBackground = input.bool(false, "Tint Background By Leg Direction", group=grpLegs, tooltip="Independent of 'Tint Background By Bias' in Style above — enabling both layers two tints at once.")
+legBackgroundTransparency = input.int(80, "Background Transparency", minval=0, maxval=100, group=grpLegs)
+
+legLabelSize = switch legLabelSizeInput
+    "Tiny" => size.tiny
+    "Small" => size.small
+    "Large" => size.large
+    "Huge" => size.huge
+    => size.normal
+
 // ============================================================================
 // MOVING AVERAGES — each line independently typed
 // ============================================================================
@@ -133,6 +169,13 @@ plot(showEma5 ? ema5 : na, "MA 5", color=colEma5, linewidth=maWidth)
 // This function is evaluated inside each request.security() context so both
 // price and every configured MA are calculated directly from that timeframe's
 // bars. A tied vote (including no enabled MAs) is neutral/ranging.
+//
+// This is a price-vs-MA vote only: it ignores MA slope and the order of the
+// MAs (e.g. whether 9 > 21 > 50), so a sharp pullback can flip a single
+// timeframe's reading to BEARISH while every MA underneath is still rising.
+// Read a single-timeframe flip here as early evidence, not confirmation —
+// cross-check it against the Market Structure Legs section near the bottom
+// of this file, which reads swing highs/lows instead of MA position.
 // ============================================================================
 f_maTrend() =>
     trendMa1 = f_ma(maSource, lenEma1, typeEma1)
@@ -572,4 +615,76 @@ if barstate.islast
     // envelope keeps drawing, so announcing hidden levels there would be a lie.
     if showDashboard and direction == 0 and not isLiveAnchor
         rangeWatermark := label.new(bar_index, high, "RANGING — ATR projection levels hidden", xloc=xloc.bar_index, style=label.style_label_down, textcolor=color.black, color=color.new(color.yellow, 15), size=size.normal)
+
+// ============================================================================
+// MARKET STRUCTURE LEGS
+// ----------------------------------------------------------------------------
+// Depth/Deviation/Backstep reproduce the MT4 ZigZag's inputs, not the stock
+// TradingView ZigZag, so they don't mean the same thing as the pivot
+// left/right bars used in the swing structure section above. Runs on the
+// chart's own timeframe only.
+//
+// The pivot math itself comes from a third-party published library (imported
+// at the top of this file). If that library is ever unpublished or renamed,
+// this section — and only this section — will fail to compile; everything
+// else in this script is independent of it.
+// ============================================================================
+f_legPivot() =>
+    StructureLegs.zigzag(low, high, legDepth, legDeviation, legBackstep)
+
+// The library hasn't produced a pivot yet on early bars, so legP1/legP2 (and
+// their history) can be 'na' chart.point objects — dereferencing a field on a
+// na object is a runtime error (RE10041), not just an na float, so every
+// .price read below goes through this guard instead of touching the field
+// directly.
+f_pointPrice(chart.point p) =>
+    na(p) ? na : p.price
+
+[legDir, legP1, legP2] = f_legPivot()
+legP1Ready = not na(legP1)
+legP2Ready = not na(legP2)
+legP1PrevReady = not na(legP1[1])
+legP2PrevReady = not na(legP2[1])
+legP2Price = f_pointPrice(legP2)
+legP2PricePrev = f_pointPrice(legP2[1])
+
+string legSwingTag = ""
+var float legLastPoint = na
+if bool(ta.change(legDir)) and legP1PrevReady
+    legLastPoint := f_pointPrice(legP1[1])
+
+var line legLine = na
+var label legSwingLabel = na
+
+if showMarketStructure and legP1Ready and legP2Ready
+    if legRepaint
+        legLine := line.new(legP1, legP2, xloc.bar_time, legExtendLast ? extend.right : extend.none, color.new(legDir > 0 ? legBullColor : legBearColor, legLineTransparency), width=legLineWidth)
+        legSwingTag := legDir < 0 ? (legP2Price < legLastPoint ? "LL" : "HL") : (legP2Price > legLastPoint ? "HH" : "LH")
+        legSwingLabel := label.new(legP2, legSwingTag, xloc.bar_time, yloc.price,
+             color.new(legDir < 0 ? legBullColor : legBearColor, legLabelTransparency), legDir > 0 ? label.style_label_down : label.style_label_up, color.new(legDir > 0 ? legBullColor : legBearColor, legLabelTransparency), legLabelSize)
+        if legDir == legDir[1]
+            line.delete(legLine[1])
+            label.delete(legSwingLabel[1])
+        else
+            line.set_extend(legLine[1], extend.none)
+    else
+        if legDir != legDir[1] and legP1PrevReady and legP2PrevReady
+            legLine := line.new(legP1[1], legP2[1], xloc.bar_time, extend.none, color.new(legDir > 0 ? legBullColor : legBearColor, legLineTransparency), width=legLineWidth)
+            legSwingTag := legDir[1] < 0 ? (legP2PricePrev < legLastPoint[1] ? "LL" : "HL") : (legP2PricePrev > legLastPoint[1] ? "HH" : "LH")
+            legSwingLabel := label.new(legP2[1], legSwingTag, xloc.bar_time, yloc.price,
+                 color.new(legDir[1] < 0 ? legBullColor : legBearColor, legLabelTransparency), legDir[1] > 0 ? label.style_label_down : label.style_label_up, color.new(legDir[1] > 0 ? legBullColor : legBearColor, legLabelTransparency), legLabelSize)
+
+bgcolor(showMarketStructure and legShowBackground ? (legDir < 0 ? color.new(legBearColor, legBackgroundTransparency) : color.new(legBullColor, legBackgroundTransparency)) : na, title="Market Structure Leg Background")
+plotarrow(showMarketStructure ? legDir : na, "Market Structure Leg Direction", display=display.status_line)
+
+alertcondition(legSwingTag == "HH" and legP2Price != legP2PricePrev, "Market Structure: New Higher High", "TradePilot: {{ticker}} new higher high detected at {{time}}")
+alertcondition(legSwingTag == "LH" and legP2Price != legP2PricePrev, "Market Structure: New Lower High", "TradePilot: {{ticker}} new lower high detected at {{time}}")
+alertcondition(legSwingTag == "HL" and legP2Price != legP2PricePrev, "Market Structure: New Higher Low", "TradePilot: {{ticker}} new higher low detected at {{time}}")
+alertcondition(legSwingTag == "LL" and legP2Price != legP2PricePrev, "Market Structure: New Lower Low", "TradePilot: {{ticker}} new lower low detected at {{time}}")
+alertcondition(legDir != legDir[1], "Market Structure: Leg Direction Changed", "TradePilot: {{ticker}} market structure leg direction changed at {{time}}")
+alertcondition(legDir != legDir[1] and legDir > 0, "Market Structure: Turned Bullish", "TradePilot: {{ticker}} market structure leg turned bullish at {{time}}")
+alertcondition(legDir != legDir[1] and legDir < 0, "Market Structure: Turned Bearish", "TradePilot: {{ticker}} market structure leg turned bearish at {{time}}")
+
+if showMarketStructure and legDir != legDir[1]
+    alert((legDir < 0 ? "Bearish" : "Bullish") + " Market Structure Leg Direction Final", alert.freq_once_per_bar_close)
 // ============================================================================

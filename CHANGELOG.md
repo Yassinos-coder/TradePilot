@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-09-25
+
+### Added
+
+- **Market Structure Legs** — the TradingView ATR Projection Levels indicator now plots confirmed swing legs directly on the chart, tagging each pivot Higher High / Higher Low / Lower High / Lower Low. Its own settings group covers leg sensitivity (depth, deviation, backstep), a repaint toggle, line and label colors/sizes/transparency, and an independent background tint, plus alerts on new pivots and direction flips. This is a leg-based structural read, distinct from the indicator's existing MTF MA-vote watermark.
+
+### Removed
+
+- **TradePilot ATR Excursion Strategy and TradePilot Dynamic Levels** — both TradingView Pine scripts removed from `apps/TradingView/`.
+
 ## [2.5.0] - 2026-09-18
 
 ### Added
