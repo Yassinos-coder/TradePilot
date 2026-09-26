@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-09-26
+
+### Added
+
+- **RiskGuard EA** — a new standalone MT5 Expert Advisor with an on-chart position-size calculator (percent or money risk, pip or percent stop loss) and a daily-loss / overall-equity-loss guard that auto-closes losing positions and blocks new trades once tripped. Fully self-contained, no server or other EA dependency.
+
 ## [2.6.0] - 2026-09-25
 
 ### Added
