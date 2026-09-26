@@ -15,3 +15,4 @@ apps/server/prisma/migrations
 !apps/App/public/downloads/*.ex5
 !apps/App/public/downloads/*.ex4
 PUSH_INSTRUCTIONS.md
+.mcp.json
