@@ -6,6 +6,8 @@ build
 .env
 .env.local
 .env.*.local
+backend.env
+frontend.env
 coverage
 apps/server/prisma/migrations
 *.log
