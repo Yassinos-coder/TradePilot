@@ -100,7 +100,7 @@ docker-compose up -d
 ## MetaTrader EA setup
 
 The EA connects over a secure WebSocket (`wss://`) to
-`api.tradepilot.sidedevelopments.com` on port 443, authenticating with an EA key.
+`tradepilot.sidedevelopments.com` on port 443, authenticating with an EA key.
 
 ### MT5
 
@@ -112,11 +112,11 @@ The EA connects over a secure WebSocket (`wss://`) to
 
 2. In MT5: **Tools → Options → Expert Advisors**
    - Check "Allow WebRequest for listed URL"
-   - Add `api.tradepilot.sidedevelopments.com`
+   - Add `tradepilot.sidedevelopments.com`
 3. Open MetaEditor (F4) → compile TradePilot_EA (F7) → 0 errors
 4. Attach to any chart. The server inputs already default to production; the only
    one you must set is the key:
-   - `ServerHost`: `api.tradepilot.sidedevelopments.com`
+   - `ServerHost`: `tradepilot.sidedevelopments.com`
    - `ServerPort`: `443`
    - `UseSSL`: `true`
    - `ApiKey`: an **EA key** created in Settings → API & Keys (`tp_ea_…`, shown once)

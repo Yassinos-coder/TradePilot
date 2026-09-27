@@ -179,7 +179,7 @@ Use `BrokerTimeMode = MANUAL_OFFSET` with the correct `ManualBrokerGmtOffset` fo
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `ServerHost` | `api.tradepilot.sidedevelopments.com` | WebSocket server hostname |
+| `ServerHost` | `tradepilot.sidedevelopments.com` | WebSocket server hostname |
 | `ServerPort` | `443` | Public secure WebSocket port for MT5 and MT4 |
 | `UseSSL` | `true` | Use TLS (`wss://`) |
 | `WsPath` | `/ws/ea` | WebSocket endpoint path |

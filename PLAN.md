@@ -33,13 +33,13 @@ All core features are live at `https://tradepilot.sidedevelopments.com`.
 | `apps/Metatrader-eas/MT5/TradePilot_EA.mq5` | MT5 build 2265+ | Native MQL5 socket functions |
 | `apps/Metatrader-eas/MT4/TradePilot_EA.mq4` | MT4 (Windows) | `winhttp.dll` WinHTTP WS API |
 
-**Connection**: secure WebSocket (`wss://`) to `api.tradepilot.sidedevelopments.com` on port 443, through Berth's proxy. The API key authenticates the session.
+**Connection**: secure WebSocket (`wss://`) to `tradepilot.sidedevelopments.com/ws/ea` on port 443, through Berth's proxy (path-based, same domain as the frontend and `/api`). The API key authenticates the session.
 
 **MT5 EA features**: grouped inputs (Server / Auth / Trade Execution / Connection), `CTrade` order placement, multi-TP splitting, account status push every 10s, trade event reporting (OPEN / CLOSED / REJECTED), exponential backoff reconnect, 4s HTTP upgrade wait loop
 
 **Known MT5 setup steps**:
 
-1. Tools → Options → Expert Advisors → Allow WebRequest → add `api.tradepilot.sidedevelopments.com`
+1. Tools → Options → Expert Advisors → Allow WebRequest → add `tradepilot.sidedevelopments.com`
 2. Compile in MetaEditor (F7)
 3. Inputs: `ServerPort=443`, `UseSSL=true`, paste an EA key (`tp_ea_...`) from Settings > API & Keys
 
@@ -88,13 +88,12 @@ Let's Encrypt certificates, so no container handles certificates itself.
 Internet
   │
   ▼ :443 (HTTPS / WSS)
-Berth proxy (Caddy, automatic Let's Encrypt)
-  │  tradepilot.sidedevelopments.com      → tradepilot-frontend:80
-  │  api.tradepilot.sidedevelopments.com  → tradepilot-backend:4000
+Berth proxy (Caddy, automatic Let's Encrypt, path-based routing)
+  │  tradepilot.sidedevelopments.com/        → tradepilot-frontend:80
+  │  tradepilot.sidedevelopments.com/api     → tradepilot-backend:4000
+  │  tradepilot.sidedevelopments.com/ws/ea   → tradepilot-backend:4000
   ▼
 tradepilot-frontend (stock nginx serving the built SPA)
-  │  /api/*  and  /ws/ea   → tradepilot-backend:4000
-  ▼
 tradepilot-backend (NestJS, port 4000)
   │  REST API + the /ws/ea gateway MetaTrader terminals connect to
   ▼

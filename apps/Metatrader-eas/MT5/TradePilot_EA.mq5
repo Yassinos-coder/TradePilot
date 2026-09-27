@@ -9,7 +9,7 @@
 #include <Trade/Trade.mqh>
 
 input group  "=== TradePilot Server ==="
-input string ServerHost          = "api.tradepilot.sidedevelopments.com";
+input string ServerHost          = "tradepilot.sidedevelopments.com";
 input int    ServerPort          = 443;
 input bool   UseSSL              = true;
 input string WsPath              = "/ws/ea";
