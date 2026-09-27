@@ -48,6 +48,22 @@ input int              TimerSeconds               = 1;      // Enforcement + pan
 CTrade   g_trade;
 string   g_prefix;
 
+// Panel origin is mutable (unlike the PanelX/PanelY inputs) so the panel can
+// be dragged on the chart and remember where you left it.
+int      g_panelX, g_panelY;
+
+// Every object's current position, recorded once at creation, so a drag of
+// the title bar can shift everything else by the same delta.
+string   g_objNames[];
+int      g_objX[];
+int      g_objY[];
+
+// Symbol the position-size calculator computes for — independently pickable
+// from the panel, defaults to whatever chart the EA is attached to. Not
+// persisted across restarts (deliberately simple: reselecting on load costs
+// one edit, whereas string persistence needs file I/O this doesn't need).
+string   g_calcSymbol;
+
 ENUM_RISK_MODE   g_riskMode;
 double           g_riskPercent, g_riskMoney;
 
@@ -131,15 +147,15 @@ double AccountDayPnl(double &dayStartBalance) {
 //| Position size / calculator math                                  |
 //+------------------------------------------------------------------+
 double PipSize() {
-   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(g_calcSymbol, SYMBOL_DIGITS);
+   double point = SymbolInfoDouble(g_calcSymbol, SYMBOL_POINT);
    return (digits == 3 || digits == 5) ? point * 10.0 : point;
 }
 
 double ReferencePrice() {
    MqlTick tick;
-   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0) {
-      return SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if (!SymbolInfoTick(g_calcSymbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0) {
+      return SymbolInfoDouble(g_calcSymbol, SYMBOL_BID);
    }
    return (tick.bid + tick.ask) / 2.0;
 }
@@ -153,16 +169,16 @@ double SlDistanceInPrice() {
 // SYMBOL_TRADE_TICK_VALUE is already broker/account-currency converted, so
 // this works for cross pairs, metals and indices without a manual FX table.
 double ValuePerLotForDistance(const double priceDistance) {
-   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(g_calcSymbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize = SymbolInfoDouble(g_calcSymbol, SYMBOL_TRADE_TICK_SIZE);
    if (tickSize <= 0.0) return 0.0;
    return (priceDistance / tickSize) * tickValue;
 }
 
 double NormalizeVolume(const double requested) {
-   double minVol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxVol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double minVol = SymbolInfoDouble(g_calcSymbol, SYMBOL_VOLUME_MIN);
+   double maxVol = SymbolInfoDouble(g_calcSymbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(g_calcSymbol, SYMBOL_VOLUME_STEP);
    if (step <= 0.0) step = 0.01;
    double result = MathFloor(requested / step + 1e-9) * step;
    result = MathMin(result, maxVol);
@@ -176,8 +192,21 @@ double NormalizeVolume(const double requested) {
 double MarginForLots(const double lots) {
    if (lots <= 0.0) return 0.0;
    double margin = 0.0;
-   if (!OrderCalcMargin(ORDER_TYPE_BUY, _Symbol, lots, ReferencePrice(), margin)) return 0.0;
+   if (!OrderCalcMargin(ORDER_TYPE_BUY, g_calcSymbol, lots, ReferencePrice(), margin)) return 0.0;
    return margin;
+}
+
+bool TrySetCalcSymbol(const string requested) {
+   string sym = requested;
+   StringTrimLeft(sym); StringTrimRight(sym);
+   StringToUpper(sym);
+   if (sym == "" || sym == g_calcSymbol) return sym == g_calcSymbol;
+   if (!SymbolSelect(sym, true)) {
+      Print("[TP RiskGuard] '", sym, "' is not a symbol this broker offers — keeping ", g_calcSymbol, ".");
+      return false;
+   }
+   g_calcSymbol = sym;
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -340,8 +369,22 @@ void ManualResume() {
 //+------------------------------------------------------------------+
 //| GUI object helpers                                                |
 //+------------------------------------------------------------------+
-void CreateRect(const string name, const int x, const int y, const int w, const int h, const color bg, const color border) {
-   if (ObjectFind(0, name) < 0) ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+// Records an object's position the first time it's created, so a drag of the
+// panel background can later shift every object by the same delta. Refresh
+// calls never recreate objects, so this only ever fires once per object.
+void TrackObject(const string name, const int x, const int y) {
+   int n = ArraySize(g_objNames);
+   ArrayResize(g_objNames, n + 1);
+   ArrayResize(g_objX, n + 1);
+   ArrayResize(g_objY, n + 1);
+   g_objNames[n] = name;
+   g_objX[n] = x;
+   g_objY[n] = y;
+}
+
+void CreateRect(const string name, const int x, const int y, const int w, const int h, const color bg, const color border, const bool selectable = false) {
+   bool isNew = ObjectFind(0, name) < 0;
+   if (isNew) ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, name, OBJPROP_CORNER, PanelCorner);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -353,13 +396,18 @@ void CreateRect(const string name, const int x, const int y, const int w, const 
    ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
    ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   // Only the slim title bar is selectable/draggable — the big background
+   // panel stays non-selectable so it can never compete with an edit box or
+   // button underneath it for a click.
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, selectable);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_ZORDER, 0);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, selectable ? 3 : 0);
+   if (isNew) TrackObject(name, x, y);
 }
 
 void CreateLabel(const string name, const int x, const int y, const string text, const color clr, const int fontSize = 9, const bool bold = false) {
-   if (ObjectFind(0, name) < 0) ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   bool isNew = ObjectFind(0, name) < 0;
+   if (isNew) ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, name, OBJPROP_CORNER, PanelCorner);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -370,6 +418,7 @@ void CreateLabel(const string name, const int x, const int y, const string text,
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_ZORDER, 1);
+   if (isNew) TrackObject(name, x, y);
 }
 
 void SetLabelText(const string name, const string text) {
@@ -381,7 +430,8 @@ void SetLabelColor(const string name, const color clr) {
 }
 
 void CreateEdit(const string name, const int x, const int y, const int w, const int h, const string text) {
-   if (ObjectFind(0, name) < 0) ObjectCreate(0, name, OBJ_EDIT, 0, 0, 0);
+   bool isNew = ObjectFind(0, name) < 0;
+   if (isNew) ObjectCreate(0, name, OBJ_EDIT, 0, 0, 0);
    ObjectSetInteger(0, name, OBJPROP_CORNER, PanelCorner);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -398,10 +448,12 @@ void CreateEdit(const string name, const int x, const int y, const int w, const 
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, true);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_ZORDER, 2);
+   if (isNew) TrackObject(name, x, y);
 }
 
 void CreateButton(const string name, const int x, const int y, const int w, const int h, const string text, const bool pressed = false) {
-   if (ObjectFind(0, name) < 0) ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
+   bool isNew = ObjectFind(0, name) < 0;
+   if (isNew) ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
    ObjectSetInteger(0, name, OBJPROP_CORNER, PanelCorner);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -417,6 +469,7 @@ void CreateButton(const string name, const int x, const int y, const int w, cons
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_ZORDER, 2);
+   if (isNew) TrackObject(name, x, y);
 }
 
 void SetToggleState(const string name, const bool active) {
@@ -428,6 +481,7 @@ void SetToggleState(const string name, const bool active) {
 //| Panel layout                                                      |
 //+------------------------------------------------------------------+
 #define PANEL_W    336
+#define PANEL_H    580   // Static layout below always fits inside this; keep in sync if rows are added
 #define ROW_H      20
 #define PAD        10
 #define LBL_W      118
@@ -439,16 +493,29 @@ void SetToggleState(const string name, const bool active) {
 // function calls against the whole compiled module, not just what precedes
 // the call site, so definition order below does not matter.
 
+#define TITLE_BAR_H 62   // Covers exactly the title + subtitle + drag-hint rows below
+
 void BuildPanel() {
-   int y = PanelY;
-   int x0 = PanelX;
+   // MT5 stacks chart objects in creation order (later = drawn on top), so the
+   // background rectangle must be created FIRST or it paints over every label,
+   // edit box and button created after it.
+   CreateRect(PFX + "rectBg", g_panelX, g_panelY, PANEL_W, PANEL_H, C'20,22,26', clrSilver);
+   // A second, separately-selectable strip on top of the background covers
+   // just the header. Only THIS one is draggable, so dragging can never
+   // compete with an edit box or button lower in the panel for a click.
+   CreateRect(PFX + "rectTitleBar", g_panelX, g_panelY, PANEL_W, TITLE_BAR_H, C'30,33,38', clrSilver, true);
+
+   int y = g_panelY;
+   int x0 = g_panelX;
 
    // Section: header (height finalized after we know every row's Y below)
    y += 6;
    CreateLabel(PFX + "lblTitle", x0 + PAD, y, "TradePilot Risk Guard", clrWhite, 11, true);
    y += ROW_H;
    CreateLabel(PFX + "lblSubtitle", x0 + PAD, y, "", clrSilver, 8);
-   y += ROW_H + 4;
+   y += ROW_H - 6;
+   CreateLabel(PFX + "lblDragHint", x0 + PAD, y, "(drag this title bar to move the panel)", clrGray, 7);
+   y += ROW_H + 2;
 
    CreateLabel(PFX + "lblSecAccount", x0 + PAD, y, "ACCOUNT", clrDodgerBlue, 8, true);
    y += ROW_H - 2;
@@ -460,6 +527,11 @@ void BuildPanel() {
 
    CreateLabel(PFX + "lblSecCalc", x0 + PAD, y, "POSITION SIZE CALCULATOR", clrDodgerBlue, 8, true);
    y += ROW_H - 2;
+
+   CreateLabel(PFX + "lblSymbolCap", x0 + PAD, y + 3, "Symbol", clrWhite, 9);
+   CreateEdit(PFX + "editSymbol", x0 + PAD + LBL_W, y, EDIT_W, BTN_H, g_calcSymbol);
+   CreateLabel(PFX + "lblSymbolHint", x0 + PAD + LBL_W + EDIT_W + 8, y + 3, "type any symbol + Enter", clrGray, 7);
+   y += ROW_H;
 
    CreateLabel(PFX + "lblRiskCap", x0 + PAD, y + 3, "Risk", clrWhite, 9);
    CreateEdit(PFX + "editRisk", x0 + PAD + LBL_W, y, EDIT_W, BTN_H, "");
@@ -504,9 +576,6 @@ void BuildPanel() {
    CreateLabel(PFX + "lblFooter", x0 + PAD, y, "Reactive guard: new trades opened while tripped are\nclosed on the next tick — manual MT5 clicks can't be\npre-blocked, only closed immediately after.", clrGray, 7);
    y += ROW_H + 18;
 
-   int panelH = y - PanelY;
-   CreateRect(PFX + "rectBg", PanelX, PanelY, PANEL_W, panelH, C'20,22,26', clrSilver);
-
    RefreshEditBoxes();
    RefreshToggleButtons();
 }
@@ -544,7 +613,7 @@ void RefreshPanel() {
    int leverage = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
    string currency = AccountInfoString(ACCOUNT_CURRENCY);
 
-   SetLabelText(PFX + "lblSubtitle", _Symbol + "  ·  Login " + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "  ·  " + currency);
+   SetLabelText(PFX + "lblSubtitle", "Calculating " + g_calcSymbol + "  ·  Login " + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "  ·  " + currency);
    SetLabelText(PFX + "lblBalance", StringFormat("Balance:  %s %.2f", currency, balance));
    SetLabelText(PFX + "lblEquity", StringFormat("Equity:  %s %.2f", currency, equity));
    SetLabelText(PFX + "lblFreeMargin", StringFormat("Free margin:  %s %.2f", currency, marginFree));
@@ -604,7 +673,10 @@ double ParseEditNumber(const string objName) {
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam) {
    if (id == CHARTEVENT_OBJECT_ENDEDIT) {
-      if (sparam == PFX + "editRisk") {
+      if (sparam == PFX + "editSymbol") {
+         TrySetCalcSymbol(ObjectGetString(0, sparam, OBJPROP_TEXT));
+         ObjectSetString(0, sparam, OBJPROP_TEXT, g_calcSymbol); // reverts visibly if rejected
+      } else if (sparam == PFX + "editRisk") {
          double v = ParseEditNumber(sparam);
          if (g_riskMode == RISK_MODE_PERCENT) { g_riskPercent = v; GSetD("riskPercent", v); }
          else { g_riskMoney = v; GSetD("riskMoney", v); }
@@ -648,6 +720,34 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          RefreshToggleButtons();
          RefreshPanel();
       }
+      return;
+   }
+
+   // Only the title bar strip is the drag handle (see CreateRect) — it never
+   // overlaps an edit box or button, so dragging can't eat their clicks. MT5
+   // already moved it by the time this fires — read its new position, work
+   // out the delta, and shift every other tracked object (including the big
+   // background rectangle) to match.
+   if (id == CHARTEVENT_OBJECT_DRAG && sparam == PFX + "rectTitleBar") {
+      int newX = (int)ObjectGetInteger(0, sparam, OBJPROP_XDISTANCE);
+      int newY = (int)ObjectGetInteger(0, sparam, OBJPROP_YDISTANCE);
+      int deltaX = newX - g_panelX;
+      int deltaY = newY - g_panelY;
+      if (deltaX == 0 && deltaY == 0) return;
+
+      g_panelX = newX;
+      g_panelY = newY;
+      GSetD("panelX", (double)g_panelX);
+      GSetD("panelY", (double)g_panelY);
+
+      for (int i = 0; i < ArraySize(g_objNames); i++) {
+         if (g_objNames[i] == sparam) { g_objX[i] = newX; g_objY[i] = newY; continue; }
+         g_objX[i] += deltaX;
+         g_objY[i] += deltaY;
+         ObjectSetInteger(0, g_objNames[i], OBJPROP_XDISTANCE, g_objX[i]);
+         ObjectSetInteger(0, g_objNames[i], OBJPROP_YDISTANCE, g_objY[i]);
+      }
+      ChartRedraw(0);
    }
 }
 
@@ -665,6 +765,12 @@ int OnInit() {
    g_prefix = "TPRG." + (string)AccountInfoInteger(ACCOUNT_LOGIN) + ".";
 
    g_trade.SetAsyncMode(false);
+   g_calcSymbol = _Symbol;
+
+   // Panel position: last dragged-to spot if there is one, otherwise the
+   // PanelX/PanelY input defaults.
+   g_panelX = (int)GGetD("panelX", (double)PanelX);
+   g_panelY = (int)GGetD("panelY", (double)PanelY);
 
    g_riskMode = (ENUM_RISK_MODE)(int)GGetD("riskMode", (double)RISK_MODE_PERCENT);
    g_riskPercent = GGetD("riskPercent", DefaultRiskPercent);
