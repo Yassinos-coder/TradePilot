@@ -129,6 +129,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
         throw error;
       }
 
+      // Protected pages use the server cookie, so establish it before navigating.
+      await syncAuthCookie(session);
+
       set((state) => ({
         ...state,
         isAuthenticated: Boolean(session),
