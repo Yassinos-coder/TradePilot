@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-10-05
+
+### Added
+- API protection via `nestjs-shield`: Redis-backed rate limiting (300 requests/min per IP by default, tunable with `SHIELD_RATE_LIMIT`), auto-ban for repeat abusers and a 1 MB request body cap.
+- Shield admin dashboard at `/shield/admin` for live limits, whitelist/blacklist, bans and traffic. Disabled unless `SHIELD_DASH=true` and `SHIELD_ADMIN_USER` / `SHIELD_ADMIN_PASSWORD` are set.
+
+### Changed
+- The `/api` global prefix now excludes `shield/admin` so the dashboard is served at its fixed path.
+
 ## [2.7.2] - 2026-09-27
 
 ### Fixed

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ShieldModule } from 'nestjs-shield';
 
 import { parseServerEnv } from '@tradepilot/config';
 
@@ -17,6 +18,7 @@ import { EaSharedModule } from './ea/ea-shared.module';
 import { HealthController } from './health.controller';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
+import { RedisService } from './redis/redis.service';
 import { SettingsModule } from './settings/settings.module';
 import { UsersModule } from './users/users.module';
 
@@ -30,6 +32,24 @@ import { UsersModule } from './users/users.module';
       validate: (environment) => parseServerEnv(environment),
     }),
     RedisModule,
+    ShieldModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [ConfigService, RedisService],
+      useFactory: (...args: unknown[]) => {
+        const [config, redis] = args as [ConfigService, RedisService];
+        return {
+        trustProxy: 1,
+        storage: { type: 'redis', client: redis.getClient(), keyPrefix: 'shield:' },
+        rateLimit: {
+          algorithm: 'token-bucket',
+          limit: config.get<number>('SHIELD_RATE_LIMIT') ?? 300,
+          ttl: 60_000,
+        },
+        autoBan: { threshold: 20, window: 60_000, banDuration: 5 * 60_000, escalate: true },
+        payload: { maxBodyBytes: 1_000_000 },
+        };
+      },
+    }),
     DatabaseModule,
     UsersModule,
     ApiKeysModule,

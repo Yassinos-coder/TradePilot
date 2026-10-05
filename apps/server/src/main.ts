@@ -82,7 +82,7 @@ async function bootstrap() {
   // that is a few hundred kilobytes, and it gzips to a fraction of it.
   app.use(compression());
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', { exclude: ['shield/admin(.*)'] });
   app.enableCors({
     origin: origins.length > 1 ? origins : (origins[0] ?? 'http://localhost:8080'),
     credentials: true,
