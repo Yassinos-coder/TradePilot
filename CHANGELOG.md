@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-10-07
+
+### Added
+- Forex Market Hours card on the dashboard: a 24-hour timeline of the Sydney, Tokyo, London and New York sessions with a live "now" marker, session status and countdowns, overlap shading, a liquidity curve with a High/Medium/Low indicator, and a timezone picker that is remembered between visits.
+- Trade history is now filtered and paged on the server (`GET /analytics/trades/page`), so it is no longer limited to the latest 300 trades.
+- Dashboard banners (EA download, partner offers) can be dismissed.
+- Trade history shows as cards on small screens.
+
+### Changed
+- Session hours follow each city's local business hours and adjust for daylight saving. The Active Session tile lists every open session, and shows the market as closed on weekends.
+- Dashboard page split into smaller components; stat tiles reflow on tablets.
+
+### Fixed
+- Trade prices now use the right number of decimals per instrument (JPY pairs, gold, silver, crypto, indices) instead of always 5.
+- Monthly and annual totals refresh when the month or year rolls over while the dashboard is open.
+
 ## [2.8.2] - 2026-10-05
 
 ### Changed

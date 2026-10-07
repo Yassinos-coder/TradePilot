@@ -13,10 +13,11 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   hint?: string;
   error?: string;
   options: ReadonlyArray<SelectOption>;
+  compact?: boolean;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { className, label, hint, error, options, id, ...props },
+  { className, label, hint, error, options, id, compact = false, ...props },
   ref,
 ) {
   const selectId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
@@ -35,7 +36,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           ref={ref}
           id={selectId}
           className={cn(
-            'bg-surface text-content-primary h-10 w-full cursor-pointer appearance-none rounded-lg border pr-9 pl-3 text-sm transition-colors',
+            'bg-surface text-content-primary w-full cursor-pointer appearance-none rounded-lg border pr-9 pl-3 transition-colors',
+            compact ? 'h-8 text-xs' : 'h-10 text-sm',
             'focus:ring-brand/25 focus:border-brand focus:ring-2 focus:outline-none',
             'disabled:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60',
             error ? 'border-negative focus:border-negative' : 'border-line-strong',

@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { RequestUser } from '../../auth/types/request-user.type';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { TradePageQueryValidator } from '../validators/trade-page-query.validator';
 import { AnalyticsService } from '../services/analytics.service';
 import {
   TradeHistoryImportService,
@@ -80,6 +81,21 @@ export class AnalyticsController {
       user.userId,
       Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 500) : 10,
       accountId,
+    );
+  }
+
+  @Get('trades/page')
+  listTradesPage(
+    @CurrentUser() user: RequestUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('status') status?: string,
+    @Query('symbol') symbol?: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.analyticsService.listTradesPage(
+      user.userId,
+      TradePageQueryValidator.parse({ page, pageSize, status, symbol, accountId }),
     );
   }
 

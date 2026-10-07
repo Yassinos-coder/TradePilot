@@ -26,6 +26,7 @@ import {
   RequestEmailChangeInput,
   SettingsDTO,
   TradeApiCloseInput,
+  TradePageDTO,
   TradeApiCommandResult,
   TradeApiModifyInput,
   TradeApiOpenInput,
@@ -302,6 +303,10 @@ export const apiClient = {
     const { data } = await api.get<TradeExecutionDTO[]>('/analytics/trades', {
       params: { limit, ...(accountId ? { accountId } : {}) },
     });
+    return data;
+  },
+  async tradesPage(params: { page: number; pageSize: number; status?: string; symbol?: string; accountId?: string }) {
+    const { data } = await api.get<TradePageDTO>('/analytics/trades/page', { params });
     return data;
   },
   async executionLogs(accountId?: string, limit = 10) {

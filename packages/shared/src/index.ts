@@ -460,6 +460,15 @@ export const tradeExecutionDtoSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const tradePageDtoSchema = z.object({
+  items: z.array(tradeExecutionDtoSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  symbols: z.array(z.string()),
+  accounts: z.array(z.string()),
+});
+
 /* ─── analytics (unchanged) ──────────────────────────────────────────────── */
 
 export const symbolBreakdownSchema = z.object({
@@ -1161,6 +1170,7 @@ export type TradeApiCommandResult = z.infer<typeof tradeApiCommandResultSchema>;
 
 export type TradeHistoryFileDTO = z.infer<typeof tradeHistoryFileDtoSchema>;
 export type TradeExecutionDTO = z.infer<typeof tradeExecutionDtoSchema>;
+export type TradePageDTO = z.infer<typeof tradePageDtoSchema>;
 export type AnalyticsSummaryDTO = z.infer<typeof analyticsSummarySchema>;
 export type SymbolBreakdownDTO = z.infer<typeof symbolBreakdownSchema>;
 export type DirectionBreakdownDTO = z.infer<typeof directionBreakdownSchema>;

@@ -13,6 +13,7 @@ import {
   ExecutionLogDTO,
   ExecutionStatus,
   TradeExecutionDTO,
+  TradePageDTO,
   accountStatusDtoSchema,
   analyticsSummarySchema,
   dailyTradeSummaryItemSchema,
@@ -27,6 +28,7 @@ import {
   ExecutionLogRecord,
   TradeExecutionRecord,
 } from '../../database/database.types';
+import { TradePageQuery } from '../interfaces/trade-page-query.interface';
 import { EaGatewayService } from '../../ea/ea-gateway.service';
 import { CacheService } from '../../redis/cache.service';
 
@@ -263,32 +265,33 @@ export class AnalyticsService {
     limit = 10,
     accountId?: string,
   ): Promise<TradeExecutionDTO[]> {
-    const trades = await this.cacheService.remember(
-      `tradepilot:cache:trades:${userId}`,
-      AnalyticsService.TRADE_CACHE_TTL_MS,
-      async () => {
-        const { data, error } = await this.databaseService
-          .getClient()
-          .from('trade_executions')
-          .select('*')
-          .eq('user_id', userId)
-          .order('updated_at', { ascending: false })
-          .limit(5_000);
+    const trades = await this.loadVisibleTrades(userId, accountId);
+    return trades.slice(0, limit).map((trade) => this.toTradeExecutionDto(trade));
+  }
 
-        if (error) {
-          throw new InternalServerErrorException(error.message);
-        }
+  async listTradesPage(userId: string, query: TradePageQuery): Promise<TradePageDTO> {
+    const visible = await this.loadVisibleTrades(userId);
+    const symbols = Array.from(new Set(visible.map((trade) => trade.symbol))).sort();
+    const accounts = Array.from(new Set(visible.map((trade) => trade.account_id))).sort();
 
-        return (data ?? []) as TradeExecutionRecord[];
-      },
+    const filtered = visible.filter(
+      (trade) =>
+        (!query.status || trade.status === query.status) &&
+        (!query.symbol || trade.symbol === query.symbol) &&
+        (!query.accountId || trade.account_id === query.accountId),
     );
 
-    const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
-    return trades
-      .filter((trade) => !accountId || trade.account_id === accountId)
-      .filter((trade) => !hiddenAccountIds.includes(trade.account_id))
-      .slice(0, limit)
-      .map((trade) => this.toTradeExecutionDto(trade));
+    const start = (query.page - 1) * query.pageSize;
+    return {
+      items: filtered
+        .slice(start, start + query.pageSize)
+        .map((trade) => this.toTradeExecutionDto(trade)),
+      total: filtered.length,
+      page: query.page,
+      pageSize: query.pageSize,
+      symbols,
+      accounts,
+    };
   }
 
   async getLatestAccountStatus(
@@ -1470,6 +1473,33 @@ export class AnalyticsService {
       details: log.details,
       createdAt: log.created_at,
     });
+  }
+
+  private async loadVisibleTrades(userId: string, accountId?: string): Promise<TradeExecutionRecord[]> {
+    const trades = await this.cacheService.remember(
+      `tradepilot:cache:trades:${userId}`,
+      AnalyticsService.TRADE_CACHE_TTL_MS,
+      async () => {
+        const { data, error } = await this.databaseService
+          .getClient()
+          .from('trade_executions')
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false })
+          .limit(5_000);
+
+        if (error) {
+          throw new InternalServerErrorException(error.message);
+        }
+
+        return (data ?? []) as TradeExecutionRecord[];
+      },
+    );
+
+    const hiddenAccountIds = accountId ? [] : await this.listHiddenAccountIds(userId);
+    return trades
+      .filter((trade) => !accountId || trade.account_id === accountId)
+      .filter((trade) => !hiddenAccountIds.includes(trade.account_id));
   }
 
   private toTradeExecutionDto(trade: TradeExecutionRecord): TradeExecutionDTO {
