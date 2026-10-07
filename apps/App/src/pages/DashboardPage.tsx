@@ -89,7 +89,7 @@ export function DashboardPage() {
   const allTrades: TradeExecutionDTO[] = tradesQuery.data ?? [];
 
   const accountStatus = overviewQuery.data?.accountStatus ?? null;
-  const unrealizedPl = accountStatus ? accountStatus.equity - accountStatus.balance : null;
+  const unrealizedPl = accountStatus ? (accountStatus.floatingProfit ?? accountStatus.equity - accountStatus.balance) : null;
   const openPositions = accountStatus?.openPositions ?? null;
   const copier = overviewQuery.data?.copier;
 

@@ -3,7 +3,7 @@
 //| Connects to TradePilot WebSocket gateway and executes signals    |
 //+------------------------------------------------------------------+
 #property copyright "TradePilot"
-#property version   "3.20"
+#property version   "3.21"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -475,20 +475,22 @@ void SendAccountStatus() {
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    double margin = AccountInfoDouble(ACCOUNT_MARGIN);
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double floatingProfit = AccountInfoDouble(ACCOUNT_PROFIT);
    double drawdown = 0.0;
 
    if (balance > 0.0)
       drawdown = MathMax(0.0, (balance - equity) / balance * 100.0);
 
    string payload = StringFormat(
-      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%s,\"equity\":%s,\"margin\":%s,\"freeMargin\":%s,\"drawdownPercent\":%s,\"openPositions\":%d}}",
+      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%s,\"equity\":%s,\"margin\":%s,\"freeMargin\":%s,\"drawdownPercent\":%s,\"openPositions\":%d,\"floatingProfit\":%s}}",
       AccountId(),
       DoubleToString(balance, 2),
       DoubleToString(equity, 2),
       DoubleToString(margin, 2),
       DoubleToString(freeMargin, 2),
       DoubleToString(drawdown, 2),
-      (int)PositionsTotal()
+      (int)PositionsTotal(),
+      DoubleToString(floatingProfit, 2)
    );
 
    if (WsSend(payload)) {

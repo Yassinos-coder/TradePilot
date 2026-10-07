@@ -272,6 +272,7 @@ void SendAccountStatus() {
    double equity = AccountEquity();
    double margin = AccountMargin();
    double freeMargin = AccountFreeMargin();
+   double floatingProfit = AccountProfit();
    double drawdown = 0.0;
 
    if (balance > 0.0)
@@ -287,14 +288,15 @@ void SendAccountStatus() {
    }
 
    string payload = StringFormat(
-      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"freeMargin\":%.2f,\"drawdownPercent\":%.2f,\"openPositions\":%d}}",
+      "{\"type\":\"account_status\",\"accountId\":\"%s\",\"data\":{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"freeMargin\":%.2f,\"drawdownPercent\":%.2f,\"openPositions\":%d,\"floatingProfit\":%.2f}}",
       AccountId(),
       balance,
       equity,
       margin,
       freeMargin,
       drawdown,
-      openPositions
+      openPositions,
+      floatingProfit
    );
 
    if (WsSend(payload))

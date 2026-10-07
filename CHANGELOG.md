@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-10-07
+
+### Fixed
+- Unrealized P&L on the dashboard and analytics now uses the floating profit reported by the EA instead of inferring it from equity minus balance, so credit and other balance adjustments no longer distort it. Accounts running an older EA keep the previous calculation until the EA is updated.
+
+### Changed
+- MT4 and MT5 EAs now report floating profit with each account status update (MT5 EA 3.21). Recompile and reattach the EA to start sending it.
+- Added `supabase/floating-profit-upgrade.sql`: run it once to add the `floating_profit` column and update `record_account_status`.
+
 ## [2.9.0] - 2026-10-07
 
 ### Added

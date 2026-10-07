@@ -244,6 +244,7 @@ export interface AccountStatusSnapshotRecord {
   free_margin: number;
   drawdown_percent: number;
   open_positions: number;
+  floating_profit?: number | null;
   created_at: string;
 }
 

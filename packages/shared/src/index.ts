@@ -315,6 +315,7 @@ export const accountStatusDtoSchema = z.object({
   freeMargin: z.number(),
   drawdownPercent: z.number().min(0),
   openPositions: z.number().int().nonnegative(),
+  floatingProfit: z.number().nullable().optional(),
   reportedAt: z.string(),
 });
 
@@ -985,6 +986,7 @@ export const eaAccountStatusPayloadSchema = z.object({
   freeMargin: z.number(),
   drawdownPercent: z.number().min(0),
   openPositions: z.number().int().nonnegative(),
+  floatingProfit: z.number().optional(),
 });
 
 export const eaAccountStatusMessageSchema = z.object({

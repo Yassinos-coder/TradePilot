@@ -444,6 +444,7 @@ export class AccountsService {
       freeMargin: accountStatus.free_margin,
       drawdownPercent: accountStatus.drawdown_percent,
       openPositions: accountStatus.open_positions,
+      floatingProfit: accountStatus.floating_profit ?? null,
       reportedAt: accountStatus.created_at,
     });
   }

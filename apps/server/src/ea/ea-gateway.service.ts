@@ -850,6 +850,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
         free_margin: payload.freeMargin,
         drawdown_percent: payload.drawdownPercent,
         open_positions: payload.openPositions,
+        floating_profit: payload.floatingProfit ?? null,
       },
     });
     if (error) throw new Error(error.message);
@@ -1475,6 +1476,7 @@ export class EaGatewayService implements OnModuleDestroy, OnModuleInit {
       freeMargin: snapshot.free_margin,
       drawdownPercent: snapshot.drawdown_percent,
       openPositions: snapshot.open_positions,
+      floatingProfit: snapshot.floating_profit ?? null,
       reportedAt: snapshot.created_at,
     });
   }

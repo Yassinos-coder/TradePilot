@@ -373,6 +373,9 @@ export class AnalyticsService {
     const visible = current.filter((point) => !hidden.includes(point.account_id));
     const balance = visible.length ? visible.reduce((sum, point) => sum + point.balance, 0) : null;
     const equity = visible.length ? visible.reduce((sum, point) => sum + point.equity, 0) : null;
+    const floatingPl = visible.length
+      ? visible.reduce((sum, point) => sum + (point.floating_profit ?? point.equity - point.balance), 0)
+      : null;
     const starting = analytics.startingBalance;
     const round = (value: number) => Number(value.toFixed(2));
     return {
@@ -380,7 +383,7 @@ export class AnalyticsService {
       currentBalance: balance === null ? null : round(balance),
       endingBalance: balance === null ? null : round(balance),
       currentEquity: equity === null ? null : round(equity),
-      floatingPl: balance === null || equity === null ? null : round(equity - balance),
+      floatingPl: floatingPl === null ? null : round(floatingPl),
       accountGrowthPercent: balance === null || starting === null || starting <= 0
         ? null : round((balance - starting) / starting * 100),
     };
@@ -1551,6 +1554,7 @@ export class AnalyticsService {
       freeMargin: snapshot.free_margin,
       drawdownPercent: snapshot.drawdown_percent,
       openPositions: snapshot.open_positions,
+      floatingProfit: snapshot.floating_profit ?? null,
       reportedAt: snapshot.created_at,
     });
   }
